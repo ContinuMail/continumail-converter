@@ -1,7 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 # SPDX-License-Identifier: GPL-3.0-or-later
 name: leak-check
-on: [push, pull_request]
+# Scan pushes to the integration branches and every PR diff. We deliberately do NOT scan pushes
+# to feature/Dependabot branches: those are covered by the pull_request diff scan, and a rebased
+# branch orphans github.event.before so `git diff before..head` errors out (bad object) and the
+# job fails spuriously. PRs gate everything that reaches main anyway.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
 jobs:
   leak-check:
     runs-on: ubuntu-latest
