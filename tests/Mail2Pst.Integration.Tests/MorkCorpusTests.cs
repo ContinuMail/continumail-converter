@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Mork;
@@ -24,7 +25,8 @@ public class MorkCorpusTests
         Assert.True(msgs.Rows.Count > 100, $"expected many rows, got {msgs.Rows.Count}");
         int unread = msgs.Rows.Values.Count(r =>
             r.TryGetCell("flags", out string f)
-            && (Convert.ToInt32(f, 16) & 0x1) == 0);
+            && int.TryParse(f, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int fv)
+            && (fv & 0x1) == 0);
         Assert.True(unread > 0, "expected at least some unread rows (flags bit 0x1 clear)");
     }
 }

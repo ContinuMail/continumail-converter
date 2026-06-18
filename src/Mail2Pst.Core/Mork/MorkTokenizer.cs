@@ -301,7 +301,9 @@ public sealed class MorkTokenizer
             if (b == ')')
                 break;
 
-            // All other bytes (including spaces, ':', '=', '<', etc.) are literal value content
+            // All other bytes (including spaces, ':', '=', '<', '@', etc.) are literal value
+            // content. '@' is treated as a literal here because group markers (@$${…{@) only
+            // appear at the top-level token stream, never inside a paren value run.
             buf.Add(b);
             _pos++;
         }

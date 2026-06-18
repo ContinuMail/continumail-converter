@@ -11,7 +11,9 @@ namespace Mail2Pst.Core.Mork;
 
 /// <summary>
 /// Entry point for parsing Mork (.msf) files into a <see cref="MorkDocument"/>.
-/// Applies full append-log merge semantics across transaction groups.
+/// Applies append-log merge semantics across transaction groups (commit and abort groups
+/// are both treated as committed; abort-rollback is not implemented but not observed in
+/// real Thunderbird .msf files).
 /// </summary>
 public static class MorkReader
 {
@@ -56,7 +58,8 @@ public static class MorkReader
 /// (table, row, column). No cell-cut form exists in Thunderbird .msf (Task 0).
 ///
 /// Mork has TWO separate atom spaces that reuse the same numeric ids:
-/// - Column atoms: dicts that open with a nested &lt;(a=c)&gt; meta-dict — ids map
+/// - Column atoms: dicts that contain a &lt;(a=c)&gt; marker (as a nested sub-dict or an
+///   inline cell) anywhere before the first hex-id atom definition — ids map
 ///   to column names / scope strings / kind strings.
 /// - Value atoms: all other dicts — ids map to cell values.
 /// These spaces are kept separate so a value dict cannot clobber column atoms
@@ -88,6 +91,9 @@ internal sealed class MorkAssembler
     // Table ordering is preserved via _tableOrder.
     private readonly Dictionary<string, WorkingTable> _workingTables =
         new Dictionary<string, WorkingTable>(StringComparer.Ordinal);
+    // Parallel list that records table-id insertion order. Dictionary<> does not
+    // guarantee enumeration order, so a separate list is needed to emit tables in
+    // file order (matching the append-log semantics promised by MorkDocument).
     private readonly List<string> _tableOrder = new();
 
     // ---- active charset: file-level, persists across top-level dicts -------
@@ -129,8 +135,11 @@ internal sealed class MorkAssembler
                 case MorkTokenKind.GroupStart:
                 case MorkTokenKind.GroupCommit:
                 case MorkTokenKind.GroupAbort:
-                    // Transaction group markers carry no merge meaning beyond ordering;
-                    // their content (dicts + table fragments) flows through the normal path.
+                    // Transaction group markers: their enclosed content (dicts + table
+                    // fragments) is processed in file order through the normal path.
+                    // NOTE: GroupAbort aborted-group writes are currently treated as committed
+                    // — abort-rollback is not implemented; abort markers are not observed in
+                    // real Thunderbird .msf files.
                     Advance();
                     break;
 
@@ -180,9 +189,12 @@ internal sealed class MorkAssembler
         // across all top-level dicts in the file (file-level charset).
         var savedCharset = _charset;
 
-        // Determine if this is a column dict by peeking at the first sub-token:
-        // a column dict begins with a nested <(a=c)> meta-dict (nestDepth == 0),
-        // OR inherits isColumn from the enclosing dict (nestDepth > 0).
+        // Determine if this is a column dict by scanning ahead within the dict:
+        // a column dict has an (a=c) marker (as a nested <(a=c)> sub-dict OR as an
+        // inline (a=c) cell) anywhere before its first hex-id atom definition.
+        // The common real-corpus layout is marker-first, but the spec allows a charset
+        // cell like (f=iso-8859-1) to precede the marker — we handle both.
+        // nestDepth > 0 means we are already inside a column dict and inherit the space.
         bool isColumnDict = parentIsColumn || (nestDepth == 0 && PeekIsColumnMarker());
 
         while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.DictClose)
@@ -219,46 +231,133 @@ internal sealed class MorkAssembler
     }
 
     /// <summary>
-    /// Peeks ahead without consuming tokens to detect the column-dict marker:
-    /// the first non-DictClose content after the already-consumed DictOpen is
-    /// another DictOpen whose first cell is <c>(a=c)</c>.
-    /// Returns true if the pattern matches; does NOT advance the cursor.
+    /// Peeks ahead without consuming tokens to determine whether this dict is a
+    /// column dict. A dict is a column dict if an <c>(a=c)</c> marker appears
+    /// anywhere before the dict's first hex-id atom definition — whether as a nested
+    /// <c>&lt;(a=c)&gt;</c> sub-dict OR as an inline <c>(a=c)</c> cell.
+    /// The common Thunderbird real-corpus layout has the marker first (<c>&lt; &lt;(a=c)&gt; …&gt;</c>),
+    /// but <c>(a=c)</c> marks the column-atom space and may appear before (not only as)
+    /// the first cell — e.g. after a charset hint like <c>(f=iso-8859-1)</c>.
+    /// Returns true if the pattern is found; does NOT advance the cursor.
     /// </summary>
     private bool PeekIsColumnMarker()
     {
-        // We are sitting at the first token inside the outer dict.
-        // Pattern: DictOpen ParenOpen Text("a") Equals Text("c") ParenClose DictClose …
+        // Scan forward within this dict's token span (depth-tracked to stay inside)
+        // looking for either:
+        //   (a) a nested DictOpen immediately followed by "(a=c)" then DictClose, OR
+        //   (b) an inline paren-cell with key "a" and value "c".
+        // Stop and return false if we reach a hex-id atom definition first (which
+        // would mean the dict cannot be a column dict at that point).
         int p = _pos;
-        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.DictOpen)
-            return false;
-        p++; // skip inner DictOpen
+        int depth = 1; // we are already inside the outer DictOpen
 
-        // Expect '('
-        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.ParenOpen)
-            return false;
-        p++;
+        while (p < _tokens.Count && depth > 0)
+        {
+            var tok = _tokens[p];
 
-        // Expect Text "a"
-        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text)
-            return false;
+            if (tok.Kind == MorkTokenKind.DictOpen)
+            {
+                // Nested dict: check if its first (and only) cell is the (a=c) marker.
+                // Token stream after DictOpen: ParenOpen Text("a") Equals Text("c") ParenClose DictClose …
+                // IsAcCell expects to start at the Text token (after the leading ParenOpen).
+                int q = p + 1; // q -> ParenOpen (if (a=c) cell)
+                if (q < _tokens.Count
+                    && _tokens[q].Kind == MorkTokenKind.ParenOpen
+                    && IsAcCell(q + 1, out _))
+                {
+                    // Confirmed nested <(a=c)> — this is a column dict.
+                    return true;
+                }
+                depth++;
+                p++;
+                continue;
+            }
+
+            if (tok.Kind == MorkTokenKind.DictClose)
+            {
+                depth--;
+                p++;
+                continue;
+            }
+
+            if (tok.Kind == MorkTokenKind.ParenOpen)
+            {
+                // Peek at the cell inside the outer dict (depth == 1).
+                if (depth == 1 && IsAcCell(p + 1, out _))
+                    return true; // inline (a=c) marker before a hex-id definition
+
+                // If this is a hex-id atom definition, we stop scanning.
+                // A hex-id cell looks like: ParenOpen Text(hexId) Equals Text(value) ParenClose.
+                // The key must be all-hex and not "a" or "f".
+                if (depth == 1)
+                {
+                    int q = p + 1;
+                    if (q < _tokens.Count && _tokens[q].Kind == MorkTokenKind.Text)
+                    {
+                        string keyStr = Encoding.ASCII.GetString(_tokens[q].Bytes);
+                        if (IsHexId(keyStr)
+                            && !string.Equals(keyStr, "a", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(keyStr, "f", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // First hex-id atom reached without seeing (a=c) — not a column dict.
+                            return false;
+                        }
+                    }
+                }
+
+                // Skip past this paren cell without consuming.
+                p = SkipParenPeek(p);
+                continue;
+            }
+
+            p++;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Peeks at tokens starting at <paramref name="p"/> to check whether they form
+    /// an <c>(a=c)</c> meta-cell: <c>Text("a") Equals Text("c") ParenClose</c>.
+    /// Sets <paramref name="pAfter"/> to the index after the ParenClose.
+    /// Does NOT require a leading ParenOpen (caller checks context).
+    /// </summary>
+    private bool IsAcCell(int p, out int pAfter)
+    {
+        pAfter = p;
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text) return false;
         string key = Encoding.ASCII.GetString(_tokens[p].Bytes);
-        if (!string.Equals(key, "a", StringComparison.OrdinalIgnoreCase))
-            return false;
+        if (!string.Equals(key, "a", StringComparison.OrdinalIgnoreCase)) return false;
         p++;
-
-        // Expect '='
-        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Equals)
-            return false;
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Equals) return false;
         p++;
-
-        // Expect Text "c"
-        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text)
-            return false;
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text) return false;
         string val = Encoding.ASCII.GetString(_tokens[p].Bytes);
-        if (!string.Equals(val, "c", StringComparison.OrdinalIgnoreCase))
-            return false;
-
+        if (!string.Equals(val, "c", StringComparison.OrdinalIgnoreCase)) return false;
+        p++;
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.ParenClose) return false;
+        pAfter = p + 1;
         return true;
+    }
+
+    /// <summary>
+    /// Skips a paren-delimited group starting at <paramref name="p"/> (which must point
+    /// at the <c>ParenOpen</c>) and returns the index of the token after the matching
+    /// <c>ParenClose</c>. Used for lookahead scanning in <see cref="PeekIsColumnMarker"/>.
+    /// </summary>
+    private int SkipParenPeek(int p)
+    {
+        int depth = 0;
+        while (p < _tokens.Count)
+        {
+            switch (_tokens[p].Kind)
+            {
+                case MorkTokenKind.ParenOpen:  depth++; p++; break;
+                case MorkTokenKind.ParenClose: depth--; p++; if (depth == 0) return p; break;
+                default: p++; break;
+            }
+        }
+        return p; // unterminated — return end
     }
 
     /// <summary>
@@ -467,7 +566,8 @@ internal sealed class MorkAssembler
 
         if (isCut)
         {
-            // Skip any remaining tokens inside the bracket (there should be none, but be safe).
+            // Defensive: real .msf cut rows contain only [-id] with no further cells,
+            // but skip any remaining tokens to stay robust against malformed input.
             while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.BracketClose)
                 Advance();
             Expect(MorkTokenKind.BracketClose);
