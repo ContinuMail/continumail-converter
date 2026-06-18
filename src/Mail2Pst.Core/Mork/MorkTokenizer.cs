@@ -254,42 +254,8 @@ public sealed class MorkTokenizer
 
             // --- Escape sequences must be handled BEFORE stop-char checks so that
             //     e.g. \) is a literal ')' rather than a close-paren stop. ---
-
-            if (b == '$')
-            {
-                // $XX hex escape — valid inside any text context
-                if (_pos + 2 >= _input.Length)
-                    throw new MorkFormatException($"Incomplete $XX hex escape at position {_pos}");
-                byte hi = _input[_pos + 1];
-                byte lo = _input[_pos + 2];
-                if (!IsHexDigit(hi) || !IsHexDigit(lo))
-                    throw new MorkFormatException($"Malformed $XX hex escape at position {_pos}");
-                buf.Add((byte)(HexVal(hi) << 4 | HexVal(lo)));
-                _pos += 3;
+            if (TryReadEscape(buf))
                 continue;
-            }
-
-            if (b == '\\')
-            {
-                _pos++; // consume backslash
-                if (_pos >= _input.Length)
-                    break; // backslash at very end — treat as continuation contributing nothing
-
-                byte next = _input[_pos];
-                // Backslash at end-of-line (CR, LF, or CRLF) = line continuation, contributes nothing
-                if (next == '\r' || next == '\n')
-                {
-                    if (next == '\r' && _pos + 1 < _input.Length && _input[_pos + 1] == '\n')
-                        _pos += 2;
-                    else
-                        _pos++;
-                    continue;
-                }
-                // Any other char after backslash: emit the literal char
-                buf.Add(next);
-                _pos++;
-                continue;
-            }
 
             // --- Non-escape stop conditions ---
 
@@ -328,40 +294,8 @@ public sealed class MorkTokenizer
         {
             byte b = _input[_pos];
 
-            if (b == '$')
-            {
-                if (_pos + 2 >= _input.Length)
-                    throw new MorkFormatException($"Incomplete $XX hex escape at position {_pos}");
-                byte hi = _input[_pos + 1];
-                byte lo = _input[_pos + 2];
-                if (!IsHexDigit(hi) || !IsHexDigit(lo))
-                    throw new MorkFormatException($"Malformed $XX hex escape at position {_pos}");
-                buf.Add((byte)(HexVal(hi) << 4 | HexVal(lo)));
-                _pos += 3;
+            if (TryReadEscape(buf))
                 continue;
-            }
-
-            if (b == '\\')
-            {
-                _pos++; // consume backslash
-                if (_pos >= _input.Length)
-                    break; // backslash at very end — treat as continuation contributing nothing
-
-                byte next = _input[_pos];
-                // Backslash at end-of-line = line continuation, contributes nothing
-                if (next == '\r' || next == '\n')
-                {
-                    if (next == '\r' && _pos + 1 < _input.Length && _input[_pos + 1] == '\n')
-                        _pos += 2;
-                    else
-                        _pos++;
-                    continue;
-                }
-                // Any other char after backslash: emit the literal char
-                buf.Add(next);
-                _pos++;
-                continue;
-            }
 
             // Unescaped ')' terminates the value — leave it for the outer loop
             if (b == ')')
@@ -373,6 +307,63 @@ public sealed class MorkTokenizer
         }
 
         return buf.ToArray();
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared escape helper used by ReadTextRun and ReadValueRun.
+    // If the byte at _pos is '$', consumes a $XX hex escape (two hex digits),
+    // appends the decoded byte to buf, advances _pos by 3, and returns true.
+    // If the byte at _pos is '\', consumes the backslash escape or line-
+    // continuation exactly as the Mork spec requires, advances _pos past
+    // whatever was consumed, and returns true (even for a bare '\' at EOI
+    // or a line-continuation that contributes no byte).
+    // Returns false if _pos does not point at '$' or '\', leaving _pos and buf
+    // unchanged so the caller can apply its own stop conditions.
+    // -------------------------------------------------------------------------
+    private bool TryReadEscape(List<byte> buf)
+    {
+        if (_pos >= _input.Length)
+            return false;
+
+        byte b = _input[_pos];
+
+        if (b == '$')
+        {
+            // $XX hex escape — valid inside any text context
+            if (_pos + 2 >= _input.Length)
+                throw new MorkFormatException($"Incomplete $XX hex escape at position {_pos}");
+            byte hi = _input[_pos + 1];
+            byte lo = _input[_pos + 2];
+            if (!IsHexDigit(hi) || !IsHexDigit(lo))
+                throw new MorkFormatException($"Malformed $XX hex escape at position {_pos}");
+            buf.Add((byte)(HexVal(hi) << 4 | HexVal(lo)));
+            _pos += 3;
+            return true;
+        }
+
+        if (b == '\\')
+        {
+            _pos++; // consume backslash
+            if (_pos >= _input.Length)
+                return true; // backslash at very end — treat as continuation contributing nothing
+
+            byte next = _input[_pos];
+            // Backslash at end-of-line (CR, LF, or CRLF) = line continuation, contributes nothing
+            if (next == '\r' || next == '\n')
+            {
+                if (next == '\r' && _pos + 1 < _input.Length && _input[_pos + 1] == '\n')
+                    _pos += 2;
+                else
+                    _pos++;
+                return true;
+            }
+            // Any other char after backslash: emit the literal char
+            buf.Add(next);
+            _pos++;
+            return true;
+        }
+
+        return false;
     }
 
     // -------------------------------------------------------------------------
