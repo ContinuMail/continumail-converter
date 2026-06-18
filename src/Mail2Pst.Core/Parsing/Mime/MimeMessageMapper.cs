@@ -110,7 +110,9 @@ public class MimeMessageMapper
                 t.Trim().Equals("Ulæste", StringComparison.OrdinalIgnoreCase));
         }
 
-        // Mozilla nsMsgMessageFlags.h: Read = 0x0001 (the NEW bit is 0x10000, unrelated).
+        // Mozilla nsMsgMessageFlags.h: Read = 0x0001, New = 0x10000 (NOT 0x0001).
+        // https://searchfox.org/comm-central/source/mailnews/base/public/nsMsgMessageFlags.h
+        // Bit 0 set -> read; the NEW bit is 0x10000, unrelated. Do NOT "fix" this to == 0.
         if (mozillaStatus is { } flags)
             return (flags & MozillaStatusRead) != 0;
 
