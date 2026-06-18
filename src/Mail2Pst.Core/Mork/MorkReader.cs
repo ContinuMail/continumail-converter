@@ -84,8 +84,8 @@ internal sealed class MorkAssembler
     /// <summary>Mutable working state for a single table during assembly.</summary>
     private sealed class WorkingTable
     {
-        public string? Scope;
-        public string? Kind;
+        public string? Scope { get; set; }
+        public string? Kind { get; set; }
         // rowId -> (cells dict, or null if the row has been cut and not re-added)
         public readonly Dictionary<string, Dictionary<string, string>?> Rows =
             new Dictionary<string, Dictionary<string, string>?>(StringComparer.Ordinal);
