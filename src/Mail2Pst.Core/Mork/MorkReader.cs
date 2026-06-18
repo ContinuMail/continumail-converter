@@ -49,11 +49,22 @@ public static class MorkReader
 
 /// <summary>
 /// Stateful assembler: drives a token list produced by <see cref="MorkTokenizer"/>
-/// and builds a <see cref="MorkDocument"/> (atom dictionary + tables + rows).
+/// and builds a <see cref="MorkDocument"/> (atom dictionaries + tables + rows).
 /// Applies append-log merge semantics: transaction groups are processed in file
 /// order; row restatements overwrite/add named cells (unnamed cells retained);
 /// row cuts remove the row; delete-then-re-add recreates it. Last-write-wins per
 /// (table, row, column). No cell-cut form exists in Thunderbird .msf (Task 0).
+///
+/// Mork has TWO separate atom spaces that reuse the same numeric ids:
+/// - Column atoms: dicts that open with a nested &lt;(a=c)&gt; meta-dict — ids map
+///   to column names / scope strings / kind strings.
+/// - Value atoms: all other dicts — ids map to cell values.
+/// These spaces are kept separate so a value dict cannot clobber column atoms
+/// that share the same hex id.
+///
+/// Resolution by position:
+/// - Table scope ^X, meta-row kind ^X, and a cell's column ref ^X → column map.
+/// - A cell's value ref ^X (the second ^X in (^col^val)) → value map.
 /// </summary>
 internal sealed class MorkAssembler
 {
@@ -61,10 +72,14 @@ internal sealed class MorkAssembler
     private readonly IReadOnlyList<MorkToken> _tokens;
     private int _pos;
 
-    // ---- atom dictionary: hex-id string -> decoded string -------------------
-    // Accumulated globally across all dicts in file order; decoded at definition
-    // time using the charset active for the enclosing dict.
-    private readonly Dictionary<string, string> _atoms =
+    // ---- atom dictionaries: hex-id string -> decoded string -----------------
+    // Column atoms: populated from dicts whose first sub-dict is <(a=c)>.
+    // Value atoms:  populated from all other dicts.
+    // Both accumulated globally across all dicts in file order; decoded at
+    // definition time using the charset active for the enclosing dict.
+    private readonly Dictionary<string, string> _columnAtoms =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _valueAtoms =
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     // ---- mutable working state: table id -> (scope, kind, rows) ------------
@@ -104,7 +119,7 @@ internal sealed class MorkAssembler
             switch (tok.Kind)
             {
                 case MorkTokenKind.DictOpen:
-                    ReadDict(nestDepth: 0);
+                    ReadDict(nestDepth: 0, parentIsColumn: false);
                     break;
 
                 case MorkTokenKind.BraceOpen:
@@ -149,7 +164,13 @@ internal sealed class MorkAssembler
     // Handles nested meta-dicts (< <(a=c)> ... >) by tracking depth.
     // -------------------------------------------------------------------------
 
-    private void ReadDict(int nestDepth)
+    /// <summary>
+    /// Reads one dict block.
+    /// <paramref name="nestDepth"/> tracks recursion for charset save/restore.
+    /// <paramref name="parentIsColumn"/> is true when the enclosing dict has already
+    /// been identified as a column dict (so nested calls inherit the space).
+    /// </summary>
+    private void ReadDict(int nestDepth, bool parentIsColumn)
     {
         Expect(MorkTokenKind.DictOpen); // consume '<'
 
@@ -158,25 +179,29 @@ internal sealed class MorkAssembler
         // Top-level dicts (nestDepth == 0) do NOT reset: the active charset persists
         // across all top-level dicts in the file (file-level charset).
         var savedCharset = _charset;
-        // (savedCharset is only used on exit when nestDepth > 0; no reset here)
 
-        // First pass to pick up (f=charset) — Mork dicts can declare charset before atoms,
-        // but real files put it first too. We do a single forward pass: charset applies to
-        // atoms that follow it in the same dict.
+        // Determine if this is a column dict by peeking at the first sub-token:
+        // a column dict begins with a nested <(a=c)> meta-dict (nestDepth == 0),
+        // OR inherits isColumn from the enclosing dict (nestDepth > 0).
+        bool isColumnDict = parentIsColumn || (nestDepth == 0 && PeekIsColumnMarker());
+
         while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.DictClose)
         {
             var tok = Current();
 
             if (tok.Kind == MorkTokenKind.DictOpen)
             {
-                // Nested meta-dict (e.g. < <(a=c)> >) — skip recursively.
-                ReadDict(nestDepth: nestDepth + 1);
+                // Nested meta-dict (e.g. < <(a=c)> >) — recurse, passing the
+                // isColumnDict flag so atoms inside the nested block go to the
+                // right space (though nested dicts are usually just meta markers
+                // with no actual atom definitions).
+                ReadDict(nestDepth: nestDepth + 1, parentIsColumn: isColumnDict);
                 continue;
             }
 
             if (tok.Kind == MorkTokenKind.ParenOpen)
             {
-                ReadDictCell();
+                ReadDictCell(isColumnDict);
                 continue;
             }
 
@@ -194,10 +219,54 @@ internal sealed class MorkAssembler
     }
 
     /// <summary>
+    /// Peeks ahead without consuming tokens to detect the column-dict marker:
+    /// the first non-DictClose content after the already-consumed DictOpen is
+    /// another DictOpen whose first cell is <c>(a=c)</c>.
+    /// Returns true if the pattern matches; does NOT advance the cursor.
+    /// </summary>
+    private bool PeekIsColumnMarker()
+    {
+        // We are sitting at the first token inside the outer dict.
+        // Pattern: DictOpen ParenOpen Text("a") Equals Text("c") ParenClose DictClose …
+        int p = _pos;
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.DictOpen)
+            return false;
+        p++; // skip inner DictOpen
+
+        // Expect '('
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.ParenOpen)
+            return false;
+        p++;
+
+        // Expect Text "a"
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text)
+            return false;
+        string key = Encoding.ASCII.GetString(_tokens[p].Bytes);
+        if (!string.Equals(key, "a", StringComparison.OrdinalIgnoreCase))
+            return false;
+        p++;
+
+        // Expect '='
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Equals)
+            return false;
+        p++;
+
+        // Expect Text "c"
+        if (p >= _tokens.Count || _tokens[p].Kind != MorkTokenKind.Text)
+            return false;
+        string val = Encoding.ASCII.GetString(_tokens[p].Bytes);
+        if (!string.Equals(val, "c", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Reads one cell inside a dict: either <c>(hexid=value)</c> (atom definition),
     /// <c>(f=charset)</c> (charset hint), or a dict-meta cell like <c>(a=c)</c> (ignored).
+    /// Atoms are stored in the column map or value map based on <paramref name="isColumnDict"/>.
     /// </summary>
-    private void ReadDictCell()
+    private void ReadDictCell(bool isColumnDict)
     {
         Expect(MorkTokenKind.ParenOpen);
 
@@ -233,22 +302,30 @@ internal sealed class MorkAssembler
 
         Expect(MorkTokenKind.ParenClose);
 
-        // Charset hint?
+        // Charset hint? (f=charset) — update active charset; do NOT store as an atom.
         if (string.Equals(keyStr, "f", StringComparison.OrdinalIgnoreCase))
         {
             _charset = MorkValueDecoder.ResolveCharset(decodedValue);
             return;
         }
 
+        // Dict-meta cells like (a=c) — configure the dict space but do NOT store as atoms.
+        if (string.Equals(keyStr, "a", StringComparison.OrdinalIgnoreCase))
+            return;
+
         // Hex-id atom definition? (only if key is all-hex characters)
         if (IsHexId(keyStr))
         {
             string atomId = keyStr.ToUpperInvariant();
-            _atoms[atomId] = decodedValue;
+            // Store in the appropriate atom space.
+            if (isColumnDict)
+                _columnAtoms[atomId] = decodedValue;
+            else
+                _valueAtoms[atomId] = decodedValue;
             return;
         }
 
-        // Otherwise it's a dict-meta cell (e.g. (a=c)) — ignore.
+        // Otherwise it's an unrecognised dict-meta cell — ignore.
     }
 
     // -------------------------------------------------------------------------
@@ -266,9 +343,9 @@ internal sealed class MorkAssembler
         // Colon separator
         Expect(MorkTokenKind.Colon);
 
-        // Scope atom reference ^XX
+        // Scope atom reference ^XX — resolved in the COLUMN map.
         string scopeAtomId = ExpectAtomRefId();
-        string scope = ResolveAtom(scopeAtomId);
+        string scope = ResolveColumnAtom(scopeAtomId);
 
         // Get-or-create the working table for this id.
         if (!_workingTables.TryGetValue(tableId, out var wt))
@@ -300,7 +377,8 @@ internal sealed class MorkAssembler
             }
             else
             {
-                // Skip unexpected tokens inside table body.
+                // Skip unexpected tokens inside table body (e.g. bare row-id tokens
+                // in thread tables that use a non-standard body format).
                 Advance();
             }
         }
@@ -327,13 +405,13 @@ internal sealed class MorkAssembler
                     string colName = Encoding.ASCII.GetString(Current().Bytes);
                     Advance();
 
-                    // (k^XX:c) — kind cell
+                    // (k^XX:c) — kind cell; resolve ^XX in the COLUMN map.
                     if (string.Equals(colName, "k", StringComparison.OrdinalIgnoreCase)
                         && _pos < _tokens.Count && Current().Kind == MorkTokenKind.AtomRef)
                     {
                         string kindAtomId = Encoding.ASCII.GetString(Current().Bytes).ToUpperInvariant();
                         Advance(); // consume AtomRef
-                        kind = ResolveAtom(kindAtomId);
+                        kind = ResolveColumnAtom(kindAtomId);
                         // Skip remaining tokens until ')'
                         SkipToParenClose();
                     }
@@ -424,7 +502,7 @@ internal sealed class MorkAssembler
 
     /// <summary>
     /// Reads one cell: <c>(^col=litval)</c>, <c>(^col^valAtom)</c>, or <c>(^col=)</c>.
-    /// Column is always an AtomRef; value is either a literal Text or another AtomRef.
+    /// Column ref ^X is resolved in the COLUMN map; value ref ^X is resolved in the VALUE map.
     /// </summary>
     private void ReadCell(Dictionary<string, string> cells)
     {
@@ -433,7 +511,7 @@ internal sealed class MorkAssembler
         if (_pos >= _tokens.Count)
             throw new MorkFormatException("Unterminated cell");
 
-        // Column: must be an AtomRef ^XX
+        // Column: must be an AtomRef ^XX — resolve in COLUMN map.
         if (Current().Kind != MorkTokenKind.AtomRef)
         {
             SkipToParenClose();
@@ -442,7 +520,7 @@ internal sealed class MorkAssembler
 
         string colAtomId = Encoding.ASCII.GetString(Current().Bytes).ToUpperInvariant();
         Advance();
-        string colName = ResolveAtom(colAtomId);
+        string colName = ResolveColumnAtom(colAtomId);
 
         if (_pos >= _tokens.Count)
             throw new MorkFormatException($"Unterminated cell for column '{colName}'");
@@ -465,10 +543,10 @@ internal sealed class MorkAssembler
         }
         else if (Current().Kind == MorkTokenKind.AtomRef)
         {
-            // Atom-ref value: (^col^valAtom)
+            // Atom-ref value: (^col^valAtom) — resolve value in VALUE map.
             string valAtomId = Encoding.ASCII.GetString(Current().Bytes).ToUpperInvariant();
             Advance();
-            cellValue = ResolveAtom(valAtomId);
+            cellValue = ResolveValueAtom(valAtomId);
         }
         else
         {
@@ -525,14 +603,28 @@ internal sealed class MorkAssembler
     }
 
     /// <summary>
-    /// Resolves a hex atom id to its decoded string value.
-    /// Throws <see cref="MorkFormatException"/> if the id was never defined in any dict.
+    /// Resolves a hex atom id to its decoded string in the COLUMN atom map.
+    /// Used for: table scope, meta-row kind, cell column refs.
+    /// Throws <see cref="MorkFormatException"/> if the id was never defined.
     /// </summary>
-    private string ResolveAtom(string hexId)
+    private string ResolveColumnAtom(string hexId)
     {
         string normalised = hexId.ToUpperInvariant();
-        if (!_atoms.TryGetValue(normalised, out string? value))
-            throw new MorkFormatException($"Undefined atom reference: ^{hexId}");
+        if (!_columnAtoms.TryGetValue(normalised, out string? value))
+            throw new MorkFormatException($"Undefined column atom reference: ^{hexId}");
+        return value;
+    }
+
+    /// <summary>
+    /// Resolves a hex atom id to its decoded string in the VALUE atom map.
+    /// Used for: cell value refs (^col^val form).
+    /// Throws <see cref="MorkFormatException"/> if the id was never defined.
+    /// </summary>
+    private string ResolveValueAtom(string hexId)
+    {
+        string normalised = hexId.ToUpperInvariant();
+        if (!_valueAtoms.TryGetValue(normalised, out string? value))
+            throw new MorkFormatException($"Undefined value atom reference: ^{hexId}");
         return value;
     }
 

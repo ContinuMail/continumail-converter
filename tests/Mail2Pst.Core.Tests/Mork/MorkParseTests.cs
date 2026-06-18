@@ -9,23 +9,29 @@ namespace Mail2Pst.Core.Tests.Mork;
 
 public class MorkParseTests
 {
-    private const string Dict = "< (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(81=subject)(A0=hello) >\n";
+    // Column dict: leading <(a=c)> marks this as the column atom space.
+    // Defines scope (80), kind (96), and column names (88=flags, 81=subject, A0=hello).
+    private const string ColumnDict = "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(81=subject) >\n";
 
     [Fact]
     public void Parse_TableRow_LiteralAndRefCells()
     {
         // table scope ^80, kind ^96; row 1 with flags=5 (literal) and subject=^A0 (atom ref -> "hello")
-        MorkDocument doc = MorkReader.ParseString(Dict + "{1:^80 {(k^96:c)} [1(^88=5)(^81^A0)] }");
+        // ^A0 is a value atom ref — needs a separate VALUE dict (no <(a=c)>).
+        string src = ColumnDict
+            + "< (A0=hello) >\n"
+            + "{1:^80 {(k^96:c)} [1(^88=5)(^81^A0)] }";
+        MorkDocument doc = MorkReader.ParseString(src);
         Assert.True(doc.TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out MorkTable t));
         MorkRow r = t.Rows["1"];
         Assert.Equal("5", r.Cells["flags"]);
-        Assert.Equal("hello", r.Cells["subject"]); // atom ref resolved
+        Assert.Equal("hello", r.Cells["subject"]); // value atom ref resolved from value map
     }
 
     [Fact]
     public void Parse_DictOnly_NoTables()
     {
-        MorkDocument doc = MorkReader.ParseString(Dict);
+        MorkDocument doc = MorkReader.ParseString(ColumnDict);
         Assert.Empty(doc.Tables);
     }
 
@@ -33,7 +39,7 @@ public class MorkParseTests
     public void Parse_UnknownColumnAndScope_Preserved()
     {
         // unknown column atom F0=customThing, unknown table kind -> must NOT throw; preserved as strings
-        string src = "< (80=ns:msg:db:row:scope:msgs:all)(F0=customThing)(F1=ns:msg:db:table:kind:weird) >\n"
+        string src = "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(F0=customThing)(F1=ns:msg:db:table:kind:weird) >\n"
                    + "{1:^80 {(k^F1:c)} [1(^F0=xyz)] }";
         MorkDocument doc = MorkReader.ParseString(src);
         MorkTable t = doc.Tables.Single();
@@ -55,7 +61,7 @@ public class MorkParseTests
     public void Parse_EmptyCell_StoresEmptyString()
     {
         // (^88=5) → flags="5"; (^81=) → subject="" (cell present, value empty literal)
-        MorkDocument doc = MorkReader.ParseString(Dict + "{1:^80 {(k^96:c)} [1(^88=5)(^81=)] }");
+        MorkDocument doc = MorkReader.ParseString(ColumnDict + "{1:^80 {(k^96:c)} [1(^88=5)(^81=)] }");
         Assert.True(doc.TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out MorkTable t));
         MorkRow r = t.Rows["1"];
         Assert.Equal("5", r.Cells["flags"]);
@@ -66,6 +72,28 @@ public class MorkParseTests
     public void Parse_MalformedStructure_Throws()
     {
         Assert.Throws<MorkFormatException>(() => MorkReader.ParseString("< (80=x) " /* unterminated dict */));
+    }
+
+    [Fact]
+    public void Parse_ColumnVsValueAtomSpaces_SeparateIds()
+    {
+        // Regression: column dict defines 80=ns:msg:db:row:scope:msgs:all and 96=ns:msg:db:table:kind:msgs
+        // and 88=flags. Then a value dict reuses id 80 with a different value.
+        // The table scope ^80 must resolve from the COLUMN map (not the value dict),
+        // so Scope must be "ns:msg:db:row:scope:msgs:all" — NOT "somevalue".
+        // Similarly, Kind ^96 must resolve to "ns:msg:db:table:kind:msgs".
+        const string columnDict = "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags) >\n";
+        const string valueDict  = "< (80=somevalue) >\n"; // reuses id 80 — must NOT clobber column map
+        const string table      = "{1:^80 {(k^96:c)} [1(^88=5)]}";
+        MorkDocument doc = MorkReader.ParseString(columnDict + valueDict + table);
+        Assert.True(doc.TryGetSingleTable(
+            "ns:msg:db:row:scope:msgs:all",
+            "ns:msg:db:table:kind:msgs",
+            out MorkTable t),
+            $"Expected msgs table; actual tables: [{string.Join(", ", doc.Tables.Select(x => $"scope={x.Scope} kind={x.Kind}"))}]");
+        Assert.Equal("ns:msg:db:row:scope:msgs:all", t.Scope);
+        Assert.Equal("ns:msg:db:table:kind:msgs",   t.Kind);
+        Assert.Equal("5", t.Rows["1"].Cells["flags"]);
     }
 
     // Builds: "< <(a=c)> (f=iso-8859-1)(80=ns:...:msgs:all)(96=ns:...:kind:msgs)(81=subject) >{1:^80 {(k^96:c)} [1(^81=<0xE6>)]}"

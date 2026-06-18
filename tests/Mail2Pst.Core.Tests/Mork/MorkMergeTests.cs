@@ -7,7 +7,8 @@ namespace Mail2Pst.Core.Tests.Mork;
 
 public class MorkMergeTests
 {
-    private const string Dict = "< (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(81=subject) >\n";
+    // Column dict: leading <(a=c)> marks this as the column atom space.
+    private const string Dict = "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(81=subject) >\n";
     private static MorkRow Row(string src, string id) =>
         MorkReader.ParseString(Dict + src).TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out var t)
             ? t.Rows[id] : throw new System.Exception("table/row missing");
