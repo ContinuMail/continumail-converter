@@ -27,5 +27,8 @@ public class MailMessage
     public string? InReplyTo { get; set; }
     public string? References { get; set; }
     public bool IsRead { get; set; } = true;
+    public bool IsReplied { get; set; } = false;
+    public bool IsForwarded { get; set; } = false;
+    public bool IsFlagged { get; set; } = false;
     public MailImportance Importance { get; set; } = MailImportance.Normal;
 }

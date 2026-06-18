@@ -289,6 +289,121 @@ public class MimeMessageMapperTests
         Assert.Empty(warnings);
     }
 
+    private static MailMessage MapWithStatus(string? mozillaStatus, string? gmailLabels = null)
+    {
+        var mime = new MimeMessage { Subject = "s" };
+        mime.From.Add(new MailboxAddress("A", "a@x.com"));
+        if (mozillaStatus is not null) mime.Headers.Add("X-Mozilla-Status", mozillaStatus);
+        if (gmailLabels is not null) mime.Headers.Add("X-Gmail-Labels", gmailLabels);
+        mime.Body = new TextPart("plain") { Text = "b" };
+        return Map(mime);
+    }
+
+    [Fact]
+    public void Map_StatusReadOnly_OnlyReadSet()
+    {
+        MailMessage m = MapWithStatus("0001");
+        Assert.True(m.IsRead);
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsForwarded);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_StatusReplied_ReadAndReplied()
+    {
+        MailMessage m = MapWithStatus("0003"); // read + replied
+        Assert.True(m.IsRead);
+        Assert.True(m.IsReplied);
+        Assert.False(m.IsForwarded);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_StatusStarred_ReadAndFlagged()
+    {
+        MailMessage m = MapWithStatus("0005"); // read + marked
+        Assert.True(m.IsRead);
+        Assert.True(m.IsFlagged);
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsForwarded);
+    }
+
+    [Fact]
+    public void Map_StatusForwarded_ReadAndForwarded()
+    {
+        MailMessage m = MapWithStatus("1001"); // read + forwarded
+        Assert.True(m.IsRead);
+        Assert.True(m.IsForwarded);
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_StatusAllFlags_AllSet()
+    {
+        MailMessage m = MapWithStatus("1007"); // read + replied + marked + forwarded
+        Assert.True(m.IsRead);
+        Assert.True(m.IsReplied);
+        Assert.True(m.IsFlagged);
+        Assert.True(m.IsForwarded);
+    }
+
+    [Fact]
+    public void Map_StatusAllZero_UnreadNoFlags()
+    {
+        // Regression guard for the parse-once refactor: a PRESENT header must not imply read.
+        MailMessage m = MapWithStatus("0000");
+        Assert.False(m.IsRead);
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsForwarded);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_StatusMalformed_FallsThroughToReadDefault_NoFlags()
+    {
+        MailMessage m = MapWithStatus("zzzz");
+        Assert.True(m.IsRead); // malformed -> null -> default read
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsForwarded);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_MalformedStatus_DoesNotBlockLegacyStatusFallback()
+    {
+        // Malformed X-Mozilla-Status -> null -> the legacy "Status:" fallback still applies.
+        var mime = new MimeMessage { Subject = "s" };
+        mime.From.Add(new MailboxAddress("A", "a@x.com"));
+        mime.Headers.Add("X-Mozilla-Status", "zzzz");
+        mime.Headers.Add("Status", "O"); // 'O' (old/seen-but-not-read), no 'R' -> not read
+        mime.Body = new TextPart("plain") { Text = "b" };
+
+        Assert.False(Map(mime).IsRead);
+    }
+
+    [Fact]
+    public void Map_NoStatusHeader_ReadDefaultTrue_NoFlags()
+    {
+        MailMessage m = MapWithStatus(null);
+        Assert.True(m.IsRead);
+        Assert.False(m.IsReplied);
+        Assert.False(m.IsForwarded);
+        Assert.False(m.IsFlagged);
+    }
+
+    [Fact]
+    public void Map_GmailUnreadWithMozillaFlags_ReadFollowsGmail_FlagsFromMozilla()
+    {
+        // Precedence split: read follows Gmail labels; replied/flagged/forwarded derive from X-Mozilla-Status.
+        MailMessage m = MapWithStatus("1006", gmailLabels: "Inbox,Unread"); // replied+marked+forwarded, read bit clear
+        Assert.False(m.IsRead);      // Gmail "Unread" wins for read
+        Assert.True(m.IsReplied);
+        Assert.True(m.IsFlagged);
+        Assert.True(m.IsForwarded);
+    }
+
     [Fact]
     public void ExtractAttachments_EmbeddedMessageInNestedMultipartReport_ProducesNoAttachments()
     {

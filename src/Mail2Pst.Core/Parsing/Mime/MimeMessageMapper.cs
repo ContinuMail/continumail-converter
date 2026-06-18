@@ -22,6 +22,11 @@ public class MimeMessageMapper
 {
     private readonly long _tempFileThresholdBytes;
 
+    private const uint MozillaStatusRead = 0x0001;
+    private const uint MozillaStatusReplied = 0x0002;
+    private const uint MozillaStatusMarked = 0x0004;
+    private const uint MozillaStatusForwarded = 0x1000;
+
     public MimeMessageMapper(long tempFileThresholdBytes = 4L * 1024 * 1024)
     {
         if (tempFileThresholdBytes < 0)
@@ -41,6 +46,7 @@ public class MimeMessageMapper
 
     public MailMessage Map(MimeMessage mime, SourceReference sourceRef, List<string> warnings)
     {
+        uint? mozillaStatus = ParseMozillaStatus(mime);
         return new MailMessage
         {
             Subject = mime.Subject,
@@ -58,7 +64,10 @@ public class MimeMessageMapper
             References = mime.References.Count > 0
                 ? string.Join(" ", mime.References.Select(id => EnsureAngleBrackets(id)).OfType<string>())
                 : null,
-            IsRead = ParseIsRead(mime),
+            IsRead = ParseIsRead(mime, mozillaStatus),
+            IsReplied = mozillaStatus is { } f1 && (f1 & MozillaStatusReplied) != 0,
+            IsFlagged = mozillaStatus is { } f2 && (f2 & MozillaStatusMarked) != 0,
+            IsForwarded = mozillaStatus is { } f3 && (f3 & MozillaStatusForwarded) != 0,
             Importance = ParseImportance(mime),
         };
     }
@@ -79,28 +88,31 @@ public class MimeMessageMapper
         return MailImportance.Normal;
     }
 
-    private static bool ParseIsRead(MimeMessage mime)
+    private static uint? ParseMozillaStatus(MimeMessage mime)
+    {
+        string? value = mime.Headers["X-Mozilla-Status"];
+        if (value is null) return null;
+        return uint.TryParse(value.Trim(), System.Globalization.NumberStyles.HexNumber,
+                             System.Globalization.CultureInfo.InvariantCulture, out uint flags)
+            ? flags
+            : null; // malformed -> null, same fall-through tolerance as before
+    }
+
+    private static bool ParseIsRead(MimeMessage mime, uint? mozillaStatus)
     {
         string? gmailLabels = mime.Headers["X-Gmail-Labels"];
         if (gmailLabels is not null)
         {
-            // Gmail exports labels in the account's display language, so we match known locale variants.
+            // Gmail exports labels in the account's display language; match known locale variants.
             // English: "Unread", Danish: "Ulæste"
             return !gmailLabels.Split(',').Any(t =>
                 t.Trim().Equals("Unread", StringComparison.OrdinalIgnoreCase) ||
                 t.Trim().Equals("Ulæste", StringComparison.OrdinalIgnoreCase));
         }
 
-        string? mozillaStatus = mime.Headers["X-Mozilla-Status"];
-        if (mozillaStatus is not null)
-        {
-            // Mozilla nsMsgMessageFlags.h: Read = 0x0001, New = 0x10000 (NOT 0x0001).
-            // https://searchfox.org/comm-central/source/mailnews/base/public/nsMsgMessageFlags.h
-            // Bit 0 set -> read; the NEW bit is 0x10000, unrelated. Do NOT "fix" this to == 0.
-            if (uint.TryParse(mozillaStatus.Trim(), System.Globalization.NumberStyles.HexNumber, null, out uint flags))
-                return (flags & 0x0001) != 0;
-            // malformed → fall through
-        }
+        // Mozilla nsMsgMessageFlags.h: Read = 0x0001 (the NEW bit is 0x10000, unrelated).
+        if (mozillaStatus is { } flags)
+            return (flags & MozillaStatusRead) != 0;
 
         string? status = mime.Headers["Status"];
         if (status is not null)
