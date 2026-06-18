@@ -11,7 +11,7 @@ namespace Mail2Pst.Core.Mork;
 
 /// <summary>
 /// Entry point for parsing Mork (.msf) files into a <see cref="MorkDocument"/>.
-/// Handles single-group documents (no cross-group append-log merge — that is Task 5).
+/// Applies full append-log merge semantics across transaction groups.
 /// </summary>
 public static class MorkReader
 {
@@ -50,7 +50,10 @@ public static class MorkReader
 /// <summary>
 /// Stateful assembler: drives a token list produced by <see cref="MorkTokenizer"/>
 /// and builds a <see cref="MorkDocument"/> (atom dictionary + tables + rows).
-/// Cross-group append-log merge is out of scope (Task 5).
+/// Applies append-log merge semantics: transaction groups are processed in file
+/// order; row restatements overwrite/add named cells (unnamed cells retained);
+/// row cuts remove the row; delete-then-re-add recreates it. Last-write-wins per
+/// (table, row, column). No cell-cut form exists in Thunderbird .msf (Task 0).
 /// </summary>
 internal sealed class MorkAssembler
 {
@@ -64,14 +67,29 @@ internal sealed class MorkAssembler
     private readonly Dictionary<string, string> _atoms =
         new Dictionary<string, string>(StringComparer.Ordinal);
 
-    // ---- output -------------------------------------------------------------
-    private readonly List<MorkTable> _tables = new();
+    // ---- mutable working state: table id -> (scope, kind, rows) ------------
+    // Accumulated in file order to implement append-log merge. The final
+    // immutable MorkDocument is built from this at the end of Assemble().
+    // Table ordering is preserved via _tableOrder.
+    private readonly Dictionary<string, WorkingTable> _workingTables =
+        new Dictionary<string, WorkingTable>(StringComparer.Ordinal);
+    private readonly List<string> _tableOrder = new();
 
     // ---- active charset: file-level, persists across top-level dicts -------
     // Initialised once to UTF-8. Updated by (f=<charset>) cells. Top-level dicts
     // inherit the last-set charset (no reset); nested dicts save/restore it so
     // an inner < <(a=c)> … > scope cannot permanently change the outer charset.
     private Encoding _charset = Encoding.UTF8;
+
+    /// <summary>Mutable working state for a single table during assembly.</summary>
+    private sealed class WorkingTable
+    {
+        public string? Scope;
+        public string? Kind;
+        // rowId -> (cells dict, or null if the row has been cut and not re-added)
+        public readonly Dictionary<string, Dictionary<string, string>?> Rows =
+            new Dictionary<string, Dictionary<string, string>?>(StringComparer.Ordinal);
+    }
 
     public MorkAssembler(IReadOnlyList<MorkToken> tokens)
     {
@@ -96,7 +114,8 @@ internal sealed class MorkAssembler
                 case MorkTokenKind.GroupStart:
                 case MorkTokenKind.GroupCommit:
                 case MorkTokenKind.GroupAbort:
-                    // Transaction group markers: consume and continue (Task 5 handles merge).
+                    // Transaction group markers carry no merge meaning beyond ordering;
+                    // their content (dicts + table fragments) flows through the normal path.
                     Advance();
                     break;
 
@@ -107,7 +126,22 @@ internal sealed class MorkAssembler
             }
         }
 
-        return new MorkDocument(_tables);
+        // Build the final immutable MorkDocument from accumulated working state.
+        var tables = new List<MorkTable>(_workingTables.Count);
+        foreach (string tableId in _tableOrder)
+        {
+            var wt = _workingTables[tableId];
+            var rows = new Dictionary<string, MorkRow>(StringComparer.Ordinal);
+            foreach (var kv in wt.Rows)
+            {
+                // Rows that were cut (null cells dict) are excluded from the output.
+                if (kv.Value is not null)
+                    rows[kv.Key] = new MorkRow(kv.Key, kv.Value);
+            }
+            tables.Add(new MorkTable(tableId, wt.Scope, wt.Kind, rows));
+        }
+
+        return new MorkDocument(tables);
     }
 
     // -------------------------------------------------------------------------
@@ -219,6 +253,7 @@ internal sealed class MorkAssembler
 
     // -------------------------------------------------------------------------
     // Table parsing: { id:^scope {meta} rows... }
+    // Merges into the working table for this id (append-log semantics).
     // -------------------------------------------------------------------------
 
     private void ReadTable()
@@ -235,22 +270,33 @@ internal sealed class MorkAssembler
         string scopeAtomId = ExpectAtomRefId();
         string scope = ResolveAtom(scopeAtomId);
 
-        // Meta-row: { (k^XX:c) (s=N) ... }
-        string? kind = null;
-        if (_pos < _tokens.Count && Current().Kind == MorkTokenKind.BraceOpen)
+        // Get-or-create the working table for this id.
+        if (!_workingTables.TryGetValue(tableId, out var wt))
         {
-            kind = ReadMetaRow();
+            wt = new WorkingTable { Scope = scope };
+            _workingTables[tableId] = wt;
+            _tableOrder.Add(tableId);
+        }
+        else
+        {
+            // Re-statement: update scope (last-write-wins) but keep existing rows.
+            wt.Scope = scope;
         }
 
-        // Data rows
-        var rows = new Dictionary<string, MorkRow>(StringComparer.Ordinal);
+        // Meta-row: { (k^XX:c) (s=N) ... }
+        if (_pos < _tokens.Count && Current().Kind == MorkTokenKind.BraceOpen)
+        {
+            string? kind = ReadMetaRow();
+            if (kind is not null)
+                wt.Kind = kind;
+        }
+
+        // Data rows — apply merge semantics to working table.
         while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.BraceClose)
         {
-            var tok = Current();
-            if (tok.Kind == MorkTokenKind.BracketOpen)
+            if (Current().Kind == MorkTokenKind.BracketOpen)
             {
-                var row = ReadRow();
-                rows[row.Id] = row;
+                ReadRowIntoTable(wt);
             }
             else
             {
@@ -260,8 +306,6 @@ internal sealed class MorkAssembler
         }
 
         Expect(MorkTokenKind.BraceClose);
-
-        _tables.Add(new MorkTable(tableId, scope, kind, rows));
     }
 
     /// <summary>Reads the meta-row <c>{ (k^XX:c) ... }</c> and returns the kind string.</summary>
@@ -316,23 +360,58 @@ internal sealed class MorkAssembler
     }
 
     // -------------------------------------------------------------------------
-    // Row parsing: [ id (cells...) ]
+    // Row parsing: [ id (cells...) ] or cut [ -id ]
+    // Applies append-log merge directly into the working table.
     // -------------------------------------------------------------------------
 
-    private MorkRow ReadRow()
+    /// <summary>
+    /// Reads one row bracket from the token stream and applies its effect to
+    /// <paramref name="wt"/>:
+    /// <list type="bullet">
+    ///   <item>Normal row <c>[id (cells…)]</c> — creates the row if absent, or merges
+    ///     cells into the existing row (add/overwrite named cells; unnamed cells
+    ///     retained; empty value overwrites to empty string).</item>
+    ///   <item>Cut row <c>[-id]</c> — removes the row from the working state (sets
+    ///     its entry to null). A later re-add recreates it.</item>
+    /// </list>
+    /// </summary>
+    private void ReadRowIntoTable(WorkingTable wt)
     {
         Expect(MorkTokenKind.BracketOpen);
+
+        // Detect cut: [-id]
+        bool isCut = _pos < _tokens.Count && Current().Kind == MorkTokenKind.Cut;
+        if (isCut)
+            Advance(); // consume Cut token
 
         // Row id
         string rowId = ExpectText();
 
-        var cells = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (isCut)
+        {
+            // Skip any remaining tokens inside the bracket (there should be none, but be safe).
+            while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.BracketClose)
+                Advance();
+            Expect(MorkTokenKind.BracketClose);
+
+            // Mark row as cut (null = deleted).
+            wt.Rows[rowId] = null;
+            return;
+        }
+
+        // Normal row: read cells and merge into working state.
+        // If the row was previously cut (null), re-create it with a fresh dict.
+        if (!wt.Rows.TryGetValue(rowId, out var existingCells) || existingCells is null)
+        {
+            existingCells = new Dictionary<string, string>(StringComparer.Ordinal);
+            wt.Rows[rowId] = existingCells;
+        }
 
         while (_pos < _tokens.Count && Current().Kind != MorkTokenKind.BracketClose)
         {
             if (Current().Kind == MorkTokenKind.ParenOpen)
             {
-                ReadCell(cells);
+                ReadCell(existingCells);
             }
             else
             {
@@ -341,8 +420,6 @@ internal sealed class MorkAssembler
         }
 
         Expect(MorkTokenKind.BracketClose);
-
-        return new MorkRow(rowId, cells);
     }
 
     /// <summary>
