@@ -460,6 +460,22 @@ public class PstWriter
         else messageFlags &= ~MSGFLAG_HASATTACH;
         note.PC.SetInt32Property(PropertyID.PidTagMessageFlags, messageFlags);
 
+        // Follow-up flag (Thunderbird "marked"/starred). Independent of MSGFLAG_READ.
+        if (message.IsFlagged)
+        {
+            note.PC.SetInt32Property(PropertyID.PidTagFlagStatus, 2);   // followupFlagged
+            note.PC.SetInt32Property(PropertyID.PidTagFollowupIcon, 6); // red
+        }
+
+        // Last verb (replied/forwarded). PidTagLastVerbExecuted is single-valued: when both are
+        // set we prefer reply (102) — replied is the more user-visible action (documented limitation).
+        int? lastVerb = message.IsReplied ? 102 : (message.IsForwarded ? 104 : (int?)null);
+        if (lastVerb is { } verb)
+        {
+            note.PC.SetInt32Property(PropertyID.PidTagLastVerbExecuted, verb);
+            note.PC.SetDateTimeProperty(PropertyID.PidTagLastVerbExecutionTime, LastVerbTime(message));
+        }
+
         note.SaveChanges();
         folder.AddMessage(note);
         folder.SaveChanges();
@@ -513,4 +529,12 @@ public class PstWriter
 
     private static DateTime ClampToFileTimeRange(DateTime utcDate) =>
         utcDate < MinFileTime ? MinFileTime : utcDate;
+
+    // The verb timestamp is metadata, not content: when the message has no date, "now" is a better
+    // fallback than omitting it (Outlook may not render the reply/forward arrow without a time).
+    private static DateTime LastVerbTime(MailMessage message)
+    {
+        DateTime utcDate = message.Date?.UtcDateTime ?? DateTime.UtcNow;
+        return ClampToFileTimeRange(utcDate);
+    }
 }

@@ -17,6 +17,12 @@ public class PstWriterMetadataTests
 {
     private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
+    private const int MsgFlagRead = 0x0001;
+    private const int FollowupFlagged = 2;
+    private const int FollowupIconRed = 6;
+    private const int LastVerbReply = 102;
+    private const int LastVerbForward = 104;
+
     // Writes a single MailMessage into a temp PST and returns the Note for
     // assertion. Caller is responsible for calling pst.CloseFile() and
     // Directory.Delete(tempDir, true) in a finally block.
@@ -453,6 +459,112 @@ public class PstWriterMetadataTests
                 if (!string.IsNullOrEmpty(cid)) Assert.True(hidden);   // inline -> hidden
                 else Assert.False(hidden);                              // real -> visible
             }
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    // --- Follow-up flag and last-verb (X-Mozilla-Status) tests ---
+
+    [Fact]
+    public void Write_IsFlagged_FlagStatusAndFollowupIconSet()
+    {
+        var message = MinimalMessage();
+        message.IsFlagged = true;
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Equal(FollowupFlagged, note.PC.GetInt32Property(PropertyID.PidTagFlagStatus));
+            Assert.Equal(FollowupIconRed, note.PC.GetInt32Property(PropertyID.PidTagFollowupIcon));
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_NotFlagged_NoFlagStatus()
+    {
+        var message = MinimalMessage(); // IsFlagged defaults false
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Null(note.PC.GetInt32Property(PropertyID.PidTagFlagStatus));
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_UnreadAndFlagged_ReadBitClear_AndFlagStatusSet()
+    {
+        // Read and flagged are independent properties: unread + starred must round-trip as both.
+        var message = MinimalMessage();
+        message.IsRead = false;
+        message.IsFlagged = true;
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            int flags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags)!.Value;
+            Assert.Equal(0, flags & MsgFlagRead);                                              // MSGFLAG_READ clear
+            Assert.Equal(FollowupFlagged, note.PC.GetInt32Property(PropertyID.PidTagFlagStatus)); // still flagged
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_Replied_LastVerbIsReply()
+    {
+        var message = MinimalMessage();
+        message.IsReplied = true;
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Equal(LastVerbReply, note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted));
+            Assert.NotNull(note.PC.GetDateTimeProperty(PropertyID.PidTagLastVerbExecutionTime));
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_Forwarded_LastVerbIsForward()
+    {
+        var message = MinimalMessage();
+        message.IsForwarded = true;
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Equal(LastVerbForward, note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted));
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_RepliedAndForwarded_PrefersReplyVerb()
+    {
+        // Single-valued PidTagLastVerbExecuted -> documented precedence: reply (102) wins.
+        var message = MinimalMessage();
+        message.IsReplied = true;
+        message.IsForwarded = true;
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Equal(LastVerbReply, note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted));
+        }
+        finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
+    }
+
+    [Fact]
+    public void Write_NoVerb_NoLastVerbExecuted()
+    {
+        var message = MinimalMessage(); // not replied, not forwarded
+
+        var (note, pst, tempDir) = WriteAndReadNote(message);
+        try
+        {
+            Assert.Null(note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted));
         }
         finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
     }
