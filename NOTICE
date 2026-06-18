@@ -44,3 +44,10 @@ MimeKit
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 -------------------------------------------------------------------------------
+Mork reader (src/Mail2Pst.Core/Mork/)
+  Parsing approach adapted from knk106/MorkReader (public domain, Unlicense).
+  Source: https://github.com/knk106/MorkReader
+  Retrieved/inspected at commit f347dbeb87ee (2025-07-16).
+  This is project-native GPL-3.0-or-later code; the public-domain origin imposes
+  no obligation, but the provenance is recorded for hygiene.
+-------------------------------------------------------------------------------
