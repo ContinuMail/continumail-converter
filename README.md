@@ -55,7 +55,7 @@ The desktop app walks you through the whole conversion; your originals are never
 - **Size-based splitting:** one PST per output group, auto-split into `Name-1.pst`, `Name-2.pst`, … when a size cap is exceeded (a single un-split output is just `Name.pst`).
 - **HTML bodies** (`PidTagHtml` + `PidTagNativeBody`) with an always-present plain-text fallback.
 - **Full attachments:** regular files, inline CID images (correctly hidden, so no phantom paperclip), and embedded `.eml` messages.
-- **Metadata fidelity:** To/Cc/Bcc recipient types, importance/priority, Message-ID / In-Reply-To / References, conversation topic. (Read/unread is preserved only when the source mbox carries real flags — not the case for Thunderbird; see [Limitations](#-limitations).) Bcc recipients are preserved with their MAPI Bcc type and appear in Outlook's Bcc field (this is a faithful archive of mail you already sent — nothing to hide in a local store).
+- **Metadata fidelity:** To/Cc/Bcc recipient types, importance/priority, Message-ID / In-Reply-To / References, conversation topic. (Read/unread, replied, forwarded, and starred state are preserved when the source mbox carries `X-Mozilla-Status` flags — typical of POP accounts and older Local Folders stores; see [Limitations](#-limitations) for when flags are absent.) Bcc recipients are preserved with their MAPI Bcc type and appear in Outlook's Bcc field (this is a faithful archive of mail you already sent — nothing to hide in a local store).
 - **Memory-friendly:** large attachments (≥ 4 MB) spill to a temp file so many don't pile up in memory at once.
 - **Conversion reports** (human-readable + JSON) listing skipped messages and warnings.
 
@@ -63,7 +63,7 @@ The desktop app walks you through the whole conversion; your originals are never
 
 - **Non-UTF-8 / UTF-16 mbox envelopes.** The mbox envelope and headers are read as UTF-8/ASCII; archives whose *envelope framing* uses other encodings may not parse cleanly. (Message **bodies** honour their own MIME charset — this caveat is about the mbox framing, not body text.)
 - **Plain-text body is a best-effort fallback.** Real HTML is preserved faithfully (`PidTagHtml`) and is what Outlook displays; the generated plain-text alternative is a lightweight stripper, not a full renderer.
-- **Read/unread & starred state from Thunderbird is not preserved.** Thunderbird stores per-message flag state in its own index (`.msf`), not in the mbox, so an mbox-based conversion cannot recover it — messages generally import as read & unflagged. (Read/unread *is* preserved for archives whose mbox carries real `X-Mozilla-Status` flags.)
+- **Read/unread & starred state from Thunderbird is not preserved for IMAP/EWS accounts.** Thunderbird stores per-message flag state in its own index (`.msf`), not in the mbox, so an mbox-based conversion cannot recover it for modern server-backed stores — messages import as read and unflagged. When the mbox *does* carry `X-Mozilla-Status` (POP accounts, older Local Folders stores), the converter honors read/unread, replied (→ reply arrow), forwarded (→ forward arrow), and starred (→ follow-up flag). Tags (`X-Mozilla-Keys`) remain unsupported.
 
 ## ⌨️ Command-line interface
 
