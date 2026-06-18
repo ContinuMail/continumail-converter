@@ -130,6 +130,17 @@ public sealed class MorkTokenizer
                 case (byte)'=':
                     _pos++;
                     yield return new MorkToken(MorkTokenKind.Equals);
+                    // After '=' inside a paren we are in value context: read the entire
+                    // value as one text run that stops only at the unescaped ')'.
+                    // This preserves spaces, colons, '=' signs, etc. as literal content.
+                    if (_delimStack.Count > 0 && _delimStack.Peek() == (byte)'(')
+                    {
+                        byte[] value = ReadValueRun();
+                        if (value.Length > 0)
+                            yield return new MorkToken(MorkTokenKind.Text, value);
+                        // If value is empty (e.g. "(^col=)") emit no Text token;
+                        // the outer loop will handle the ')' and emit ParenClose.
+                    }
                     break;
 
                 case (byte)':':
@@ -228,21 +239,13 @@ public sealed class MorkTokenizer
 
     // -------------------------------------------------------------------------
     // Read a plain text run with $XX and \x escape resolution.
-    // Stops at structural characters, delimiters, or end-of-input.
-    //
-    // Context: inside a paren (value context) we must still stop at structural
-    // operators (=, ^, :, @) so they get emitted as their own tokens, but we
-    // must NOT stop at unescaped ')' — that is handled by the escape logic
-    // (backslash-escapes ')' literally) and by the stop condition.
-    // Outside paren context we stop at all delimiters and operators.
+    // Stops at structural characters (including ')'), delimiters, whitespace,
+    // or end-of-input.  Used for atom ids, row ids, table ids, and literal
+    // text that appears BEFORE '=' inside a '(' (column names, atom text, etc.).
+    // For the value that follows '=' inside a '(' use ReadValueRun() instead.
     // -------------------------------------------------------------------------
     private byte[] ReadTextRun()
     {
-        // In value context (inside paren) we are reading a value literal.
-        // We stop at: ) ^ = : @ and whitespace (but not at escaped versions).
-        // Outside paren we also stop at < > { } [ ] ( ).
-        bool insideParen = _delimStack.Count > 0 && _delimStack.Peek() == (byte)'(';
-
         var buf = new List<byte>(16);
 
         while (_pos < _input.Length)
@@ -303,6 +306,68 @@ public sealed class MorkTokenizer
                 break;
 
             // Raw byte (incl. high bytes) — pass through directly
+            buf.Add(b);
+            _pos++;
+        }
+
+        return buf.ToArray();
+    }
+
+    // -------------------------------------------------------------------------
+    // Read a Mork value run: the text that follows '=' inside a '('.
+    // Resolves $XX hex escapes and \<x> backslash escapes exactly like
+    // ReadTextRun, but the ONLY non-escape stop condition is an unescaped ')'.
+    // Every other byte — spaces, ':', '=', '<', '[', etc. — is literal content.
+    // Returns an empty array when the next byte is ')' (empty value).
+    // -------------------------------------------------------------------------
+    private byte[] ReadValueRun()
+    {
+        var buf = new List<byte>(32);
+
+        while (_pos < _input.Length)
+        {
+            byte b = _input[_pos];
+
+            if (b == '$')
+            {
+                if (_pos + 2 >= _input.Length)
+                    throw new MorkFormatException($"Incomplete $XX hex escape at position {_pos}");
+                byte hi = _input[_pos + 1];
+                byte lo = _input[_pos + 2];
+                if (!IsHexDigit(hi) || !IsHexDigit(lo))
+                    throw new MorkFormatException($"Malformed $XX hex escape at position {_pos}");
+                buf.Add((byte)(HexVal(hi) << 4 | HexVal(lo)));
+                _pos += 3;
+                continue;
+            }
+
+            if (b == '\\')
+            {
+                _pos++; // consume backslash
+                if (_pos >= _input.Length)
+                    break; // backslash at very end — treat as continuation contributing nothing
+
+                byte next = _input[_pos];
+                // Backslash at end-of-line = line continuation, contributes nothing
+                if (next == '\r' || next == '\n')
+                {
+                    if (next == '\r' && _pos + 1 < _input.Length && _input[_pos + 1] == '\n')
+                        _pos += 2;
+                    else
+                        _pos++;
+                    continue;
+                }
+                // Any other char after backslash: emit the literal char
+                buf.Add(next);
+                _pos++;
+                continue;
+            }
+
+            // Unescaped ')' terminates the value — leave it for the outer loop
+            if (b == ')')
+                break;
+
+            // All other bytes (including spaces, ':', '=', '<', etc.) are literal value content
             buf.Add(b);
             _pos++;
         }

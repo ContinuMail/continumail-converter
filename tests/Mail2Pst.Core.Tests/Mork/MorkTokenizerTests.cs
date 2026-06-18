@@ -82,4 +82,41 @@ public class MorkTokenizerTests
     {
         Assert.Throws<MorkFormatException>(() => Toks("[1(^88=1)"));
     }
+
+    [Fact]
+    public void Tokenize_ValueWithSpace_PreservesSpace()
+    {
+        // (80=hello world) — the space between "hello" and "world" is literal value content.
+        // Must produce exactly one Text token containing the full string "hello world",
+        // not two separate Text tokens with the space discarded.
+        MorkToken[] t = Toks("(80=hello world)");
+        MorkToken[] valueTokens = t.Where(x => x.Kind == MorkTokenKind.Text && Encoding.ASCII.GetString(x.Bytes) == "hello world").ToArray();
+        Assert.Single(valueTokens);
+    }
+
+    [Fact]
+    public void Tokenize_ValueWithColon_ColonIsLiteralNotToken()
+    {
+        // (80=Re: hi) — the ':' inside the value is literal, NOT a Colon structural token.
+        MorkToken[] t = Toks("(80=Re: hi)");
+        // No standalone Colon token should exist
+        Assert.DoesNotContain(t, x => x.Kind == MorkTokenKind.Colon);
+        // The entire value should be in one Text token containing ':'
+        MorkToken txt = Assert.Single(t, x => x.Kind == MorkTokenKind.Text && Encoding.ASCII.GetString(x.Bytes).Contains(":"));
+        Assert.Equal("Re: hi", Encoding.ASCII.GetString(txt.Bytes));
+    }
+
+    [Fact]
+    public void Tokenize_EmptyValue_NoTextTokenBetweenEqualsAndParenClose()
+    {
+        // (^81=) — empty value after '=': must emit ParenOpen, AtomRef, Equals, ParenClose
+        // with NO Text token between Equals and ParenClose.
+        MorkToken[] t = Toks("(^81=)");
+        Assert.Equal(MorkTokenKind.ParenOpen,  t[0].Kind);
+        Assert.Equal(MorkTokenKind.AtomRef,    t[1].Kind);
+        Assert.Equal("81", Encoding.ASCII.GetString(t[1].Bytes));
+        Assert.Equal(MorkTokenKind.Equals,     t[2].Kind);
+        Assert.Equal(MorkTokenKind.ParenClose, t[3].Kind);
+        Assert.Equal(4, t.Length);
+    }
 }
