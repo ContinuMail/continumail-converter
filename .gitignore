@@ -25,5 +25,6 @@ _manualtest/
 docs/
 reviews/
 .claude-memory/
+.rules/
 CLAUDE.md
 todo.md
