@@ -1,0 +1,65 @@
+From sender@example.com Mon Jan  1 10:00:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Read only
+Date: Mon, 01 Jan 2024 10:00:00 +0000
+Message-ID: <flag-read@example.com>
+X-Mozilla-Status: 0001
+Content-Type: text/plain; charset=utf-8
+
+Read message.
+
+From sender@example.com Mon Jan  1 10:01:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Unread
+Date: Mon, 01 Jan 2024 10:01:00 +0000
+Message-ID: <flag-unread@example.com>
+X-Mozilla-Status: 0000
+Content-Type: text/plain; charset=utf-8
+
+Unread message.
+
+From sender@example.com Mon Jan  1 10:02:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Read and starred
+Date: Mon, 01 Jan 2024 10:02:00 +0000
+Message-ID: <flag-starred@example.com>
+X-Mozilla-Status: 0005
+Content-Type: text/plain; charset=utf-8
+
+Starred message.
+
+From sender@example.com Mon Jan  1 10:03:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Read and replied
+Date: Mon, 01 Jan 2024 10:03:00 +0000
+Message-ID: <flag-replied@example.com>
+X-Mozilla-Status: 0003
+Content-Type: text/plain; charset=utf-8
+
+Replied message.
+
+From sender@example.com Mon Jan  1 10:04:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Read and forwarded
+Date: Mon, 01 Jan 2024 10:04:00 +0000
+Message-ID: <flag-forwarded@example.com>
+X-Mozilla-Status: 1001
+Content-Type: text/plain; charset=utf-8
+
+Forwarded message.
+
+From sender@example.com Mon Jan  1 10:05:00 2024
+From: Sender Example <sender@example.com>
+To: You Example <you@example.com>
+Subject: Read replied and forwarded
+Date: Mon, 01 Jan 2024 10:05:00 +0000
+Message-ID: <flag-replied-forwarded@example.com>
+X-Mozilla-Status: 1003
+Content-Type: text/plain; charset=utf-8
+
+Replied and forwarded message.

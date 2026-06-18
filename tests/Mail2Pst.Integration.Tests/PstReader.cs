@@ -21,7 +21,11 @@ public sealed record ReadBackMessage(
     DateTimeOffset? Date,
     IReadOnlyList<string> AttachmentNames,
     bool HasNonEmptyBody,
-    string? MessageId);
+    string? MessageId,
+    bool IsRead,
+    bool IsReplied,
+    bool IsForwarded,
+    bool IsFlagged);
 
 public sealed record ReadFolder(IReadOnlyList<string> Path, IReadOnlyList<ReadBackMessage> Messages)
 {
@@ -126,6 +130,13 @@ public static class PstReader
         // SentRepresentingEmailAddress is setter-only on MessageObject — read via PC by property id (Task 1 spike proven).
         string? fromAddress = note.PC.GetStringProperty(PropertyID.PidTagSentRepresentingEmailAddress);
 
+        int msgFlags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags) ?? 0;
+        bool isRead = (msgFlags & 0x0001) != 0;
+        bool isFlagged = note.PC.GetInt32Property(PropertyID.PidTagFlagStatus) == 2;
+        int? lastVerb = note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted);
+        bool isReplied = lastVerb is 102 or 103;   // reply / reply-all
+        bool isForwarded = lastVerb is 104;          // forward
+
         return new ReadBackMessage(
             Subject: note.Subject,
             FromAddress: fromAddress,
@@ -133,7 +144,11 @@ public static class PstReader
             Date: date,
             AttachmentNames: attachmentNames,
             HasNonEmptyBody: hasBody,
-            MessageId: note.PC.GetStringProperty(PropertyID.PidTagInternetMessageId));
+            MessageId: note.PC.GetStringProperty(PropertyID.PidTagInternetMessageId),
+            IsRead: isRead,
+            IsReplied: isReplied,
+            IsForwarded: isForwarded,
+            IsFlagged: isFlagged);
     }
 
     private static RecipientKind MapKind(int? raw)
