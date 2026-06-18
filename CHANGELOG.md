@@ -4,6 +4,15 @@ All notable changes to ContinuMail Converter are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **More Thunderbird/mbox status flags preserved.** When a source mbox carries `X-Mozilla-Status`
+  flags (typical of POP accounts and older Local Folders stores), the converter now also preserves
+  **replied** (→ Outlook reply arrow), **forwarded** (→ forward arrow), and **starred/marked**
+  (→ follow-up flag), in addition to read/unread. Modern IMAP/EWS exports carry no flags in the
+  mbox, so this has no effect there; tags (`X-Mozilla-Keys`) remain unsupported.
+
 ## [0.1.2] — 2026-06-18
 
 A feature + hardening release. The headline is **Thunderbird subfolder (`.sbd`) support** — a new
