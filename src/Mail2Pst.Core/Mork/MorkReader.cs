@@ -62,12 +62,15 @@ internal sealed class MorkAssembler
     // Accumulated globally across all dicts in file order; decoded at definition
     // time using the charset active for the enclosing dict.
     private readonly Dictionary<string, string> _atoms =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        new Dictionary<string, string>(StringComparer.Ordinal);
 
     // ---- output -------------------------------------------------------------
     private readonly List<MorkTable> _tables = new();
 
-    // ---- active charset for the current dict (reset per dict) ---------------
+    // ---- active charset: file-level, persists across top-level dicts -------
+    // Initialised once to UTF-8. Updated by (f=<charset>) cells. Top-level dicts
+    // inherit the last-set charset (no reset); nested dicts save/restore it so
+    // an inner < <(a=c)> … > scope cannot permanently change the outer charset.
     private Encoding _charset = Encoding.UTF8;
 
     public MorkAssembler(IReadOnlyList<MorkToken> tokens)
@@ -116,10 +119,12 @@ internal sealed class MorkAssembler
     {
         Expect(MorkTokenKind.DictOpen); // consume '<'
 
-        // Reset charset to default for this dict scope.
-        // Outer charset is restored when we recurse (caller's _charset is on the stack).
+        // Nested dicts (nestDepth > 0) save and restore the charset so an inner
+        // < <(a=c)> … > scope cannot permanently change the outer charset.
+        // Top-level dicts (nestDepth == 0) do NOT reset: the active charset persists
+        // across all top-level dicts in the file (file-level charset).
         var savedCharset = _charset;
-        _charset = Encoding.UTF8;
+        // (savedCharset is only used on exit when nestDepth > 0; no reset here)
 
         // First pass to pick up (f=charset) — Mork dicts can declare charset before atoms,
         // but real files put it first too. We do a single forward pass: charset applies to
@@ -147,15 +152,11 @@ internal sealed class MorkAssembler
 
         Expect(MorkTokenKind.DictClose); // consume '>'
 
-        // Restore charset after we leave this dict scope.
-        // (Nested dict restores on its own; for a top-level dict we just leave the
-        //  charset as-is so subsequent dicts in the file inherit nothing special —
-        //  each top-level dict resets to UTF-8 at entry above.)
+        // Restore charset on exit from a nested dict only. Top-level dict charset
+        // changes (from (f=…) cells) persist for subsequent top-level dicts so that
+        // value atoms defined after the first dict still use the correct encoding.
         if (nestDepth > 0)
             _charset = savedCharset;
-        // For nestDepth==0 (top-level dict): charset set by (f=…) stays active until
-        // the next top-level dict resets it.  That matches the grammar: charset is
-        // per-dict, atoms decoded at definition time.
     }
 
     /// <summary>
@@ -189,10 +190,10 @@ internal sealed class MorkAssembler
         Advance(); // consume '='
 
         // Value is an optional Text token (empty when the tokenizer emits no Text after '=').
-        string valueBytes = "";
+        string decodedValue = "";
         if (_pos < _tokens.Count && Current().Kind == MorkTokenKind.Text)
         {
-            valueBytes = MorkValueDecoder.Decode(Current().Bytes, _charset);
+            decodedValue = MorkValueDecoder.Decode(Current().Bytes, _charset);
             Advance();
         }
 
@@ -201,7 +202,7 @@ internal sealed class MorkAssembler
         // Charset hint?
         if (string.Equals(keyStr, "f", StringComparison.OrdinalIgnoreCase))
         {
-            _charset = MorkValueDecoder.ResolveCharset(valueBytes);
+            _charset = MorkValueDecoder.ResolveCharset(decodedValue);
             return;
         }
 
@@ -209,7 +210,7 @@ internal sealed class MorkAssembler
         if (IsHexId(keyStr))
         {
             string atomId = keyStr.ToUpperInvariant();
-            _atoms[atomId] = valueBytes;
+            _atoms[atomId] = decodedValue;
             return;
         }
 

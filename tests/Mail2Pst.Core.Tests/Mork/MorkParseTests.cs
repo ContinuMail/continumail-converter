@@ -52,6 +52,17 @@ public class MorkParseTests
     }
 
     [Fact]
+    public void Parse_EmptyCell_StoresEmptyString()
+    {
+        // (^88=5) → flags="5"; (^81=) → subject="" (cell present, value empty literal)
+        MorkDocument doc = MorkReader.ParseString(Dict + "{1:^80 {(k^96:c)} [1(^88=5)(^81=)] }");
+        Assert.True(doc.TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out MorkTable t));
+        MorkRow r = t.Rows["1"];
+        Assert.Equal("5", r.Cells["flags"]);
+        Assert.Equal("", r.Cells["subject"]);
+    }
+
+    [Fact]
     public void Parse_MalformedStructure_Throws()
     {
         Assert.Throws<MorkFormatException>(() => MorkReader.ParseString("< (80=x) " /* unterminated dict */));
