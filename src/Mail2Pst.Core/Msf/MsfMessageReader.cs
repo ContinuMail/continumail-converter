@@ -51,9 +51,18 @@ public static class MsfMessageReader
         IReadOnlyList<string> keywords = ParseKeywords(row);
         int label = ParseLabel(row, diagnostics);
         long? msgOffset = ParseMsgOffset(row, diagnostics);
-        string? messageId = null;
+        string? messageId = ParseMessageId(row);
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static string? ParseMessageId(MorkRow row)
+    {
+        if (!row.TryGetCell("message-id", out string raw) || raw.Length == 0)
+        {
+            return null;
+        }
+        return raw; // verbatim — SP3 normalizes both sides before matching
     }
 
     private static long? ParseMsgOffset(MorkRow row, List<MsfDiagnostic> diagnostics)

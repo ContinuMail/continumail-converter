@@ -248,4 +248,38 @@ public class MsfMessageReaderTests
         Assert.Null(Assert.Single(r.Messages).MsgOffset);
         Assert.Empty(r.Diagnostics);
     }
+
+    [Fact]
+    public void Read_MessageId_Verbatim_NoAngleBracketNormalization()
+    {
+        // Bare id (no angle brackets) is preserved exactly — SP3 owns normalization for joining.
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("message-id", "abc@host")))).Messages);
+        Assert.Equal("abc@host", m.MessageId);
+    }
+
+    [Fact]
+    public void Read_MessageId_AngleBracketsPreservedAsStored()
+    {
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("message-id", "<abc@host>")))).Messages);
+        Assert.Equal("<abc@host>", m.MessageId);
+    }
+
+    [Fact]
+    public void Read_MessageId_EmptyString_DefaultsToNull_NoDiagnostic()
+    {
+        var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("message-id", ""))));
+        Assert.Null(Assert.Single(r.Messages).MessageId);
+        Assert.Empty(r.Diagnostics);
+    }
+
+    [Fact]
+    public void Read_MessageId_WhitespacePreservedVerbatim()
+    {
+        // "verbatim" really means verbatim — no trimming. Locks against a future "helpful" .Trim().
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("message-id", " abc@host ")))).Messages);
+        Assert.Equal(" abc@host ", m.MessageId);
+    }
 }
