@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.Msf;
 using MimeKit;
 
 namespace Mail2Pst.Core.Parsing.Mime;
@@ -59,10 +60,10 @@ public class MimeMessageMapper
             HtmlBody = mime.HtmlBody,
             Attachments = ExtractAttachments(mime, warnings),
             Source = sourceRef,
-            MessageId = EnsureAngleBrackets(mime.MessageId),
-            InReplyTo = EnsureAngleBrackets(mime.InReplyTo),
+            MessageId = MessageIdNormalizer.NormalizeForJoin(mime.MessageId),
+            InReplyTo = MessageIdNormalizer.NormalizeForJoin(mime.InReplyTo),
             References = mime.References.Count > 0
-                ? string.Join(" ", mime.References.Select(id => EnsureAngleBrackets(id)).OfType<string>())
+                ? string.Join(" ", mime.References.Select(id => MessageIdNormalizer.NormalizeForJoin(id)).OfType<string>())
                 : null,
             IsRead = ParseIsRead(mime, mozillaStatus),
             IsReplied = mozillaStatus is { } f1 && (f1 & MozillaStatusReplied) != 0,
@@ -121,14 +122,6 @@ public class MimeMessageMapper
             return status.Contains('R', StringComparison.OrdinalIgnoreCase);
 
         return true;
-    }
-
-    private static string? EnsureAngleBrackets(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        value = value.Trim();
-        if (value.StartsWith("<") && value.EndsWith(">")) return value;
-        return $"<{value}>";
     }
 
     /// <summary>
