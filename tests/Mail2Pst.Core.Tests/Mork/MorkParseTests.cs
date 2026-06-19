@@ -115,6 +115,25 @@ public class MorkParseTests
         Assert.Equal("5", t.Rows["1"].Cells["flags"]);
     }
 
+    [Fact]
+    public void Parse_ColumnDict_MarkerPrecededByHexIdAtom_StillRecognisedAsColumnDict()
+    {
+        // Regression for the Kimi review: a column dict where a hex-id atom definition
+        // (80=…scope…) appears BEFORE the <(a=c)> marker. The old "stop at first hex-id"
+        // heuristic in PeekIsColumnMarker returned false here, routing 80/96/88 into the
+        // VALUE map, so resolving the table scope ^80 in the COLUMN map threw.
+        // Format: < (80=…scope…) <(a=c)> (96=…kind…)(88=flags) > + table using ^80/^96/^88.
+        const string src =
+            "< (80=ns:msg:db:row:scope:msgs:all) <(a=c)> (96=ns:msg:db:table:kind:msgs)(88=flags) >\n"
+            + "{1:^80 {(k^96:c)} [1(^88=5)]}";
+        MorkDocument doc = MorkReader.ParseString(src);
+        Assert.True(
+            doc.TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out MorkTable t),
+            $"Column dict not recognised — actual tables: [{string.Join(", ", doc.Tables.Select(x => $"scope={x.Scope} kind={x.Kind}"))}]");
+        Assert.Equal("ns:msg:db:row:scope:msgs:all", t.Scope);
+        Assert.Equal("5", t.Rows["1"].Cells["flags"]);
+    }
+
     // Builds: "< <(a=c)> (f=iso-8859-1)(80=ns:...:msgs:all)(96=ns:...:kind:msgs)(81=subject) >{1:^80 {(k^96:c)} [1(^81=<0xE6>)]}"
     // with the subject value being the single raw byte 0xE6 (NOT $-escaped) to exercise the byte path.
     private static byte[] BuildLatin1Fixture()
