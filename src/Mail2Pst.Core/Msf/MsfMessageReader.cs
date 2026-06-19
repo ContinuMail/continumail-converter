@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Mail2Pst.Core.Mork;
 
 namespace Mail2Pst.Core.Msf;
@@ -45,7 +46,7 @@ public static class MsfMessageReader
     // Diagnostic order is contractual: flags, junkscore, label, msgOffset.
     private static MsfMessage ReadRow(MorkRow row, List<MsfDiagnostic> diagnostics)
     {
-        MsfMessageFlags flags = MsfMessageFlags.None;
+        MsfMessageFlags flags = ParseFlags(row, diagnostics);
         int? junkScore = null;
         IReadOnlyList<string> keywords = Array.Empty<string>();
         int label = 0;
@@ -53,5 +54,21 @@ public static class MsfMessageReader
         string? messageId = null;
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static MsfMessageFlags ParseFlags(MorkRow row, List<MsfDiagnostic> diagnostics)
+    {
+        if (!row.TryGetCell("flags", out string raw) || raw.Length == 0)
+        {
+            return MsfMessageFlags.None;
+        }
+
+        if (uint.TryParse(raw, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out uint value))
+        {
+            return (MsfMessageFlags)value;
+        }
+
+        diagnostics.Add(new MsfDiagnostic(row.Id, "flags", raw, "not valid hex"));
+        return MsfMessageFlags.None;
     }
 }

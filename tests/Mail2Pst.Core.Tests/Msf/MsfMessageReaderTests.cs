@@ -70,4 +70,64 @@ public class MsfMessageReaderTests
         Assert.Null(m.MessageId);
         Assert.Empty(result.Diagnostics);
     }
+
+    [Theory]
+    [InlineData("1",  true,  false, false, false, false)] // read
+    [InlineData("0",  false, false, false, false, false)] // unread
+    [InlineData("3",  true,  true,  false, false, false)] // read+replied
+    [InlineData("5",  true,  false, false, true,  false)] // read+marked
+    [InlineData("81", true,  false, false, false, false)] // read+offline
+    [InlineData("80", false, false, false, false, false)] // unread+offline
+    [InlineData("8",  false, false, false, false, true)]  // expunged
+    [InlineData("1000", false, false, true, false, false)] // forwarded
+    [InlineData("85", true,  false, false, true,  false)] // read+marked+offline
+    [InlineData("91", true,  false, false, false, false)] // read+hasRe+offline
+    [InlineData("93", true,  true,  false, false, false)] // read+replied+hasRe+offline
+    [InlineData("87", true,  true,  false, true,  false)] // read+replied+marked+offline
+    public void Read_Flags_Interpreted(string hex, bool read, bool replied, bool forwarded, bool marked, bool expunged)
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("flags", hex)))).Messages);
+        Assert.Equal(read,      m.IsRead);
+        Assert.Equal(replied,   m.IsReplied);
+        Assert.Equal(forwarded, m.IsForwarded);
+        Assert.Equal(marked,    m.IsFlagged);
+        Assert.Equal(expunged,  m.IsExpunged);
+    }
+
+    [Fact]
+    public void Read_Flags_UpperAndLowerHex_ParseSame()
+    {
+        var lower = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("flags", "ff")))).Messages);
+        var upper = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("flags", "FF")))).Messages);
+        Assert.Equal(upper.RawFlags, lower.RawFlags);
+        Assert.Equal((MsfMessageFlags)0xFFu, lower.RawFlags);
+    }
+
+    [Fact]
+    public void Read_Flags_UnknownBits_PreservedInRawFlags()
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("flags", "ffffffff")))).Messages);
+        Assert.Equal((MsfMessageFlags)0xFFFFFFFFu, m.RawFlags);
+    }
+
+    [Fact]
+    public void Read_Flags_EmptyOrAbsent_DefaultsToNone_NoDiagnostic()
+    {
+        var empty = MsfMessageReader.Read(MsgsDoc(Row("1", ("flags", ""))));
+        Assert.Equal(MsfMessageFlags.None, Assert.Single(empty.Messages).RawFlags);
+        Assert.Empty(empty.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData("100000000")] // overflow > 0xFFFFFFFF
+    [InlineData("zz")]        // non-hex
+    public void Read_Flags_Invalid_DefaultsToNone_PlusDiagnostic(string raw)
+    {
+        MsfReadResult result = MsfMessageReader.Read(MsgsDoc(Row("R1", ("flags", raw))));
+        Assert.Equal(MsfMessageFlags.None, Assert.Single(result.Messages).RawFlags);
+        MsfDiagnostic d = Assert.Single(result.Diagnostics);
+        Assert.Equal("R1", d.RowId);
+        Assert.Equal("flags", d.Column);
+        Assert.Equal(raw, d.RawValue);
+    }
 }
