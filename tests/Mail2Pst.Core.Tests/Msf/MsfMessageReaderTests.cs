@@ -164,4 +164,37 @@ public class MsfMessageReaderTests
         Assert.Equal("junkscore", d.Column);
         Assert.Equal(raw, d.RawValue);
     }
+
+    [Fact]
+    public void Read_Keywords_SplitDedupeCaseSensitivePreserveOrder()
+    {
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("keywords", "$label1 work $label1 Work")))).Messages);
+        Assert.Equal(new[] { "$label1", "work", "Work" }, m.Keywords);
+    }
+
+    [Fact]
+    public void Read_Keywords_CollapsesEmptyTokensFromExtraSpaces()
+    {
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("keywords", "  a   b ")))).Messages);
+        Assert.Equal(new[] { "a", "b" }, m.Keywords);
+    }
+
+    [Fact]
+    public void Read_Keywords_EmptyOrAbsent_Empty_NoDiagnostic()
+    {
+        var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("keywords", ""))));
+        Assert.Empty(Assert.Single(r.Messages).Keywords);
+        Assert.Empty(r.Diagnostics);
+    }
+
+    [Fact]
+    public void Read_Keywords_TabIsPartOfToken_NotDelimiter()
+    {
+        // ASCII-space-only split BY INTENT: a tab stays inside the token.
+        MsfMessage m = Assert.Single(
+            MsfMessageReader.Read(MsgsDoc(Row("1", ("keywords", "a\tb c")))).Messages);
+        Assert.Equal(new[] { "a\tb", "c" }, m.Keywords);
+    }
 }

@@ -48,12 +48,29 @@ public static class MsfMessageReader
     {
         MsfMessageFlags flags = ParseFlags(row, diagnostics);
         int? junkScore = ParseJunkScore(row, diagnostics);
-        IReadOnlyList<string> keywords = Array.Empty<string>();
+        IReadOnlyList<string> keywords = ParseKeywords(row);
         int label = 0;
         long? msgOffset = null;
         string? messageId = null;
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static IReadOnlyList<string> ParseKeywords(MorkRow row)
+    {
+        if (!row.TryGetCell("keywords", out string raw) || raw.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string token in raw.Split(' ')) // ASCII space only, by intent
+        {
+            if (token.Length == 0) continue;        // drop empties from consecutive/leading/trailing spaces
+            if (seen.Add(token)) result.Add(token); // ordinal dedupe, first wins, order preserved
+        }
+        return result;
     }
 
     private static int? ParseJunkScore(MorkRow row, List<MsfDiagnostic> diagnostics)
