@@ -30,7 +30,7 @@ internal static class DiscoverCommand
 
         try
         {
-            DiscoveryResult r = MailTreeDiscovery.Discover(input);
+            DiscoveryResult r = MailProfileDiscovery.Discover(input);
             var output = new
             {
                 type = "discovery",
@@ -39,7 +39,7 @@ internal static class DiscoverCommand
                 sources = r.Sources.Select(s => new
                 {
                     path = s.Path, type = s.Type, targetFolderPath = s.TargetFolderPath,
-                    displayName = s.DisplayName, sourceBytes = s.SourceBytes,
+                    displayName = s.DisplayName, sourceBytes = s.SourceBytes, msfPath = s.MsfPath,
                 }),
                 warnings = r.Warnings.Select(w => new
                 {
@@ -47,6 +47,12 @@ internal static class DiscoverCommand
                     segment = w.Segment, segmentIndex = w.SegmentIndex, relatedPaths = w.RelatedPaths, message = w.Message,
                 }),
                 skipped = r.Skipped.Select(s => new { code = s.Code, path = s.Path, reason = s.Reason }),
+                pairing = new
+                {
+                    pairedMsfCount = r.Pairing.PairedMsfCount,
+                    unpairedMboxCount = r.Pairing.UnpairedMboxCount,
+                    orphanMsfCount = r.Pairing.OrphanMsfCount,
+                },
             };
             Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
             return 0;

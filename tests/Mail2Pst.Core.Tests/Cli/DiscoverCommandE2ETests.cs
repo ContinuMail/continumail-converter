@@ -92,4 +92,26 @@ public class DiscoverCommandE2ETests
         Assert.True(root.GetProperty("fatal").GetBoolean());
         Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
     }
+
+    [Fact]
+    public void Discover_EmitsMsfPath_AndPairingSummary()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-msf-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, "Inbox"), Array.Empty<byte>());
+        File.WriteAllBytes(Path.Combine(dir, "Inbox.msf"), Array.Empty<byte>());
+        try
+        {
+            (int exit, string stdout, string stderr) = RunCli($"discover --input \"{dir}\"");
+            Assert.True(exit == 0, $"expected exit 0, got {exit}. stderr: {stderr}");
+
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32()); // existing serializer contract
+            JsonElement src = root.GetProperty("sources").EnumerateArray().Single();
+            Assert.EndsWith("Inbox.msf", src.GetProperty("msfPath").GetString());
+            Assert.Equal(1, root.GetProperty("pairing").GetProperty("pairedMsfCount").GetInt32());
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
