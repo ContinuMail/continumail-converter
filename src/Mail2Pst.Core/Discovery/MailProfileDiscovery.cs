@@ -1,0 +1,136 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace Mail2Pst.Core.Discovery;
+
+/// <summary>
+/// Profile-aware orchestrator over <see cref="MailTreeDiscovery"/>. Auto-classifies the input
+/// (Thunderbird store-root / profile / single account tree), walks each account directory with the
+/// account name as the top folder segment, and merges the results with a cross-account duplicate pass.
+/// Parse-free; pairs mbox with sibling .msf via path existence only (no .msf parsing).
+/// </summary>
+public static class MailProfileDiscovery
+{
+    private static readonly string[] StoreNames = { "Mail", "ImapMail" };
+
+    public static DiscoveryResult Discover(string path)
+    {
+        string ownName = new DirectoryInfo(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Name;
+
+        // 1) Store-root: the input directory itself is named Mail/ImapMail.
+        if (StoreNames.Contains(ownName, StringComparer.OrdinalIgnoreCase))
+            return DiscoverStores(path, new[] { path }, "thunderbird-store-root");
+
+        // 2) Profile: contains Mail and/or ImapMail child directories.
+        var stores = StoreNames
+            .Select(s => Path.Combine(path, s))
+            .Where(Directory.Exists)
+            .ToList();
+        if (stores.Count > 0)
+            return DiscoverStores(path, stores, "thunderbird-profile");
+
+        // 3) Single tree: today's behaviour, no prefix.
+        return MailTreeDiscovery.Discover(path);
+    }
+
+    private static DiscoveryResult DiscoverStores(string root, IReadOnlyList<string> stores, string layout)
+    {
+        // Track each source's ORIGIN (the account directory it came from) so the cross-account dedupe
+        // can require >1 distinct origin — two same-named account dirs collide on path AND first segment,
+        // so a first-segment check would miss them.
+        var indexed = new List<(DiscoveredSource Source, string OriginKey)>();
+        var warnings = new List<DiscoveryWarning>();
+        var skipped = new List<DiscoverySkipped>();
+        int paired = 0, unpaired = 0, orphan = 0;
+
+        foreach (string store in stores)
+        {
+            string[] entries;
+            try { entries = Directory.GetFileSystemEntries(store); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                skipped.Add(new DiscoverySkipped("unreadable", store, ex.Message));
+                warnings.Add(new DiscoveryWarning("unreadable", store, null, null, null, null,
+                    $"Could not read store: {ex.Message}"));
+                continue;
+            }
+
+            foreach (string entry in entries.OrderBy(e => e, StringComparer.OrdinalIgnoreCase))
+            {
+                FileAttributes attr;
+                try { attr = File.GetAttributes(entry); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    skipped.Add(new DiscoverySkipped("unreadable", entry, ex.Message)); continue;
+                }
+
+                // Never follow symlinks/reparse points (mirrors MailTreeDiscovery's policy).
+                if ((attr & FileAttributes.ReparsePoint) != 0)
+                {
+                    skipped.Add(new DiscoverySkipped("symlink-skipped", entry, "Symlink/reparse-point not followed."));
+                    warnings.Add(new DiscoveryWarning("symlink-skipped", entry, null, null, null, null,
+                        "Symlink/reparse-point skipped."));
+                    continue;
+                }
+
+                if ((attr & FileAttributes.Directory) == 0)
+                {
+                    // Loose file directly under Mail/ or ImapMail/ — accounts are directories only.
+                    skipped.Add(new DiscoverySkipped("unexpected-file-in-store-root", entry, "Not an account directory."));
+                    warnings.Add(new DiscoveryWarning("unexpected-file-in-store-root", entry, null, null, null, null,
+                        "Unexpected file directly under a mail store; skipped."));
+                    continue;
+                }
+
+                string account = Path.GetFileName(entry);
+                DiscoveryResult acct;
+                try { acct = MailTreeDiscovery.Discover(entry, new[] { account }); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    skipped.Add(new DiscoverySkipped("unreadable", entry, ex.Message));
+                    warnings.Add(new DiscoveryWarning("unreadable", entry, null, null, null, null,
+                        $"Could not read account: {ex.Message}"));
+                    continue;
+                }
+
+                foreach (DiscoveredSource s in acct.Sources) indexed.Add((s, entry)); // OriginKey = account dir path
+                warnings.AddRange(acct.Warnings);
+                skipped.AddRange(acct.Skipped);
+                paired += acct.Pairing.PairedMsfCount;
+                unpaired += acct.Pairing.UnpairedMboxCount;
+                orphan += acct.Pairing.OrphanMsfCount;
+            }
+        }
+
+        AddCrossAccountDuplicateWarnings(indexed, warnings);
+
+        var sources = indexed.Select(x => x.Source).ToList();
+        return new DiscoveryResult(root, layout, sources, warnings, skipped,
+            new DiscoveryPairingSummary(paired, unpaired, orphan));
+    }
+
+    // Emit a duplicate-target-folder-path warning ONLY for groups whose sources come from >1 distinct
+    // ORIGIN (account dir). Same-account duplicates were already warned by MailTreeDiscovery's per-tree
+    // pass, so they are not re-emitted here.
+    private static void AddCrossAccountDuplicateWarnings(
+        List<(DiscoveredSource Source, string OriginKey)> indexed, List<DiscoveryWarning> warnings)
+    {
+        var groups = indexed
+            .GroupBy(x => string.Join('\0', x.Source.TargetFolderPath), StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1
+                     && g.Select(x => x.OriginKey).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1);
+
+        foreach (var g in groups)
+        {
+            DiscoveredSource first = g.First().Source;
+            warnings.Add(new DiscoveryWarning("duplicate-target-folder-path", first.Path,
+                first.TargetFolderPath, null, null, g.Select(x => x.Source.Path).ToList(),
+                $"Multiple sources map to target folder {string.Join(" / ", first.TargetFolderPath)}."));
+        }
+    }
+}
