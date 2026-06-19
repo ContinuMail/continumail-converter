@@ -9,4 +9,5 @@ namespace Mail2Pst.Core.Config;
 public class ConversionConfig
 {
     public List<OutputGroupConfig> Outputs { get; set; } = new();
+    public JunkHandlingMode JunkHandling { get; set; } = JunkHandlingMode.Off;
 }
