@@ -220,4 +220,32 @@ public class MsfMessageReaderTests
         Assert.Equal("label", d.Column);
         Assert.Equal(raw, d.RawValue);
     }
+
+    [Fact]
+    public void Read_MsgOffset_Parsed()
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("msgOffset", "12345")))).Messages);
+        Assert.Equal(12345L, m.MsgOffset);
+    }
+
+    [Theory]
+    [InlineData("-1")]                    // negative
+    [InlineData("99999999999999999999")]  // overflow long
+    [InlineData("xyz")]                    // non-numeric
+    public void Read_MsgOffset_Invalid_NullPlusDiagnostic(string raw)
+    {
+        MsfReadResult r = MsfMessageReader.Read(MsgsDoc(Row("R1", ("msgOffset", raw))));
+        Assert.Null(Assert.Single(r.Messages).MsgOffset);
+        MsfDiagnostic d = Assert.Single(r.Diagnostics);
+        Assert.Equal("msgOffset", d.Column);
+        Assert.Equal(raw, d.RawValue);
+    }
+
+    [Fact]
+    public void Read_MsgOffset_EmptyOrAbsent_Null_NoDiagnostic()
+    {
+        var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("msgOffset", ""))));
+        Assert.Null(Assert.Single(r.Messages).MsgOffset);
+        Assert.Empty(r.Diagnostics);
+    }
 }

@@ -50,10 +50,26 @@ public static class MsfMessageReader
         int? junkScore = ParseJunkScore(row, diagnostics);
         IReadOnlyList<string> keywords = ParseKeywords(row);
         int label = ParseLabel(row, diagnostics);
-        long? msgOffset = null;
+        long? msgOffset = ParseMsgOffset(row, diagnostics);
         string? messageId = null;
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static long? ParseMsgOffset(MorkRow row, List<MsfDiagnostic> diagnostics)
+    {
+        if (!row.TryGetCell("msgOffset", out string raw) || raw.Length == 0)
+        {
+            return null;
+        }
+
+        if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) && value >= 0)
+        {
+            return value;
+        }
+
+        diagnostics.Add(new MsfDiagnostic(row.Id, "msgOffset", raw, "not a non-negative integer"));
+        return null;
     }
 
     private static int ParseLabel(MorkRow row, List<MsfDiagnostic> diagnostics)
