@@ -45,7 +45,8 @@ public static class MsfEnricher
         {
             string? key = MessageIdNormalizer.NormalizeForJoin(m.MessageId);
             if (key is null) continue;
-            if (!byId.TryAdd(key, m)) dupMsf.Add(key);
+            // On a duplicate, drop the first-seen entry too so byId and dupMsf stay consistent.
+            if (!byId.TryAdd(key, m)) { byId.Remove(key); dupMsf.Add(key); }
         }
         // Mark mbox-side duplicate keys too.
         var mailKeyCounts = new Dictionary<string, int>(StringComparer.Ordinal);

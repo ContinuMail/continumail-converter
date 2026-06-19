@@ -60,6 +60,19 @@ public class MsfEnricherTests
     }
 
     [Fact]
+    public void DuplicateId_OnMboxSide_SkipsAll()
+    {
+        var mail1 = new MailMessage { MessageId = "<dup@h>", IsRead = false };
+        var mail2 = new MailMessage { MessageId = "<dup@h>", IsRead = false };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "dup@h"), ("flags", "1")));
+        var result = MsfEnricher.Enrich(new[] { mail1, mail2 }, msf, Opts());
+        Assert.Equal(0, result.Matched);
+        Assert.Equal(2, result.SkippedDuplicateId);
+        Assert.False(mail1.IsRead); // both untouched
+        Assert.False(mail2.IsRead);
+    }
+
+    [Fact]
     public void MissingId_IsSkipped_AndCounted()
     {
         var mail = new MailMessage { MessageId = null, IsRead = false };
