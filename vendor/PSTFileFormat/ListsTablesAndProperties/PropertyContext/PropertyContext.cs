@@ -495,10 +495,11 @@ namespace PSTFileFormat
         {
             if (buffer.Length < 4)
                 throw new System.IO.InvalidDataException("MV-Unicode buffer too short to contain count.");
-            int count = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(0));
-            int headerLen = 4 + 4 * count;
-            if (buffer.Length < headerLen)
+            uint rawCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(0));
+            if (rawCount > (uint)(buffer.Length - 4) / 4)   // also guards headerLen overflow
                 throw new System.IO.InvalidDataException("MV-Unicode buffer too short to contain all offset entries.");
+            int count = (int)rawCount;
+            int headerLen = 4 + 4 * count;
             int[] offsets = new int[count];
             for (int i = 0; i < count; i++)
             {
@@ -517,6 +518,7 @@ namespace PSTFileFormat
             }
             return result;
         }
+
         #endregion
 
         public List<PropertyContextRecord> GetAllProperties()

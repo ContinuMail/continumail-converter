@@ -15,4 +15,11 @@ public class StringNamedPropertyTests
         byte[] blob = PropertyContext.SerializeMultiString(values);
         Assert.Equal(values, PropertyContext.DeserializeMultiString(blob));
     }
+
+    [Fact]
+    public void MultiString_Deserializer_RejectsOversizedCount()
+    {
+        Assert.Throws<System.IO.InvalidDataException>(
+            () => PropertyContext.DeserializeMultiString(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF }));
+    }
 }
