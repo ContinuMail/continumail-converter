@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
 using System.IO;
-using System.Linq;
 using Mail2Pst.Core.Mork;
 using Mail2Pst.Core.Msf;
 using Xunit;

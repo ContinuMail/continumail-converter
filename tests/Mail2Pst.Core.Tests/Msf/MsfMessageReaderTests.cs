@@ -129,6 +129,7 @@ public class MsfMessageReaderTests
         Assert.Equal("R1", d.RowId);
         Assert.Equal("flags", d.Column);
         Assert.Equal(raw, d.RawValue);
+        Assert.Equal("not valid hex", d.Reason);
     }
 
     [Theory]
@@ -221,11 +222,13 @@ public class MsfMessageReaderTests
         Assert.Equal(raw, d.RawValue);
     }
 
-    [Fact]
-    public void Read_MsgOffset_Parsed()
+    [Theory]
+    [InlineData("0",     0L)]
+    [InlineData("12345", 12345L)]
+    public void Read_MsgOffset_Parsed(string raw, long expected)
     {
-        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("msgOffset", "12345")))).Messages);
-        Assert.Equal(12345L, m.MsgOffset);
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("msgOffset", raw)))).Messages);
+        Assert.Equal(expected, m.MsgOffset);
     }
 
     [Theory]
