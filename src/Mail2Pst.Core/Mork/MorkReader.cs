@@ -233,21 +233,20 @@ internal sealed class MorkAssembler
     /// <summary>
     /// Peeks ahead without consuming tokens to determine whether this dict is a
     /// column dict. A dict is a column dict if an <c>(a=c)</c> marker appears
-    /// anywhere before the dict's first hex-id atom definition — whether as a nested
-    /// <c>&lt;(a=c)&gt;</c> sub-dict OR as an inline <c>(a=c)</c> cell.
-    /// The common Thunderbird real-corpus layout has the marker first (<c>&lt; &lt;(a=c)&gt; …&gt;</c>),
-    /// but <c>(a=c)</c> marks the column-atom space and may appear before (not only as)
-    /// the first cell — e.g. after a charset hint like <c>(f=iso-8859-1)</c>.
+    /// anywhere within it — whether as a nested <c>&lt;(a=c)&gt;</c> sub-dict OR as an
+    /// inline <c>(a=c)</c> cell — regardless of what atoms or charset hints precede it.
+    /// The common Thunderbird real-corpus layout has the marker first
+    /// (<c>&lt; &lt;(a=c)&gt; …&gt;</c>), but the marker may legitimately follow a charset
+    /// hint like <c>(f=iso-8859-1)</c> or even a hex-id atom definition, so the entire
+    /// dict span is scanned rather than stopping at the first atom.
     /// Returns true if the pattern is found; does NOT advance the cursor.
     /// </summary>
     private bool PeekIsColumnMarker()
     {
-        // Scan forward within this dict's token span (depth-tracked to stay inside)
-        // looking for either:
+        // Scan the whole dict token span (depth-tracked to stay inside) looking for either:
         //   (a) a nested DictOpen immediately followed by "(a=c)" then DictClose, OR
         //   (b) an inline paren-cell with key "a" and value "c".
-        // Stop and return false if we reach a hex-id atom definition first (which
-        // would mean the dict cannot be a column dict at that point).
+        // Reaching the dict's closing > without finding either → not a column dict.
         int p = _pos;
         int depth = 1; // we are already inside the outer DictOpen
 
@@ -282,30 +281,15 @@ internal sealed class MorkAssembler
 
             if (tok.Kind == MorkTokenKind.ParenOpen)
             {
-                // Peek at the cell inside the outer dict (depth == 1).
+                // Inline (a=c) marker at this dict's level → column dict.
                 if (depth == 1 && IsAcCell(p + 1, out _))
-                    return true; // inline (a=c) marker before a hex-id definition
+                    return true;
 
-                // If this is a hex-id atom definition, we stop scanning.
-                // A hex-id cell looks like: ParenOpen Text(hexId) Equals Text(value) ParenClose.
-                // The key must be all-hex and not "a" or "f".
-                if (depth == 1)
-                {
-                    int q = p + 1;
-                    if (q < _tokens.Count && _tokens[q].Kind == MorkTokenKind.Text)
-                    {
-                        string keyStr = Encoding.ASCII.GetString(_tokens[q].Bytes);
-                        if (IsHexId(keyStr)
-                            && !string.Equals(keyStr, "a", StringComparison.OrdinalIgnoreCase)
-                            && !string.Equals(keyStr, "f", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // First hex-id atom reached without seeing (a=c) — not a column dict.
-                            return false;
-                        }
-                    }
-                }
-
-                // Skip past this paren cell without consuming.
+                // Any other cell (including a hex-id atom definition): skip it and keep
+                // scanning. We deliberately do NOT stop at the first hex-id — a column dict
+                // may define scope/kind/column atoms BEFORE its (a=c) marker, so the whole
+                // dict span must be scanned. Value dicts never contain (a=c), so they fall
+                // through to the end and return false (no false positives).
                 p = SkipParenPeek(p);
                 continue;
             }
