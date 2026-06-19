@@ -30,5 +30,7 @@ public class MailMessage
     public bool IsReplied { get; set; } = false;
     public bool IsForwarded { get; set; } = false;
     public bool IsFlagged { get; set; } = false;
+    public bool IsJunk { get; set; } = false;
+    public List<string> Categories { get; set; } = new();
     public MailImportance Importance { get; set; } = MailImportance.Normal;
 }
