@@ -476,6 +476,12 @@ public class PstWriter
             note.PC.SetDateTimeProperty(PropertyID.PidTagLastVerbExecutionTime, LastVerbTime(message));
         }
 
+        if (message.Categories.Count > 0)
+        {
+            ushort keywordsId = PSTFileFormat.PropertyNameToIDMap.GetOrCreateStringNamedProperty(file, 2, "Keywords");
+            note.PC.SetMultiStringProperty((PSTFileFormat.PropertyID)keywordsId, message.Categories);
+        }
+
         note.SaveChanges();
         folder.AddMessage(note);
         folder.SaveChanges();
