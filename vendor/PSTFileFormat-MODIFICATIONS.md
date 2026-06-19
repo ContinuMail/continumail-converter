@@ -20,5 +20,8 @@ authoritative description of the local PSTFileFormat modifications.
   (`7129962`).
 - Gmail-Takeout fidelity tweaks: NDR (non-delivery-report) suppression, unread-count
   handling, and locale handling (`e558191`).
+- Added string-named (MNID_STRING) property support to `PropertyNameToIDMap`/`PropertyName`
+  (register/read/round-trip; corrected string-id hash-bucket index `(wGuid<<1)|N`) + MV-Unicode
+  multi-string setter on `PropertyContext` (ContinuMail, 2026).
 
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
