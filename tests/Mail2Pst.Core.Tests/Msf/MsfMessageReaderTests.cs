@@ -282,4 +282,65 @@ public class MsfMessageReaderTests
             MsfMessageReader.Read(MsgsDoc(Row("1", ("message-id", " abc@host ")))).Messages);
         Assert.Equal(" abc@host ", m.MessageId);
     }
+
+    [Fact]
+    public void Read_Diagnostics_MultipleBadCellsInOneRow_FixedColumnOrder()
+    {
+        // All four diagnostic-producing columns bad in one row.
+        MsfReadResult r = MsfMessageReader.Read(MsgsDoc(Row("R1",
+            ("flags", "zz"), ("junkscore", "x"), ("label", "y"), ("msgOffset", "-1"))));
+        Assert.Equal(
+            new[] { "flags", "junkscore", "label", "msgOffset" },
+            r.Diagnostics.Select(d => d.Column).ToArray());
+        Assert.All(r.Diagnostics, d => Assert.Equal("R1", d.RowId));
+    }
+
+    [Fact]
+    public void Read_NoReconciliation_ConflictingSignals_AllPreservedIndependently()
+    {
+        // flags has LabelsMask bits set AND legacy label=3 AND $label1 keyword AND NonJunk AND junkscore=100.
+        // SP2 must keep them all, independently — no cross-derivation, no suppression.
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1",
+            ("flags", "2000000"),                 // a bit inside LabelsMask (0x0E000000)
+            ("label", "3"),
+            ("keywords", "$label1 NonJunk custom"),
+            ("junkscore", "100")))).Messages);
+
+        Assert.Equal((MsfMessageFlags)0x2000000u, m.RawFlags & MsfMessageFlags.LabelsMask);
+        Assert.Equal(3, m.Label);
+        Assert.Equal(new[] { "$label1", "NonJunk", "custom" }, m.Keywords);
+        Assert.Equal(100, m.JunkScore);
+        Assert.True(m.IsJunk);
+    }
+
+    [Fact]
+    public void Read_ParseStringSmoke_InterpretsMsgsTableCells()
+    {
+        // End-to-end through the real SP1 parser (production consumes MorkReader output).
+        // NOTE: in Mork, '$' starts a $XX hex escape, so a LITERAL '$' in a value is encoded $24
+        // ('$' == 0x24). Thus on-disk keywords "$label1 work" are written "$24label1 work"; SP2 sees
+        // the decoded "$label1 work". (A raw "$label1" in Mork source would throw MorkFormatException
+        // "Malformed $XX hex escape" — that is why the direct-construction tests above bypass parsing.)
+        const string columnDict =
+            "< <(a=c)> " +
+            "(80=ns:msg:db:row:scope:msgs:all)" +
+            "(96=ns:msg:db:table:kind:msgs)" +
+            "(88=flags)(81=message-id)(82=keywords)(83=junkscore)(84=label)(85=msgOffset) >\n";
+        const string table =
+            "{1:^80 {(k^96:c)} [D9D1(^88=5)(^81=abc@host)(^82=$24label1 work)(^83=50)(^84=3)(^85=123)] }";
+
+        MorkDocument doc = MorkReader.ParseString(columnDict + table);
+        MsfReadResult result = MsfMessageReader.Read(doc);
+        MsfMessage m = Assert.Single(result.Messages);
+
+        Assert.Equal("D9D1", m.RowId);
+        Assert.True(m.IsRead);
+        Assert.True(m.IsFlagged);
+        Assert.Equal("abc@host", m.MessageId);
+        Assert.Equal(new[] { "$label1", "work" }, m.Keywords);
+        Assert.True(m.IsJunk);
+        Assert.Equal(3, m.Label);
+        Assert.Equal(123L, m.MsgOffset);
+        Assert.Empty(result.Diagnostics);
+    }
 }
