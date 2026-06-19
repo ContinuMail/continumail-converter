@@ -12,4 +12,5 @@ public class SourceConfig
     public string Type { get; set; } = string.Empty;
     public string? TargetFolder { get; set; }
     public List<string>? TargetFolderPath { get; set; }
+    public string? MsfPath { get; set; }
 }
