@@ -49,11 +49,27 @@ public static class MsfMessageReader
         MsfMessageFlags flags = ParseFlags(row, diagnostics);
         int? junkScore = ParseJunkScore(row, diagnostics);
         IReadOnlyList<string> keywords = ParseKeywords(row);
-        int label = 0;
+        int label = ParseLabel(row, diagnostics);
         long? msgOffset = null;
         string? messageId = null;
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static int ParseLabel(MorkRow row, List<MsfDiagnostic> diagnostics)
+    {
+        if (!row.TryGetCell("label", out string raw) || raw.Length == 0)
+        {
+            return 0;
+        }
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            return value; // verbatim — no clamping (faithful mirror)
+        }
+
+        diagnostics.Add(new MsfDiagnostic(row.Id, "label", raw, "not a number"));
+        return 0;
     }
 
     private static IReadOnlyList<string> ParseKeywords(MorkRow row)

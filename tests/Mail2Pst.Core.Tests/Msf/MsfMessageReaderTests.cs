@@ -197,4 +197,27 @@ public class MsfMessageReaderTests
             MsfMessageReader.Read(MsgsDoc(Row("1", ("keywords", "a\tb c")))).Messages);
         Assert.Equal(new[] { "a\tb", "c" }, m.Keywords);
     }
+
+    [Theory]
+    [InlineData("0", 0)]
+    [InlineData("3", 3)]
+    [InlineData("7", 7)]
+    [InlineData("9", 9)] // out-of-range but valid int — kept verbatim, not clamped
+    public void Read_Label_ParsedVerbatim(string raw, int expected)
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("label", raw)))).Messages);
+        Assert.Equal(expected, m.Label);
+    }
+
+    [Theory]
+    [InlineData("red")]           // non-numeric
+    [InlineData("99999999999")]   // overflow int
+    public void Read_Label_Invalid_ZeroPlusDiagnostic(string raw)
+    {
+        MsfReadResult r = MsfMessageReader.Read(MsgsDoc(Row("R1", ("label", raw))));
+        Assert.Equal(0, Assert.Single(r.Messages).Label);
+        MsfDiagnostic d = Assert.Single(r.Diagnostics);
+        Assert.Equal("label", d.Column);
+        Assert.Equal(raw, d.RawValue);
+    }
 }
