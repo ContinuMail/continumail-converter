@@ -467,6 +467,56 @@ namespace PSTFileFormat
 
             SetExternalProperty(propertyID, PropertyTypeName.PtypObject, propertyBytes);
         }
+
+        public void SetMultiStringProperty(PropertyID id, System.Collections.Generic.IReadOnlyList<string> values)
+            => SetExternalProperty(id, PropertyTypeName.PtypMultiString, SerializeMultiString(values));
+
+        public static byte[] SerializeMultiString(System.Collections.Generic.IReadOnlyList<string> values)
+        {
+            int count = values.Count;
+            byte[][] items = new byte[count][];
+            for (int i = 0; i < count; i++) items[i] = System.Text.Encoding.Unicode.GetBytes(values[i]);
+            int headerLen = 4 + 4 * count;
+            int total = headerLen; foreach (var b in items) total += b.Length;
+            byte[] buf = new byte[total];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(0), (uint)count);
+            int offset = headerLen;
+            for (int i = 0; i < count; i++)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(4 + 4 * i), (uint)offset);
+                offset += items[i].Length;
+            }
+            offset = headerLen;
+            foreach (byte[] item in items) { System.Array.Copy(item, 0, buf, offset, item.Length); offset += item.Length; }
+            return buf;
+        }
+
+        public static System.Collections.Generic.List<string> DeserializeMultiString(byte[] buffer)
+        {
+            if (buffer.Length < 4)
+                throw new System.IO.InvalidDataException("MV-Unicode buffer too short to contain count.");
+            int count = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(0));
+            int headerLen = 4 + 4 * count;
+            if (buffer.Length < headerLen)
+                throw new System.IO.InvalidDataException("MV-Unicode buffer too short to contain all offset entries.");
+            int[] offsets = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                offsets[i] = (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4 + 4 * i));
+                if (offsets[i] < headerLen || offsets[i] > buffer.Length)
+                    throw new System.IO.InvalidDataException("MV-Unicode offset is out of range.");
+                if (i > 0 && offsets[i] < offsets[i - 1])
+                    throw new System.IO.InvalidDataException("MV-Unicode offsets are not non-decreasing.");
+            }
+            var result = new System.Collections.Generic.List<string>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int start = offsets[i];
+                int end = (i + 1 < count) ? offsets[i + 1] : buffer.Length;
+                result.Add(System.Text.Encoding.Unicode.GetString(buffer, start, end - start));
+            }
+            return result;
+        }
         #endregion
 
         public List<PropertyContextRecord> GetAllProperties()
