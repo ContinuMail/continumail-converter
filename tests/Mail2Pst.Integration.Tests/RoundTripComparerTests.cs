@@ -14,7 +14,7 @@ public class RoundTripComparerTests
         new() { MessageId = id, Subject = subject, TextBody = "body", From = new MailAddress { Email = "a@b.com" } };
 
     private static ReadBackMessage Read(string id, string subject) =>
-        new(subject, "a@b.com", Array.Empty<ReadRecipient>(), null, Array.Empty<string>(), true, id, false, false, false, false);
+        new(subject, "a@b.com", Array.Empty<ReadRecipient>(), null, Array.Empty<string>(), true, id, false, false, false, false, Array.Empty<string>());
 
     [Fact]
     public void AssertRoundTrip_MetadataMismatch_Throws()

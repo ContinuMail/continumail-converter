@@ -25,7 +25,8 @@ public sealed record ReadBackMessage(
     bool IsRead,
     bool IsReplied,
     bool IsForwarded,
-    bool IsFlagged);
+    bool IsFlagged,
+    IReadOnlyList<string> Categories);
 
 public sealed record ReadFolder(IReadOnlyList<string> Path, IReadOnlyList<ReadBackMessage> Messages)
 {
@@ -52,8 +53,9 @@ public static class PstReader
             var pst = new PSTFile(path, FileAccess.Read);
             try
             {
+                ushort? keywordsId = PSTFileFormat.PropertyNameToIDMap.ResolveStringNamedProperty(pst, 2, "Keywords");
                 foreach (PSTFolder folder in pst.TopOfPersonalFolders.GetChildFolders())
-                    ReadFolderRecursive(folder, new List<string>(), byKey, order);
+                    ReadFolderRecursive(folder, new List<string>(), byKey, order, keywordsId);
             }
             finally { pst.CloseFile(); }
         }
@@ -63,7 +65,8 @@ public static class PstReader
 
     private static void ReadFolderRecursive(
         PSTFolder folder, List<string> parentPath,
-        Dictionary<string, (List<string> Path, List<ReadBackMessage> Msgs)> byKey, List<string> order)
+        Dictionary<string, (List<string> Path, List<ReadBackMessage> Msgs)> byKey, List<string> order,
+        ushort? keywordsId)
     {
         var path = new List<string>(parentPath) { folder.DisplayName };
         string key = FolderPathKey.Join(path);
@@ -77,7 +80,7 @@ public static class PstReader
                 order.Add(key);
             }
             for (int i = 0; i < mf.MessageCount; i++)
-                entry.Msgs.Add(ReadNote(mf.GetNote(i)));
+                entry.Msgs.Add(ReadNote(mf.GetNote(i), keywordsId));
         }
         else if (folder.MessageCount > 0)
         {
@@ -87,10 +90,10 @@ public static class PstReader
         }
 
         foreach (PSTFolder child in folder.GetChildFolders())
-            ReadFolderRecursive(child, path, byKey, order);
+            ReadFolderRecursive(child, path, byKey, order, keywordsId);
     }
 
-    private static ReadBackMessage ReadNote(Note note)
+    private static ReadBackMessage ReadNote(Note note, ushort? keywordsId)
     {
         // Recipients: read EmailAddress via GetRecipient(); read kind via RecipientsTable directly
         // because GetRecipient() does NOT populate RecipientType (always returns default To).
@@ -137,6 +140,15 @@ public static class PstReader
         bool isReplied = lastVerb is 102 or 103;   // reply / reply-all
         bool isForwarded = lastVerb is 104;          // forward
 
+        // Read "Keywords" named property (MV-Unicode) as categories.
+        IReadOnlyList<string> categories = Array.Empty<string>();
+        if (keywordsId is ushort kid)
+        {
+            var rec = note.PC.GetRecordByPropertyID((PSTFileFormat.PropertyID)kid);
+            if (rec != null)
+                categories = PSTFileFormat.PropertyContext.DeserializeMultiString(note.PC.GetExternalRecordData(rec));
+        }
+
         return new ReadBackMessage(
             Subject: note.Subject,
             FromAddress: fromAddress,
@@ -148,7 +160,8 @@ public static class PstReader
             IsRead: isRead,
             IsReplied: isReplied,
             IsForwarded: isForwarded,
-            IsFlagged: isFlagged);
+            IsFlagged: isFlagged,
+            Categories: categories);
     }
 
     private static RecipientKind MapKind(int? raw)

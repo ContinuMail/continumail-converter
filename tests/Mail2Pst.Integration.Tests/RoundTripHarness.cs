@@ -11,6 +11,7 @@ using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Reporting;
+using Mail2Pst.Core.Writing;
 
 namespace Mail2Pst.Integration.Tests;
 
@@ -24,6 +25,23 @@ public static class RoundTripHarness
     {
         var report = new ConversionRunner(TemplatePath).Run(config, outDir);
         return (report.OutputFiles, report);
+    }
+
+    /// <summary>
+    /// Drives <see cref="PstWriter"/> directly from a list of <see cref="MailMessage"/>s,
+    /// placing all messages into a single "Inbox" folder. Used for tests that build messages
+    /// in-memory rather than parsing an mbox file.
+    /// </summary>
+    public static IReadOnlyList<string> ConvertMessages(IReadOnlyList<MailMessage> messages, string outDir)
+    {
+        var plan = new PstOutputPlan { Name = "P", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = true };
+        IEnumerable<PlannedMessage> planned = messages.Select(m => new PlannedMessage
+        {
+            Message = m,
+            TargetFolderPath = new[] { "Inbox" },
+        });
+        var report = new ConversionReport();
+        return new PstWriter(TemplatePath).WritePlan(plan, planned, outDir, report);
     }
 
     /// <summary>
