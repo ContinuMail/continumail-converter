@@ -47,13 +47,29 @@ public static class MsfMessageReader
     private static MsfMessage ReadRow(MorkRow row, List<MsfDiagnostic> diagnostics)
     {
         MsfMessageFlags flags = ParseFlags(row, diagnostics);
-        int? junkScore = null;
+        int? junkScore = ParseJunkScore(row, diagnostics);
         IReadOnlyList<string> keywords = Array.Empty<string>();
         int label = 0;
         long? msgOffset = null;
         string? messageId = null;
 
         return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+    }
+
+    private static int? ParseJunkScore(MorkRow row, List<MsfDiagnostic> diagnostics)
+    {
+        if (!row.TryGetCell("junkscore", out string raw) || raw.Length == 0)
+        {
+            return null;
+        }
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            return value;
+        }
+
+        diagnostics.Add(new MsfDiagnostic(row.Id, "junkscore", raw, "not a number"));
+        return null;
     }
 
     private static MsfMessageFlags ParseFlags(MorkRow row, List<MsfDiagnostic> diagnostics)

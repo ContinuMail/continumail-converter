@@ -130,4 +130,38 @@ public class MsfMessageReaderTests
         Assert.Equal("flags", d.Column);
         Assert.Equal(raw, d.RawValue);
     }
+
+    [Theory]
+    [InlineData("0",   0,   false)]
+    [InlineData("49",  49,  false)]
+    [InlineData("50",  50,  true)]
+    [InlineData("100", 100, true)]
+    public void Read_JunkScore_ThresholdAt50(string raw, int expected, bool isJunk)
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("junkscore", raw)))).Messages);
+        Assert.Equal(expected, m.JunkScore);
+        Assert.Equal(isJunk, m.IsJunk);
+    }
+
+    [Fact]
+    public void Read_JunkScore_EmptyOrAbsent_NullNotJunk_NoDiagnostic()
+    {
+        var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("junkscore", ""))));
+        MsfMessage m = Assert.Single(r.Messages);
+        Assert.Null(m.JunkScore);
+        Assert.False(m.IsJunk);
+        Assert.Empty(r.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData("high")]          // non-numeric
+    [InlineData("99999999999")]   // overflow int
+    public void Read_JunkScore_Invalid_NullPlusDiagnostic(string raw)
+    {
+        MsfReadResult r = MsfMessageReader.Read(MsgsDoc(Row("R1", ("junkscore", raw))));
+        Assert.Null(Assert.Single(r.Messages).JunkScore);
+        MsfDiagnostic d = Assert.Single(r.Diagnostics);
+        Assert.Equal("junkscore", d.Column);
+        Assert.Equal(raw, d.RawValue);
+    }
 }
