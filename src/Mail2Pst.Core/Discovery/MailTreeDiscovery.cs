@@ -31,16 +31,17 @@ public static class MailTreeDiscovery
         public readonly List<DiscoverySkipped> Skipped = new();
         public bool SawSbd;
         public int MetadataCount;
+        public int PairedMsf, UnpairedMbox, OrphanMsf;
     }
 
-    public static DiscoveryResult Discover(string rootDir)
+    public static DiscoveryResult Discover(string rootDir, IReadOnlyList<string>? pathPrefix = null)
     {
         var ctx = new Ctx();
 
         // Root enumeration failure propagates (caller treats as fatal). Sub-directory failures
         // are caught inside Walk and recorded.
         string[] rootEntries = Directory.GetFileSystemEntries(rootDir);
-        ProcessEntries(rootDir, rootEntries, Array.Empty<string>(), ctx);
+        ProcessEntries(rootDir, rootEntries, pathPrefix ?? Array.Empty<string>(), ctx);
 
         if (ctx.MetadataCount > 0)
             ctx.Skipped.Add(new DiscoverySkipped("metadata-files-skipped", rootDir,
@@ -50,7 +51,8 @@ public static class MailTreeDiscovery
         AddInvalidNameWarnings(ctx);
 
         string layout = ComputeLayout(ctx);
-        return new DiscoveryResult(rootDir, layout, ctx.Sources, ctx.Warnings, ctx.Skipped);
+        return new DiscoveryResult(rootDir, layout, ctx.Sources, ctx.Warnings, ctx.Skipped,
+            new DiscoveryPairingSummary(ctx.PairedMsf, ctx.UnpairedMbox, ctx.OrphanMsf));
     }
 
     private static void Walk(string dir, IReadOnlyList<string> prefix, Ctx ctx)
@@ -71,8 +73,48 @@ public static class MailTreeDiscovery
     {
         Array.Sort(entries, (a, b) => string.Compare(a, b, StringComparison.OrdinalIgnoreCase));
 
+        // Pre-pass: classify this directory's .msf entries. ONLY a normal, readable, non-reparse,
+        // non-directory .msf FILE is eligible to pair (so SP4b never gets a dangerous/invalid MsfPath). A
+        // .msf that is a symlink/directory/unreadable is fully handled here — and the main loop below skips
+        // ALL .msf-named entries — so each is processed exactly once.
+        var msfByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // base -> full .msf path
+        foreach (string e in entries)
+        {
+            string n = Path.GetFileName(e);
+            if (!n.EndsWith(".msf", StringComparison.OrdinalIgnoreCase) || n.StartsWith(".", StringComparison.Ordinal))
+                continue;
+            FileAttributes a;
+            try { a = File.GetAttributes(e); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                ctx.Skipped.Add(new DiscoverySkipped("unreadable", e, ex.Message));
+                ctx.Warnings.Add(new DiscoveryWarning("unreadable", e, null, null, null, null, $"Could not read entry: {ex.Message}"));
+                continue;
+            }
+            if ((a & FileAttributes.ReparsePoint) != 0)
+            {
+                ctx.Skipped.Add(new DiscoverySkipped("symlink-skipped", e, "Symlink/reparse-point not followed."));
+                ctx.Warnings.Add(new DiscoveryWarning("symlink-skipped", e, null, null, null, null, "Symlink/reparse-point skipped."));
+                continue;
+            }
+            if ((a & FileAttributes.Directory) != 0)
+            {
+                ctx.Skipped.Add(new DiscoverySkipped("unexpected-subdirectory", e, "Directory named .msf is not a summary file."));
+                ctx.Warnings.Add(new DiscoveryWarning("unexpected-subdirectory", e, null, null, null, null, "Directory named .msf skipped."));
+                continue;
+            }
+            msfByBase[n[..^4]] = e; // a normal .msf file — eligible to pair
+        }
+        var pairedBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (string entry in entries)
         {
+            string name = Path.GetFileName(entry);
+
+            // .msf entries were fully classified by the pre-pass — skip every .msf-named entry here.
+            if (name.EndsWith(".msf", StringComparison.OrdinalIgnoreCase) && !name.StartsWith(".", StringComparison.Ordinal))
+                continue;
+
             FileAttributes attr;
             try { attr = File.GetAttributes(entry); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -92,8 +134,6 @@ public static class MailTreeDiscovery
                 continue;
             }
 
-            string name = Path.GetFileName(entry);
-
             if ((attr & FileAttributes.Directory) != 0)
             {
                 if (name.EndsWith(".sbd", StringComparison.OrdinalIgnoreCase))
@@ -112,7 +152,7 @@ public static class MailTreeDiscovery
                 continue;
             }
 
-            // File.
+            // File (non-.msf).
             string ext = Path.GetExtension(name);
             if (name.StartsWith(".", StringComparison.Ordinal) || MetadataExtensions.Contains(ext))
             {
@@ -145,7 +185,21 @@ public static class MailTreeDiscovery
 
             string display = name.EndsWith(".mbox", StringComparison.OrdinalIgnoreCase) ? name[..^5] : name;
             var targetPath = new List<string>(prefix) { display };
-            ctx.Sources.Add(new DiscoveredSource(entry, "mbox", targetPath, display, size));
+
+            // Pair this ACCEPTED mbox with its sibling <name>.msf, if present.
+            string? msfPath = null;
+            if (msfByBase.TryGetValue(name, out string? mp)) { msfPath = mp; pairedBases.Add(name); ctx.PairedMsf++; }
+            else ctx.UnpairedMbox++;
+
+            ctx.Sources.Add(new DiscoveredSource(entry, "mbox", targetPath, display, size, msfPath));
+        }
+
+        // Orphan .msf: a .msf whose base was not an accepted mbox in this directory.
+        foreach (var kv in msfByBase)
+        {
+            if (pairedBases.Contains(kv.Key)) continue;
+            ctx.OrphanMsf++;
+            ctx.Skipped.Add(new DiscoverySkipped("orphan-msf", kv.Value, "No paired mbox for this .msf summary file."));
         }
     }
 
