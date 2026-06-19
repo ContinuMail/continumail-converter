@@ -71,6 +71,6 @@ public class MailProfileDiscoveryTests : IDisposable
         Touch("Mail/Dup/Inbox");
         Touch("ImapMail/Dup/Inbox");
         DiscoveryResult r = MailProfileDiscovery.Discover(_root);
-        Assert.Single(r.Warnings.Where(w => w.Code == "duplicate-target-folder-path"));
+        Assert.Single(r.Warnings, w => w.Code == "duplicate-target-folder-path");
     }
 }
