@@ -147,3 +147,10 @@ export interface ProfileSourceRow extends SourceRow {
   targetFolderPath: string[];
   msfPath: string | null;
 }
+
+export interface ColourCategory {
+  name: string;
+  hex: string | null;
+  outlookColor: number | null;
+  action: string;
+}
