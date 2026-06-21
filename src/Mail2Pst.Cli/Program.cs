@@ -13,6 +13,7 @@ if (args.Length == 0)
     Console.Error.WriteLine("  continumail-convert convert  --profile <dir> [--config <options.json>] --output <dir>");
     Console.Error.WriteLine("  continumail-convert scan     --input <path> [--input <path> ...] [--type mbox]");
     Console.Error.WriteLine("  continumail-convert discover --input <dir>");
+    Console.Error.WriteLine("  continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply]");
     return 1;
 }
 
@@ -21,6 +22,7 @@ return args[0] switch
     "convert"            => ConvertCommand.Run(args[1..]),
     "scan"               => ScanCommand.Run(args[1..]),
     "discover"           => DiscoverCommand.Run(args[1..]),
+    "import-colours"     => ImportColoursCommand.Run(args[1..]),
     "version" or "--version" or "-v" => PrintVersion(),
     _                    => PrintUnknownCommand(args[0]),
 };
@@ -39,6 +41,6 @@ static int PrintVersion()
 
 static int PrintUnknownCommand(string cmd)
 {
-    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'scan', or 'discover'.");
+    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'scan', 'discover', or 'import-colours'.");
     return 1;
 }
