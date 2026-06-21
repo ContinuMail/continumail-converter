@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { describe, it, expect } from "vitest";
 import { shouldShowEnrichment, formatEnrichmentLine } from "./doneEnrichment";
 import type { EnrichmentSummary } from "./types";

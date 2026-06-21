@@ -33,6 +33,7 @@ export function HelpTip({ children, label = "Help" }: { children: ReactNode; lab
       {open && (
         <span
           role="dialog"
+          aria-label={label}
           className="absolute left-0 top-6 z-10 w-72 rounded-lg border border-border bg-popover px-3 py-2 text-xs font-normal text-popover-foreground shadow-lg"
         >
           {children}
