@@ -56,7 +56,13 @@ export default function App() {
     return (
       <Shell currentStep={STEP_FOR_PHASE[conv.phase] ?? 0}>
         {conv.phase === "running" && <ConvertView state={conv} />}
-        {conv.phase === "done" && <DoneView state={conv} onConvertAnother={onConvertAnother} />}
+        {conv.phase === "done" && (
+          <DoneView
+            state={conv}
+            profileRoot={f.inputMode === "profile" ? f.profileRoot : null}
+            onConvertAnother={onConvertAnother}
+          />
+        )}
         {conv.phase === "error" && <ErrorView state={conv} onConvertAnother={onConvertAnother} />}
         {conv.phase === "cancelled" && <CancelledView state={conv} onConvertAnother={onConvertAnother} />}
       </Shell>

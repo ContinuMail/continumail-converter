@@ -9,8 +9,9 @@ import { splitPath } from "@/lib/convert";
 import type { ConvertState } from "@/lib/useConvert";
 import { formatElapsed } from "@/lib/progressStats";
 import { shouldShowEnrichment, formatEnrichmentLine } from "@/lib/doneEnrichment";
+import { ColourImportCard } from "@/components/views/ColourImportCard";
 
-export function DoneView({ state, onConvertAnother }: { state: ConvertState; onConvertAnother: () => void }) {
+export function DoneView({ state, profileRoot, onConvertAnother }: { state: ConvertState; profileRoot?: string | null; onConvertAnother: () => void }) {
   const first = state.outputs[0];
   const folder = first ? splitPath(first).dir : state.outputDir;
   const elapsed = state.elapsedMs != null ? formatElapsed(state.elapsedMs) : "";
@@ -70,6 +71,8 @@ export function DoneView({ state, onConvertAnother }: { state: ConvertState; onC
           )}
         </div>
       )}
+
+      {profileRoot && <ColourImportCard profileRoot={profileRoot} />}
 
       <div className="mt-4 rounded-[10px] border border-dashed border-border bg-card px-3.5 py-3 text-xs text-muted-foreground">
         Keep your original .mbox files until you've opened the PST in Outlook and confirmed everything looks right.
