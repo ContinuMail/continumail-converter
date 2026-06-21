@@ -25,13 +25,7 @@ public class JunkHandlingConfigTests
     [Theory]
     [InlineData(JunkHandlingMode.Off)]
     [InlineData(JunkHandlingMode.Category)]
-    public void OffAndCategory_AreAccepted(JunkHandlingMode junk)
+    [InlineData(JunkHandlingMode.Folder)]
+    public void AllModes_AreAccepted(JunkHandlingMode junk)
         => ConfigValidator.Validate(Base(junk)); // does not throw
-
-    [Fact]
-    public void Folder_IsRejected_UntilSp4()
-    {
-        var ex = Assert.Throws<ConfigValidationException>(() => ConfigValidator.Validate(Base(JunkHandlingMode.Folder)));
-        Assert.Contains("Folder", ex.Message);
-    }
 }

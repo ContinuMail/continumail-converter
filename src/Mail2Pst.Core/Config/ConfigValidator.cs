@@ -17,9 +17,6 @@ public static class ConfigValidator
 {
     public static void Validate(ConversionConfig config)
     {
-        if (config.JunkHandling == JunkHandlingMode.Folder)
-            throw new ConfigValidationException("JunkHandling 'Folder' is not supported until SP4 (junk-folder routing is a pipeline concern). Use 'Off' or 'Category'.");
-
         if (config.Outputs is null || config.Outputs.Count == 0)
             throw new ConfigValidationException("Config has no outputs; at least one output group is required.");
 

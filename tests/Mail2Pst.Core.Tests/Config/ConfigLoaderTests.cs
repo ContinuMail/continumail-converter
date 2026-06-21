@@ -97,4 +97,21 @@ public class ConfigLoaderTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void Load_ParsesJunkHandlingFolder()
+    {
+        string json = """
+        { "junkHandling": "Folder", "outputs": [ { "name": "Out", "maxSizeMB": 100,
+          "folderMapping": "mirror", "sources": [ { "path": "a.mbox", "type": "mbox" } ] } ] }
+        """;
+        string tempPath = Path.GetTempFileName();
+        File.WriteAllText(tempPath, json);
+        try
+        {
+            ConversionConfig config = ConfigLoader.Load(tempPath);
+            Assert.Equal(JunkHandlingMode.Folder, config.JunkHandling);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

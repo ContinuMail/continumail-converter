@@ -3,6 +3,7 @@
 #nullable enable
 namespace Mail2Pst.Core.Config;
 
-/// <summary>How .msf junk (junkscore >= 50) is emitted into the PST. Folder is modeled but
-/// not accepted until SP4 (folder routing is a pipeline concern).</summary>
+/// <summary>How .msf junk (junkscore &gt;= 50) is emitted into the PST:
+/// Off = derive IsJunk but emit nothing; Category = add a synthetic "Junk" category;
+/// Folder = route junk messages into a top-level "Junk Email" folder.</summary>
 public enum JunkHandlingMode { Off, Category, Folder }
