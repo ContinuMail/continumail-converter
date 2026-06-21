@@ -66,4 +66,11 @@ public class CategoryColorPlanTests
         var plan = CategoryColorPlan.Build(D(("proj", longName)), D(("proj", "#FF0000")));
         Assert.Equal("skipped-invalid-name", plan.Single(x => x.Name == longName).Action);
     }
+
+    [Fact]
+    public void NonJunk_IsFiltered_NotACandidate()
+    {
+        var plan = CategoryColorPlan.Build(D(("NonJunk", "NonJunk")), D(("NonJunk", "#FF0000")));
+        Assert.DoesNotContain(plan, c => c.Name == "NonJunk");
+    }
 }

@@ -25,11 +25,13 @@ public static class CategoryColorPlan
         // Deterministic order: the five built-ins first, then any other key (ordinal-sorted), distinct.
         var keys = new List<string>();
         var seenKey = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string k in MsfTagDefaults.BuiltinLabels.Keys) { if (seenKey.Add(k)) keys.Add(k); }
+        foreach (string k in MsfTagDefaults.BuiltinLabels.Keys)
+            if (!MsfTagDefaults.Filtered.Contains(k) && seenKey.Add(k)) keys.Add(k);
         foreach (string k in tagNames.Keys.Concat(tagColors.Keys).OrderBy(k => k, StringComparer.Ordinal))
-            if (seenKey.Add(k)) keys.Add(k);
+            if (!MsfTagDefaults.Filtered.Contains(k) && seenKey.Add(k)) keys.Add(k);
 
         var result = new List<CategoryCandidate>();
+        // OrdinalIgnoreCase (not E4's Ordinal): Outlook category names are case-insensitive.
         var seenName = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string key in keys)
         {
