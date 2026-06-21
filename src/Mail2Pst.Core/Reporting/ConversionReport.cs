@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Reporting;
 
@@ -20,6 +21,9 @@ public class ConversionReport
     private readonly List<string> _outputFiles = new();
     private readonly List<string> _deletedFiles = new();
     private volatile bool _cancelled;
+
+    private int _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged;
+    private int _srcAttempted, _srcEnriched, _srcDegraded;
 
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
 
@@ -65,6 +69,39 @@ public class ConversionReport
         lock (_lock) _warnings.Add(entry);
     }
 
+    public void RecordEnrichmentSource(bool attempted, bool enriched, bool degraded)
+    {
+        lock (_lock)
+        {
+            if (attempted) _srcAttempted++;
+            if (enriched) _srcEnriched++;
+            if (degraded) _srcDegraded++;
+        }
+    }
+
+    public void RecordEnrichmentCounts(MsfEnrichmentResult result)
+    {
+        lock (_lock)
+        {
+            _enrMatched += result.Matched;
+            _enrMissing += result.SkippedMissingId;
+            _enrDup += result.SkippedDuplicateId;
+            _enrNoMatch += result.NoMsfMatch;
+            _enrExpunged += result.ExpungedMatched;
+        }
+    }
+
+    public MsfEnrichmentSummary EnrichmentSummary
+    {
+        get
+        {
+            lock (_lock)
+                return new MsfEnrichmentSummary(
+                    _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged,
+                    _srcAttempted, _srcEnriched, _srcDegraded);
+        }
+    }
+
     public string ToJson()
     {
         // Single consistent snapshot under the lock, then serialize outside it.
@@ -85,6 +122,7 @@ public class ConversionReport
             converted = ConvertedCount,
             skipped = skipped.Select(s => new { source = s.SourcePath, identifier = s.Identifier, reason = s.Reason }),
             warnings = warnings.Select(w => new { source = w.SourcePath, identifier = w.Identifier, reason = w.Reason }),
+            enrichment = EnrichmentSummary,
         }, options);
     }
 
@@ -112,6 +150,12 @@ public class ConversionReport
         {
             builder.AppendLine($"  WARN {warning.SourcePath} [{warning.Identifier}]: {warning.Reason}");
         }
+
+        MsfEnrichmentSummary enr = EnrichmentSummary;
+        builder.AppendLine(
+            $"Enrichment: matched={enr.Matched} missingId={enr.SkippedMissingId} " +
+            $"duplicateId={enr.SkippedDuplicateId} noMsfMatch={enr.NoMsfMatch} expunged={enr.ExpungedMatched} " +
+            $"(sources attempted={enr.SourcesAttempted} enriched={enr.SourcesEnriched} degraded={enr.SourcesDegraded})");
 
         return builder.ToString();
     }
