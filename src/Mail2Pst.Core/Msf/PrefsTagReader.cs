@@ -24,6 +24,11 @@ public static class PrefsTagReader
         "^\\s*user_pref\\s*\\(\\s*\"mailnews\\.tags\\.(?<key>.+?)\\.tag\"\\s*,\\s*\"(?<val>(?:\\\\.|[^\"\\\\])*)\"\\s*\\)\\s*;?\\s*$",
         RegexOptions.CultureInvariant);
 
+    // Like TagPrefRegex but for `.color` with a strict #RRGGBB value (6 hex digits, optional leading #).
+    private static readonly Regex ColorPrefRegex = new(
+        "^\\s*user_pref\\s*\\(\\s*\"mailnews\\.tags\\.(?<key>.+?)\\.color\"\\s*,\\s*\"(?<val>#?[0-9A-Fa-f]{6})\"\\s*\\)\\s*;?\\s*$",
+        RegexOptions.CultureInvariant);
+
     public static IReadOnlyDictionary<string, string> Read(string prefsJsPath)
     {
         try
@@ -46,6 +51,20 @@ public static class PrefsTagReader
             if (!TryUnescape(m.Groups["val"].Value, out string name)) continue; // bad escape -> skip line
             if (name.Length == 0) continue;                                       // empty name -> skip line
             map[m.Groups["key"].Value] = name;                                    // later duplicate wins
+        }
+        return map;
+    }
+
+    public static IReadOnlyDictionary<string, string> ParseColors(string content)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string line in content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None))
+        {
+            Match m = ColorPrefRegex.Match(line);
+            if (!m.Success) continue;
+            string hex = m.Groups["val"].Value;
+            if (hex[0] != '#') hex = "#" + hex;     // normalize to leading #
+            map[m.Groups["key"].Value] = hex;       // later duplicate wins
         }
         return map;
     }

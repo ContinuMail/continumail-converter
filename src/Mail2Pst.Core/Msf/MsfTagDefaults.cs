@@ -22,4 +22,11 @@ internal static class MsfTagDefaults
             ["$label1"] = "Important", ["$label2"] = "Work", ["$label3"] = "Personal",
             ["$label4"] = "To Do",     ["$label5"] = "Later",
         };
+
+    internal static readonly IReadOnlyDictionary<string, string> BuiltinColors =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["$label1"] = "#FF0000", ["$label2"] = "#FF9900", ["$label3"] = "#009900",
+            ["$label4"] = "#3333FF", ["$label5"] = "#993399",
+        };
 }
