@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { HelpTip } from "@/components/ui/help-tip";
 import { SplitSizeControl } from "@/components/ui/split-size-control";
 import { buildProfileConfig } from "@/lib/profileConfig";
 import { effectiveRows } from "@/lib/review";
 import { ConvertConfigError, deriveOutputTarget } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
+import { openJunkHelp } from "@/lib/engine";
 import type { OptionsState } from "@/lib/options";
 import type { ConversionConfig, ProfileSourceRow } from "@/lib/types";
 
@@ -72,6 +74,53 @@ export function ProfileOptionsView({
             </label>
           </div>
           <div>
+            <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
+              Junk handling
+              <HelpTip>
+                <strong className="text-foreground">Thunderbird junk scores.</strong> Thunderbird's own junk filter
+                scores each message for how spam-like it is, based on what you've marked as junk. That score is
+                separate from which folder a message sits in, so it's <strong className="text-foreground">not</strong>{" "}
+                the same as the contents of your Spam/Junk folder. This option acts on messages Thunderbird scored
+                as junk, wherever they are.{" "}
+                <strong className="text-foreground">"Leave in place" is recommended if unsure.</strong>
+                <button
+                  type="button"
+                  onClick={() => void openJunkHelp()}
+                  className="mt-2 block text-primary underline underline-offset-2 hover:opacity-80"
+                >
+                  Learn more on Mozilla Support
+                </button>
+              </HelpTip>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input type="radio" name="junk" checked={options.junkHandling === "Off"}
+                onChange={() => onSetOptions({ junkHandling: "Off" })} />
+              Leave in place
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
+              <input type="radio" name="junk" checked={options.junkHandling === "Category"}
+                onChange={() => onSetOptions({ junkHandling: "Category" })} />
+              Tag as Junk category
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
+              <input type="radio" name="junk" checked={options.junkHandling === "Folder"}
+                onChange={() => onSetOptions({ junkHandling: "Folder" })} />
+              Move to Junk Email folder
+            </label>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={options.dropExpunged}
+                onChange={(e) => onSetOptions({ dropExpunged: e.target.checked })} />
+              Skip deleted (expunged) messages
+            </label>
+            <p className="ml-6 mt-0.5 text-xs text-light-gray">
+              Permanently leave out messages Thunderbird marked as deleted.
+            </p>
+          </div>
+
+          <div>
             <div className="mb-1 text-sm font-medium text-foreground">Split size</div>
             <SplitSizeControl
               maxSizeMB={options.maxSizeMB}
@@ -101,7 +150,7 @@ export function ProfileOptionsView({
             </div>
           </div>
           <div className="mt-2 rounded-lg border border-border border-l-[3px] border-l-primary bg-card px-3 py-2 text-xs text-muted-foreground">
-            Carried over from Thunderbird automatically: <span className="text-foreground">read/unread, replied, forwarded, starred</span> flags and <span className="text-foreground">tags → Outlook categories</span> (folders with an <span className="text-primary">.msf</span> badge). Junk routing &amp; drop-expunged are coming in a later update.
+            Carried over from Thunderbird automatically: <span className="text-foreground">read/unread, replied, forwarded, starred</span> flags and <span className="text-foreground">tags → Outlook categories</span> (folders with an <span className="text-primary">.msf</span> badge).
           </div>
         </div>
       </div>

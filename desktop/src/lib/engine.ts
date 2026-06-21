@@ -144,3 +144,7 @@ export function cancelConvert(): Promise<void> {
 export function openFolder(path: string): Promise<void> {
   return invoke<void>("open_folder", { path });
 }
+
+export function openJunkHelp(): Promise<void> {
+  return invoke<void>("open_junk_help");
+}

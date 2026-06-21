@@ -309,6 +309,16 @@ fn open_folder(app: AppHandle, path: String) -> Result<(), String> {
         .map_err(|e| format!("could not open folder: {e}"))
 }
 
+#[tauri::command]
+fn open_junk_help(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url(
+            "https://support.mozilla.org/en-US/kb/thunderbird-and-junk-spam-messages",
+            None::<&str>,
+        )
+        .map_err(|e| format!("could not open link: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -326,7 +336,8 @@ pub fn run() {
             start_convert,
             start_scan,
             cancel_convert,
-            open_folder
+            open_folder,
+            open_junk_help
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
