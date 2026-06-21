@@ -6,7 +6,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { parseEngineOutput, type VersionResult, type ScanResult } from "./parse";
 import { parseScanLine } from "./scan";
-import type { ConversionConfig, FileStat } from "./types";
+import { parseDiscover } from "./discover";
+import type { ConversionConfig, FileStat, DiscoverResult } from "./types";
 
 export async function checkEngineVersion(): Promise<VersionResult> {
   const stdout = await invoke<string>("check_engine_version");
@@ -20,6 +21,12 @@ export async function scanSample(): Promise<ScanResult> {
   const result = parseEngineOutput(stdout);
   if (result.kind !== "scan") throw new Error("Expected a scan response from the engine");
   return result;
+}
+
+/** Run engine discovery on a Thunderbird profile / mail folder (one-shot). */
+export async function discoverProfile(dir: string): Promise<DiscoverResult> {
+  const stdout = await invoke<string>("discover_profile", { dir });
+  return parseDiscover(stdout);
 }
 
 /** Scan arbitrary user-selected mbox paths. Spawns the sidecar via `start_scan`

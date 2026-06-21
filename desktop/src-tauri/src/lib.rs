@@ -74,6 +74,11 @@ async fn scan_sample(app: tauri::AppHandle) -> Result<String, String> {
     .await
 }
 
+#[tauri::command]
+async fn discover_profile(app: tauri::AppHandle, dir: String) -> Result<String, String> {
+    run_sidecar(&app, vec!["discover".to_string(), "--input".to_string(), dir]).await
+}
+
 #[derive(Serialize)]
 struct FileStat {
     path: String,
@@ -315,6 +320,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_engine_version,
             scan_sample,
+            discover_profile,
             list_mbox_in_dir,
             stat_files,
             start_convert,
