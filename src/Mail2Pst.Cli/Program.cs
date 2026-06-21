@@ -10,6 +10,7 @@ if (args.Length == 0)
 {
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  continumail-convert convert  --config <config.json> --output <dir>");
+    Console.Error.WriteLine("  continumail-convert convert  --profile <dir> [--config <options.json>] --output <dir>");
     Console.Error.WriteLine("  continumail-convert scan     --input <path> [--input <path> ...] [--type mbox]");
     Console.Error.WriteLine("  continumail-convert discover --input <dir>");
     return 1;

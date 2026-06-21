@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mail2Pst.Core/Mail2Pst.Core.csproj" />
+    <ProjectReference Include="..\..\src\Mail2Pst.Cli\Mail2Pst.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../fixtures/**/*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />

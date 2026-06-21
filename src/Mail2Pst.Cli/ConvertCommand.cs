@@ -16,21 +16,16 @@ internal static class ConvertCommand
 {
     internal static int Run(string[] args)
     {
-        string? configPath = CliArgs.Flag(args, "--config");
-        string? outputDir  = CliArgs.Flag(args, "--output");
-
-        if (configPath is null || outputDir is null)
+        ConvertResolution resolved = ConvertInput.Resolve(args);
+        if (resolved.Error is not null)
         {
-            Console.Error.WriteLine("Usage: continumail-convert convert --config <config.json> --output <dir>");
+            CliArgs.WriteJsonLine(new { type = "error", stage = "convert", message = resolved.Error, fatal = true });
+            Console.Error.WriteLine(resolved.Error);
             return 1;
         }
 
-        if (!File.Exists(configPath))
-        {
-            CliArgs.WriteJsonLine(new { type = "error", stage = "convert", message = $"Config not found: {configPath}", fatal = true });
-            Console.Error.WriteLine($"Config not found: {configPath}");
-            return 1;
-        }
+        string outputDir = resolved.OutputDir!;
+        ConversionConfig config = resolved.Config!;
 
         try
         {
@@ -43,19 +38,7 @@ internal static class ConvertCommand
             return 1;
         }
 
-        CliArgs.WriteJsonLine(new { type = "started", input = configPath, outputDirectory = outputDir });
-
-        ConversionConfig config;
-        try
-        {
-            config = ConfigLoader.Load(configPath);
-        }
-        catch (Exception ex)
-        {
-            CliArgs.WriteJsonLine(new { type = "error", stage = "convert", message = $"Failed to load config: {ex.Message}", fatal = true });
-            Console.Error.WriteLine($"Failed to load config: {ex.Message}");
-            return 1;
-        }
+        CliArgs.WriteJsonLine(new { type = "started", input = resolved.InputLabel, outputDirectory = outputDir });
 
         // The blank PST seed lives embedded in the engine assembly; extract it to a
         // temp file (cleaned up in the finally below). The single-file sidecar is run
@@ -157,6 +140,7 @@ internal static class ConvertCommand
                 outputDirectory = outputDir,
                 report = reportJsonPath,
                 elapsedMs = stopwatch.ElapsedMilliseconds,
+                enrichment = report.EnrichmentSummary,
             });
 
             return 0;
