@@ -100,58 +100,49 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
             "Could not open the Outlook master category list (CategoryList FAI).", last);
     }
 
-    // Reads the binary RoamingXmlStream as bytes. The COM VARIANT marshals as byte[] in the common case but
-    // can arrive as a 1-D Array of another integral type; null/DBNull (property absent) is an error.
-    private static byte[] ReadBytes(dynamic storage)
-    {
-        object raw = storage.PropertyAccessor.GetProperty(RoamingXmlStreamProp);
-        switch (raw)
-        {
-            case null:
-            case DBNull:
-                throw new InvalidOperationException("The category list stream is empty.");
-            case byte[] b:
-                return b;
-            case Array a:
-                var bytes = new byte[a.Length];
-                for (int i = 0; i < a.Length; i++) bytes[i] = Convert.ToByte(a.GetValue(i));
-                return bytes;
-            default:
-                throw new InvalidOperationException(
-                    $"The category list stream is not binary (got {raw.GetType().Name}).");
-        }
-    }
+    // Reads the binary RoamingXmlStream as bytes via the pure, unit-tested normalizer (handles byte[], an
+    // integral Array marshaling, and null/DBNull).
+    private static byte[] ReadBytes(dynamic storage) =>
+        CategoryStreamBytes.FromVariant((object)storage.PropertyAccessor.GetProperty(RoamingXmlStreamProp));
 
     private static int[] OutlookPids() =>
         Process.GetProcessesByName("OUTLOOK").Select(p => { int id = p.Id; p.Dispose(); return id; }).ToArray();
 
     public void Dispose()
     {
-        // Quit (clean shutdown) flushes our Save to disk; a hard kill would lose it. We never dirtied the OOM
-        // Categories cache, so Outlook won't re-serialize a stale list over the write.
-        try { ((dynamic)_app).Quit(); } catch { /* best-effort */ }
-
-        // Wait for the transient OUTLOOK.EXE we started to exit — that is the flush-complete signal — bounded
-        // so a hung instance can't block the CLI. Wait only on the PIDs we started (not, say, an Outlook the
-        // user launched mid-run).
-        var sw = Stopwatch.StartNew();
-        foreach (int pid in _startedPids)
+        // Only shut Outlook down if we actually started it. _startedPids is empty only if a TOCTOU race had
+        // CreateInstance attach to a pre-existing OUTLOOK.EXE that appeared after the "is Outlook running?"
+        // guard — in that case it is the user's process, so we must NOT Quit it.
+        if (_startedPids.Length > 0)
         {
-            Process? p = null;
-            try
+            // Logoff then Quit (clean shutdown) flushes our Save to disk; a hard kill would lose it. We never
+            // dirtied the OOM Categories cache, so Outlook won't re-serialize a stale list over the write.
+            try { ((dynamic)_session).Logoff(); } catch { /* best-effort */ }
+            try { ((dynamic)_app).Quit(); } catch { /* best-effort */ }
+
+            // Wait for the OUTLOOK.EXE we started to exit — that is the flush-complete signal — bounded so a
+            // hung instance can't block the CLI. (If Logon blocks earlier and the STA Join times out, the
+            // store is abandoned un-Disposed and the started instance can leak; that path emits a clear
+            // "dismiss any Outlook prompt" error and is rare given ShowDialog=false + Outlook-closed.)
+            var sw = Stopwatch.StartNew();
+            foreach (int pid in _startedPids)
             {
-                p = Process.GetProcessById(pid);
-                int remaining = ShutdownWaitMs - (int)sw.ElapsedMilliseconds;
-                if (remaining > 0) p.WaitForExit(remaining);
+                Process? p = null;
+                try
+                {
+                    p = Process.GetProcessById(pid);
+                    int remaining = ShutdownWaitMs - (int)sw.ElapsedMilliseconds;
+                    if (remaining > 0) p.WaitForExit(remaining);
+                }
+                catch { /* already exited / not found */ }
+                finally { p?.Dispose(); }
             }
-            catch { /* already exited / not found */ }
-            finally { p?.Dispose(); }
         }
 
+        // FinalReleaseComObject drops our RCWs; the instance has already exited above, so no extra GC pass is
+        // needed to tear it down.
         try { Marshal.FinalReleaseComObject(_storage); } catch { /* best-effort */ }
         try { Marshal.FinalReleaseComObject(_session); } catch { }
         try { Marshal.FinalReleaseComObject(_app); } catch { }
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
     }
 }

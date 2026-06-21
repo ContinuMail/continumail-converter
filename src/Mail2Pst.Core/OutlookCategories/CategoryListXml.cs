@@ -54,10 +54,13 @@ public static class CategoryListXml
             // The XML 'color' is the 0-based MS-OXOCFG index; OlCategoryColor (1-25) is that index + 1.
             cat.SetAttribute("color", (outlookColor - 1).ToString(CultureInfo.InvariantCulture));
             cat.SetAttribute("keyboardShortcut", "0");
-            cat.SetAttribute("usageCount", "0");
+            cat.SetAttribute("usageCount", "0"); // present on Outlook-written nodes; new categories start unused
             cat.SetAttribute("guid", Guid.NewGuid().ToString("B").ToUpperInvariant()); // {XXXXXXXX-....}
             root.AppendChild(cat);
         }
+        // Refresh lastSavedTime; lastSavedSession is intentionally left untouched — it (with lastSavedTime)
+        // lets a *running* Outlook decide its cached list is stale, which only matters if we ever support
+        // applying against an open Outlook. Today --apply requires Outlook closed, so there is no cache.
         root.SetAttribute("lastSavedTime",
             DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss.fff", CultureInfo.InvariantCulture));
         return Serialize(doc);
@@ -85,9 +88,10 @@ public static class CategoryListXml
 
     private static string Serialize(XmlDocument doc)
     {
-        // The document carries an <?xml version="1.0"?> declaration with no encoding attribute, so emitting to
-        // a UTF-8-reporting writer keeps the declaration encoding-free (no spurious utf-16/utf-8 attribute that
-        // would contradict the UTF-8 bytes the caller writes to the stream).
+        // The writer reports UTF-8, so the declaration is emitted as <?xml version="1.0" encoding="utf-8"?> —
+        // which AGREES with the UTF-8 bytes the caller writes to the stream. The StringWriter default reports
+        // UTF-16, which would emit encoding="utf-16" and contradict those bytes (Outlook's reader then fails);
+        // overriding Encoding is what avoids that trap.
         var settings = new XmlWriterSettings { OmitXmlDeclaration = false };
         var sw = new Utf8StringWriter();
         using (XmlWriter w = XmlWriter.Create(sw, settings)) doc.Save(w);
