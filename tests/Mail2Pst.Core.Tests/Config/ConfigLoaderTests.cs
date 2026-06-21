@@ -135,4 +135,25 @@ public class ConfigLoaderTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void ProfilePath_DefaultsToNull()
+        => Assert.Null(new ConversionConfig().ProfilePath);
+
+    [Fact]
+    public void Load_ParsesProfilePath()
+    {
+        string json = """
+        { "profilePath": "/data/tb/profile", "outputs": [ { "name": "Out", "maxSizeMB": 100,
+          "folderMapping": "mirror", "sources": [ { "path": "a.mbox", "type": "mbox" } ] } ] }
+        """;
+        string tempPath = Path.GetTempFileName();
+        File.WriteAllText(tempPath, json);
+        try
+        {
+            ConversionConfig config = ConfigLoader.Load(tempPath);
+            Assert.Equal("/data/tb/profile", config.ProfilePath);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

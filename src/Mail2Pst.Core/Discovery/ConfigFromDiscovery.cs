@@ -53,6 +53,8 @@ public static class ConfigFromDiscovery
             MsfPath = s.MsfPath,
         }).ToList();
 
+        config.ProfilePath = discovery.Root;   // --profile root is authoritative (ignores any template ProfilePath)
+
         config.Outputs.Add(group);
         return config;
     }

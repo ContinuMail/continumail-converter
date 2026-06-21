@@ -41,7 +41,7 @@ public class ConversionRunner
 
         var enrichmentOptions = new MsfEnrichmentOptions
         {
-            TagResolver = new DefaultMsfTagResolver(),
+            TagResolver = MsfTagResolverFactory.Create(config.ProfilePath),
             JunkHandling = config.JunkHandling,
             DropExpunged = config.DropExpunged,
         };

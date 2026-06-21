@@ -11,4 +11,5 @@ public class ConversionConfig
     public List<OutputGroupConfig> Outputs { get; set; } = new();
     public JunkHandlingMode JunkHandling { get; set; } = JunkHandlingMode.Off;
     public bool DropExpunged { get; set; }
+    public string? ProfilePath { get; set; }
 }

@@ -34,6 +34,15 @@ public class ConfigFromDiscoveryTests
         Assert.Equal("/p/Inbox.msf", g.Sources[0].MsfPath);
         Assert.Null(g.Sources[1].MsfPath);
         Assert.Equal(new List<string> { "Local Folders", "Inbox" }, g.Sources[0].TargetFolderPath);
+        Assert.Equal("/data/tb/profile", cfg.ProfilePath);   // == discovery.Root
+    }
+
+    [Fact]
+    public void Build_WithTemplateProfilePath_DiscoveryRootWins()
+    {
+        var template = new ConversionConfig { ProfilePath = "/some/other/place" };
+        ConversionConfig cfg = ConfigFromDiscovery.Build(Discovery(), template);
+        Assert.Equal("/data/tb/profile", cfg.ProfilePath);   // discovery.Root, not the template value
     }
 
     [Fact]
