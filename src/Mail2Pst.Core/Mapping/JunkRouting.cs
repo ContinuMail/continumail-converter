@@ -17,7 +17,7 @@ internal static class JunkRouting
 {
     internal const string DefaultJunkFolderName = "Junk Email";
 
-    public static IReadOnlyList<string> ResolveTargetFolderPath(
+    internal static IReadOnlyList<string> ResolveTargetFolderPath(
         IReadOnlyList<string> mapped, bool isJunk, JunkHandlingMode mode)
         => mode == JunkHandlingMode.Folder && isJunk
             ? new[] { DefaultJunkFolderName }
