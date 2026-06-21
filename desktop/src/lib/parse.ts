@@ -9,14 +9,14 @@ export type VersionResult = { kind: "version"; version: string; schemaVersion?: 
 export type ScanResult = { kind: "scan"; totals: ScanTotals; sources: SourceRow[]; schemaVersion?: number };
 export type EngineResult = VersionResult | ScanResult;
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
 // Extract every top-level {...} JSON object from arbitrary text (tolerates
 // leading/trailing noise, multi-line objects, and multiple objects). Strings are
 // respected so braces inside string values don't confuse the depth counter.
-function extractJsonObjects(text: string): unknown[] {
+export function extractJsonObjects(text: string): unknown[] {
   const objects: unknown[] = [];
   let depth = 0;
   let start = -1;

@@ -25,6 +25,8 @@ export interface SourceConfigEntry {
   path: string;
   type: "mbox";
   targetFolder?: string;
+  targetFolderPath?: string[];
+  msfPath?: string;
 }
 
 export interface OutputGroupConfig {
@@ -37,6 +39,7 @@ export interface OutputGroupConfig {
 
 export interface ConversionConfig {
   outputs: OutputGroupConfig[];
+  profilePath?: string;
 }
 
 export interface FileStat {
@@ -81,3 +84,51 @@ export type ConvertEvent = (
       elapsedMs?: number;
     }
 ) & Versioned;
+
+export interface DiscoveredSource {
+  path: string;
+  type: string;
+  targetFolderPath: string[];
+  displayName: string;
+  sourceBytes: number;
+  msfPath: string | null;
+}
+
+export interface DiscoverWarning {
+  code: string;
+  path: string;
+  targetFolderPath: string[] | null;
+  segment: string | null;
+  segmentIndex: number | null;
+  relatedPaths: string[] | null;
+  message: string;
+}
+
+export interface DiscoverSkipped {
+  code: string;
+  path: string;
+  reason: string;
+}
+
+export interface DiscoverPairing {
+  pairedMsfCount: number;
+  unpairedMboxCount: number;
+  orphanMsfCount: number;
+}
+
+export interface DiscoverResult {
+  root: string;
+  layout: string;
+  sources: DiscoveredSource[];
+  warnings: DiscoverWarning[];
+  skipped: DiscoverSkipped[];
+  pairing: DiscoverPairing;
+  schemaVersion?: number;
+}
+
+/** A discovery source merged with its scan counts. `id` is the source `path`
+ * (profile-mode identity); `displayName` is the joined nested target path. */
+export interface ProfileSourceRow extends SourceRow {
+  targetFolderPath: string[];
+  msfPath: string | null;
+}
