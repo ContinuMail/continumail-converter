@@ -41,7 +41,7 @@ export function ProfileOptionsView({
   function onStartClick() {
     try {
       const { config, outputDir } = buildProfileConfig(
-        rows, checkedIds, skipEmpty, options.folderMapping, options.maxSizeMB, outputPath, profileRoot,
+        rows, checkedIds, skipEmpty, options, outputPath, profileRoot,
       );
       onStart(config, outputDir);
     } catch (e) {

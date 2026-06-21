@@ -3,6 +3,7 @@
 
 import type { DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry } from "./types";
 import type { ScanResult } from "./parse";
+import type { OptionsState } from "./options";
 import { effectiveRows } from "./review";
 import { deriveOutputTarget, ConvertConfigError } from "./convert";
 
@@ -35,17 +36,18 @@ export function mergeProfileSources(
  * targetFolderPath + msfPath verbatim (NO leaf-name dedupe — same leaf under
  * different parents is valid). Flatten omits targetFolderPath and sets
  * folderMapping:"flatten" so the engine routes to "Imported Mail"; msfPath and
- * top-level profilePath are kept in both modes so enrichment + tag names apply. */
+ * top-level profilePath are kept in both modes so enrichment + tag names apply.
+ * junkHandling + dropExpunged are always written at the top-level config. */
 export function buildProfileConfig(
   rows: ProfileSourceRow[],
   checkedIds: Set<string>,
   skipEmpty: boolean,
-  folderMapping: "mirror" | "flatten",
-  maxSizeMB: number,
+  options: OptionsState,
   outputPstPath: string,
   profileRoot: string,
 ): { config: ConversionConfig; outputDir: string; pstName: string } {
   const { outputDir, pstName } = deriveOutputTarget(outputPstPath);
+  const folderMapping = options.folderMapping;
   const eff = effectiveRows(rows, checkedIds, skipEmpty) as ProfileSourceRow[];
   if (eff.length === 0) {
     throw new ConvertConfigError("Select at least one folder to convert.");
@@ -63,9 +65,11 @@ export function buildProfileConfig(
     pstName,
     config: {
       profilePath: profileRoot,
+      junkHandling: options.junkHandling,
+      dropExpunged: options.dropExpunged,
       outputs: [{
         name: pstName,
-        maxSizeMB,
+        maxSizeMB: options.maxSizeMB,
         folderMapping,
         includeEmptyFolders: !skipEmpty,
         sources,

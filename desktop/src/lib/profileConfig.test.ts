@@ -6,6 +6,7 @@ import { mergeProfileSources, buildProfileConfig } from "./profileConfig";
 import type { DiscoveredSource, ProfileSourceRow } from "./types";
 import type { ScanResult } from "./parse";
 import { ConvertConfigError } from "./convert";
+import { defaultOptions } from "./options";
 
 const disc = (path: string, tfp: string[], msf: string | null): DiscoveredSource => ({
   path, type: "mbox", targetFolderPath: tfp, displayName: tfp[tfp.length - 1], sourceBytes: 1, msfPath: msf,
@@ -19,6 +20,8 @@ const scan: ScanResult = {
     { id: "scan-2", path: "C:/p/B", displayName: "B", messages: 3, bytes: 300, sourceBytes: 30, dateFrom: null, dateTo: null, warnings: 0, skipped: 0 },
   ],
 };
+
+const opts = (over: Partial<import("./options").OptionsState> = {}) => ({ ...defaultOptions(), ...over });
 
 describe("mergeProfileSources", () => {
   it("joins by path, sets id=path and displayName=joined targetFolderPath, takes counts from scan", () => {
@@ -54,7 +57,7 @@ describe("buildProfileConfig", () => {
   const checked = new Set(["C:/p/A", "C:/p/B"]);
 
   it("mirror: emits targetFolderPath + msfPath verbatim, profilePath set", () => {
-    const { config } = buildProfileConfig(rows, checked, true, "mirror", 5120, "C:/out/Gmail.pst", "C:/p");
+    const { config } = buildProfileConfig(rows, checked, true, opts({ folderMapping: "mirror", maxSizeMB: 5120 }), "C:/out/Gmail.pst", "C:/p");
     expect(config.profilePath).toBe("C:/p");
     expect(config.outputs[0].folderMapping).toBe("mirror");
     expect(config.outputs[0].maxSizeMB).toBe(5120);
@@ -67,13 +70,13 @@ describe("buildProfileConfig", () => {
       { ...rows[0], id: "C:/x/A/Inbox", path: "C:/x/A/Inbox", targetFolderPath: ["A", "Inbox"], displayName: "A / Inbox" },
       { ...rows[1], id: "C:/x/B/Inbox", path: "C:/x/B/Inbox", targetFolderPath: ["B", "Inbox"], displayName: "B / Inbox", msfPath: null },
     ];
-    const { config } = buildProfileConfig(dupRows, new Set(["C:/x/A/Inbox", "C:/x/B/Inbox"]), true, "mirror", 5120, "C:/out/X.pst", "C:/x");
+    const { config } = buildProfileConfig(dupRows, new Set(["C:/x/A/Inbox", "C:/x/B/Inbox"]), true, opts({ folderMapping: "mirror", maxSizeMB: 5120 }), "C:/out/X.pst", "C:/x");
     expect(config.outputs[0].sources).toHaveLength(2);
     expect(config.outputs[0].sources.map((s) => s.targetFolderPath)).toEqual([["A", "Inbox"], ["B", "Inbox"]]);
   });
 
   it("flatten: folderMapping flatten, no targetFolderPath, no targetFolder, msfPath + profilePath kept", () => {
-    const { config } = buildProfileConfig(rows, checked, true, "flatten", 5120, "C:/out/Gmail.pst", "C:/p");
+    const { config } = buildProfileConfig(rows, checked, true, opts({ folderMapping: "flatten", maxSizeMB: 5120 }), "C:/out/Gmail.pst", "C:/p");
     expect(config.outputs[0].folderMapping).toBe("flatten");
     expect(config.profilePath).toBe("C:/p");
     for (const s of config.outputs[0].sources) {
@@ -85,18 +88,36 @@ describe("buildProfileConfig", () => {
 
   it("honors skipEmpty and checked selection", () => {
     const withEmpty: ProfileSourceRow[] = [...rows, { ...rows[0], id: "C:/p/E", path: "C:/p/E", messages: 0, targetFolderPath: ["E"], displayName: "E", msfPath: null }];
-    const { config } = buildProfileConfig(withEmpty, new Set(["C:/p/A", "C:/p/E"]), true, "mirror", 5120, "C:/out/G.pst", "C:/p");
+    const { config } = buildProfileConfig(withEmpty, new Set(["C:/p/A", "C:/p/E"]), true, opts({ folderMapping: "mirror", maxSizeMB: 5120 }), "C:/out/G.pst", "C:/p");
     // A is checked+non-empty; E is checked but empty (skipped); B not checked.
     expect(config.outputs[0].sources.map((s) => s.path)).toEqual(["C:/p/A"]);
   });
 
   it("throws ConvertConfigError when no folders are effective", () => {
-    expect(() => buildProfileConfig(rows, new Set(), true, "mirror", 5120, "C:/out/G.pst", "C:/p")).toThrow(ConvertConfigError);
+    expect(() => buildProfileConfig(rows, new Set(), true, opts({ folderMapping: "mirror", maxSizeMB: 5120 }), "C:/out/G.pst", "C:/p")).toThrow(ConvertConfigError);
   });
 
   it("derives outputDir + pstName from the .pst path", () => {
-    const { outputDir, pstName } = buildProfileConfig(rows, checked, true, "mirror", 5120, "C:/out/Gmail.pst", "C:/p");
+    const { outputDir, pstName } = buildProfileConfig(rows, checked, true, opts({ folderMapping: "mirror", maxSizeMB: 5120 }), "C:/out/Gmail.pst", "C:/p");
     expect(pstName).toBe("Gmail");
     expect(outputDir).toBe("C:/out");
+  });
+
+  it("writes junkHandling + dropExpunged top-level (defaults Off/false) in mirror", () => {
+    const { config } = buildProfileConfig(rows, checked, true, opts({ folderMapping: "mirror" }), "C:/out/G.pst", "C:/p");
+    expect(config.junkHandling).toBe("Off");
+    expect(config.dropExpunged).toBe(false);
+  });
+
+  it("carries non-default junkHandling + dropExpunged in mirror AND flatten", () => {
+    for (const folderMapping of ["mirror", "flatten"] as const) {
+      const { config } = buildProfileConfig(
+        rows, checked, true, opts({ folderMapping, junkHandling: "Folder", dropExpunged: true }), "C:/out/G.pst", "C:/p",
+      );
+      expect(config.outputs[0].folderMapping).toBe(folderMapping); // folderMapping stays on the output group
+      expect(config).not.toHaveProperty("folderMapping");           // not duplicated at top level
+      expect(config.junkHandling).toBe("Folder");                   // junk/expunged ARE top-level
+      expect(config.dropExpunged).toBe(true);
+    }
   });
 });
