@@ -11,7 +11,7 @@ namespace Mail2Pst.Core.Tests.Discovery;
 public class ConfigFromDiscoveryTests
 {
     private static DiscoveryResult Discovery() => new(
-        Root: "/home/user/profile",
+        Root: "/data/tb/profile",
         Layout: "thunderbird-profile",
         Sources: new[]
         {
