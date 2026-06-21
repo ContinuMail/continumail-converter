@@ -9,6 +9,7 @@ using System.Threading;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.Msf;
 using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
@@ -37,6 +38,12 @@ public class ConversionRunner
 
         var report = new ConversionReport();
         List<PstOutputPlan> plans = MappingEngine.BuildPlan(config);
+
+        var enrichmentOptions = new MsfEnrichmentOptions
+        {
+            TagResolver = new DefaultMsfTagResolver(),
+            JunkHandling = config.JunkHandling,
+        };
 
         // Validate source types eagerly so an unsupported type fails loudly
         // before any output file is created, rather than mid-write.
@@ -72,7 +79,7 @@ public class ConversionRunner
         {
             foreach (PstOutputPlan plan in plans)
             {
-                IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, onProgress);
+                IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, enrichmentOptions, onProgress);
                 List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, outputDirectory, report, total, onProgress, cancellationToken);
                 report.AddOutputFiles(outputFiles);
             }
@@ -96,57 +103,71 @@ public class ConversionRunner
     }
 
     private static IEnumerable<PlannedMessage> EnumeratePlannedMessages(
-        PstOutputPlan plan, ConversionReport report, Action<ConversionProgressEvent>? onProgress = null)
+        PstOutputPlan plan, ConversionReport report, MsfEnrichmentOptions enrichmentOptions,
+        Action<ConversionProgressEvent>? onProgress = null)
     {
         foreach (SourceMapping mapping in plan.SourceMappings)
         {
-            IMailSourceParser parser = ParserRegistry.Get(mapping.Source.Type);
-            // `using` declaration: the underlying MboxParser.Parse owns a FileStream that is
-            // only released when this enumerator is disposed. Without it, abandoning the
-            // enumeration early (IOException skip below, cancellation, or split-cap stop in the
-            // consumer) would leak the source file handle until GC.
-            using IEnumerator<ParseResult> results = parser.Parse(mapping.Source.Path).GetEnumerator();
+            // Build optional .msf enrichment for this source (records attempted/degraded + any warning,
+            // emitting a live WarningEvent through onProgress on degradation).
+            SourceEnrichmentContext? enrichment =
+                SourceEnrichmentContext.TryCreate(mapping.Source, enrichmentOptions, report, onProgress);
 
-            while (true)
+            // finally (not the natural foreach end) folds the per-message counts, so they survive early
+            // disposal of this iterator (cancellation / split-cap stop / producer fault in the writer).
+            try
             {
-                ParseResult result;
-                try
+                IMailSourceParser parser = ParserRegistry.Get(mapping.Source.Type);
+                using IEnumerator<ParseResult> results = parser.Parse(mapping.Source.Path).GetEnumerator();
+
+                while (true)
                 {
-                    if (!results.MoveNext())
+                    ParseResult result;
+                    try
                     {
+                        if (!results.MoveNext())
+                        {
+                            break;
+                        }
+
+                        result = results.Current;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        report.RecordSkipped(
+                            new SourceReference { SourcePath = mapping.Source.Path, Identifier = "(source)" },
+                            ex.Message);
                         break;
                     }
 
-                    result = results.Current;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // A missing/unreadable source (matching the best-effort catch in the
-                    // message-count loop above) is skipped-and-recorded, not allowed to
-                    // crash the whole conversion.
-                    report.RecordSkipped(
-                        new SourceReference { SourcePath = mapping.Source.Path, Identifier = "(source)" },
-                        ex.Message);
-                    break;
-                }
+                    if (!result.Success)
+                    {
+                        report.RecordSkipped(result.Source, result.Error!);
+                        continue;
+                    }
 
-                if (!result.Success)
-                {
-                    report.RecordSkipped(result.Source, result.Error!);
-                    continue;
-                }
+                    foreach (string warning in result.Warnings)
+                    {
+                        report.RecordWarning(result.Source, warning);
+                        onProgress?.Invoke(new WarningEvent(result.Source.SourcePath, result.Source.Identifier, warning));
+                    }
 
-                foreach (string warning in result.Warnings)
-                {
-                    report.RecordWarning(result.Source, warning);
-                    onProgress?.Invoke(new WarningEvent(result.Source.SourcePath, result.Source.Identifier, warning));
-                }
+                    MailMessage message = result.Message!;
+                    enrichment?.Apply(message);
 
-                yield return new PlannedMessage
+                    yield return new PlannedMessage
+                    {
+                        Message = message,
+                        TargetFolderPath = mapping.TargetFolderPath,
+                    };
+                }
+            }
+            finally
+            {
+                if (enrichment is not null)
                 {
-                    Message = result.Message!,
-                    TargetFolderPath = mapping.TargetFolderPath,
-                };
+                    report.RecordEnrichmentCounts(enrichment.Result);
+                }
             }
         }
     }
