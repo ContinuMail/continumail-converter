@@ -5,9 +5,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Mork;
 using Mail2Pst.Core.Msf;
+using Mail2Pst.Core.Reporting;
+using Mail2Pst.Core.Writing;
 using Xunit;
 
 namespace Mail2Pst.Integration.Tests;
@@ -43,6 +46,39 @@ public class CategoryRoundTripTests
             Assert.True(By("<c1@h>").IsFlagged);
             Assert.Equal(new[] { "Junk" }, By("<c2@h>").Categories);
             Assert.Empty(By("<c3@h>").Categories);
+        }
+        finally { Directory.Delete(outDir, true); }
+    }
+
+    [Fact]
+    public void Categories_SurviveAcrossCheckpoints()
+    {
+        // Regression for the real-profile finding: in a large conversion only ONE message kept its
+        // category. Reproduce faithfully — many messages with categorized ones SPREAD across checkpoint
+        // boundaries (checkpoint = EndSavingChanges/BeginSavingChanges every checkIntervalMessages).
+        // All categorized messages MUST keep their categories, not just one.
+        const int total = 1100;
+        var catIndexes = new HashSet<int> { 0, 550, 1050 }; // before / between / after the 500-msg checkpoints
+        var msgs = new List<MailMessage>();
+        for (int i = 0; i < total; i++)
+        {
+            var m = new MailMessage { MessageId = $"<m{i}@h>", Subject = $"s{i}" };
+            if (catIndexes.Contains(i)) m.Categories.Add($"Tag{i}");
+            msgs.Add(m);
+        }
+        var plan = new PstOutputPlan { Name = "P", MaxSizeBytes = 1000L * 1024 * 1024, IncludeEmptyFolders = true };
+        var planned = msgs.Select(m => new PlannedMessage { Message = m, TargetFolderPath = new[] { "Inbox" } });
+        string outDir = NewOutDir();
+        try
+        {
+            var report = new ConversionReport();
+            var outputs = new PstWriter(RoundTripHarness.TemplatePath) // default checkInterval=500
+                .WritePlan(plan, planned, outDir, report);
+            var read = PstReader.Read(outputs).SelectMany(f => f.Messages).ToList();
+
+            Assert.Equal(total, read.Count);
+            foreach (int i in catIndexes)
+                Assert.Equal(new[] { $"Tag{i}" }, read.Single(m => m.MessageId == $"<m{i}@h>").Categories);
         }
         finally { Directory.Delete(outDir, true); }
     }
