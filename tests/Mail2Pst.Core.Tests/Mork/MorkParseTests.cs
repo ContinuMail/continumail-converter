@@ -134,6 +134,35 @@ public class MorkParseTests
         Assert.Equal("5", t.Rows["1"].Cells["flags"]);
     }
 
+    [Fact]
+    public void Parse_SameTableIdDifferentScopes_KeptDistinct()
+    {
+        // Regression for the real-profile BUG-1: Thunderbird reuses a small table id across
+        // DIFFERENT scopes — the msgs table {1:^80} and the dbfolderinfo table {1:^9F} both use
+        // id "1". Mork identity is (id, scope), so they are DISTINCT tables. The dbfolderinfo
+        // statement appears LATER in the file; if the assembler keys tables by id alone it
+        // clobbers the msgs table's scope/kind (last-write-wins) and merges the row bags, so
+        // GetTables(msgs, msgs) returns 0 — exactly the live INBOX.msf failure.
+        const string columnDict =
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)"
+            + "(9F=ns:msg:db:row:scope:dbfolderinfo:all)(A0=ns:msg:db:table:kind:dbfolderinfo)(88=flags) >\n";
+        const string msgsTable = "{1:^80 {(k^96:c)} [m1(^88=5)] }\n";        // id 1, msgs
+        const string dbfTable  = "{1:^9F {(k^A0:c)} [d1(^88=1)] }";           // id 1, dbfolderinfo (LATER)
+        MorkDocument doc = MorkReader.ParseString(columnDict + msgsTable + dbfTable);
+
+        Assert.True(
+            doc.TryGetSingleTable("ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out MorkTable msgs),
+            $"msgs table lost to id collision — actual tables: [{string.Join(", ", doc.Tables.Select(x => $"id={x.Id} scope={x.Scope} kind={x.Kind}"))}]");
+        Assert.True(msgs.Rows.ContainsKey("m1"));
+        Assert.Equal("5", msgs.Rows["m1"].Cells["flags"]);
+        Assert.False(msgs.Rows.ContainsKey("d1")); // row bags must not cross-merge
+
+        Assert.True(
+            doc.TryGetSingleTable("ns:msg:db:row:scope:dbfolderinfo:all", "ns:msg:db:table:kind:dbfolderinfo", out MorkTable dbf),
+            "dbfolderinfo table missing");
+        Assert.True(dbf.Rows.ContainsKey("d1"));
+    }
+
     // Builds: "< <(a=c)> (f=iso-8859-1)(80=ns:...:msgs:all)(96=ns:...:kind:msgs)(81=subject) >{1:^80 {(k^96:c)} [1(^81=<0xE6>)]}"
     // with the subject value being the single raw byte 0xE6 (NOT $-escaped) to exercise the byte path.
     private static byte[] BuildLatin1Fixture()

@@ -116,6 +116,10 @@ internal sealed class MorkAssembler
     /// <summary>Mutable working state for a single table during assembly.</summary>
     private sealed class WorkingTable
     {
+        // The table's own id (the numeric id from { <id>:^scope … }). The working-table
+        // dictionary is keyed by the composite (scope, id) — see ReadTable — so Id is kept
+        // here to emit the final MorkTable with its real id.
+        public string Id { get; set; } = "";
         public string? Scope { get; set; }
         public string? Kind { get; set; }
         // rowId -> (cells dict, or null if the row has been cut and not re-added)
@@ -163,9 +167,9 @@ internal sealed class MorkAssembler
 
         // Build the final immutable MorkDocument from accumulated working state.
         var tables = new List<MorkTable>(_workingTables.Count);
-        foreach (string tableId in _tableOrder)
+        foreach (string tableKey in _tableOrder)
         {
-            var wt = _workingTables[tableId];
+            var wt = _workingTables[tableKey];
             var rows = new Dictionary<string, MorkRow>(StringComparer.Ordinal);
             foreach (var kv in wt.Rows)
             {
@@ -173,7 +177,8 @@ internal sealed class MorkAssembler
                 if (kv.Value is not null)
                     rows[kv.Key] = new MorkRow(kv.Key, kv.Value);
             }
-            tables.Add(new MorkTable(tableId, wt.Scope, wt.Kind, rows));
+            // Emit the table's real id (wt.Id), not the composite (scope, id) working key.
+            tables.Add(new MorkTable(wt.Id, wt.Scope, wt.Kind, rows));
         }
 
         return new MorkDocument(tables);
@@ -441,16 +446,25 @@ internal sealed class MorkAssembler
         string scopeAtomId = ExpectAtomRefId();
         string scope = ResolveColumnAtom(scopeAtomId);
 
-        // Get-or-create the working table for this id.
-        if (!_workingTables.TryGetValue(tableId, out var wt))
+        // Mork table identity is (id, scope), NOT id alone: real Thunderbird .msf reuses a small
+        // numeric id across DIFFERENT scopes (e.g. id "1" for both the msgs table ^80 and the
+        // dbfolderinfo table ^9F). Keying by id alone collapses them — the later statement clobbers
+        // the earlier table's scope/kind (last-write-wins) and merges their row bags, which loses the
+        // msgs table. Key by the composite (scope, id) so distinct tables stay distinct. (A space
+        // cannot appear in a scope string or hex table id, so it is a safe separator.) Every table statement in
+        // real .msf carries :^scope (the parser requires it), so the key is always well-defined.
+        string tableKey = scope + " " + tableId;
+
+        // Get-or-create the working table for this (scope, id).
+        if (!_workingTables.TryGetValue(tableKey, out var wt))
         {
-            wt = new WorkingTable { Scope = scope };
-            _workingTables[tableId] = wt;
-            _tableOrder.Add(tableId);
+            wt = new WorkingTable { Id = tableId, Scope = scope };
+            _workingTables[tableKey] = wt;
+            _tableOrder.Add(tableKey);
         }
         else
         {
-            // Re-statement: update scope (last-write-wins) but keep existing rows.
+            // Re-statement of the SAME (scope, id): scope is identical by construction; keep rows.
             wt.Scope = scope;
         }
 
