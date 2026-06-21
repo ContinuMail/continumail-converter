@@ -29,6 +29,7 @@ public class ConfigFromDiscoveryTests
         OutputGroupConfig g = Assert.Single(cfg.Outputs);
         Assert.Equal("profile", g.Name);                 // derived from Root directory name
         Assert.Equal(JunkHandlingMode.Off, cfg.JunkHandling);
+        Assert.False(cfg.DropExpunged);
         Assert.Equal(2, g.Sources.Count);
         Assert.Equal("/p/Inbox.msf", g.Sources[0].MsfPath);
         Assert.Null(g.Sources[1].MsfPath);
@@ -41,6 +42,7 @@ public class ConfigFromDiscoveryTests
         var template = new ConversionConfig
         {
             JunkHandling = JunkHandlingMode.Category,
+            DropExpunged = true,
             Outputs =
             {
                 new OutputGroupConfig
@@ -57,6 +59,7 @@ public class ConfigFromDiscoveryTests
         Assert.Equal(1234, g.MaxSizeMB);
         Assert.False(g.IncludeEmptyFolders);
         Assert.Equal(JunkHandlingMode.Category, cfg.JunkHandling);
+        Assert.True(cfg.DropExpunged);
         Assert.Equal(2, g.Sources.Count);               // from discovery, not the template's 1
         Assert.Equal("/p/Inbox", g.Sources[0].Path);
     }

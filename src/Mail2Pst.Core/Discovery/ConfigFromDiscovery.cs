@@ -30,6 +30,7 @@ public static class ConfigFromDiscovery
                     $"found {template.Outputs.Count}.");
 
             config.JunkHandling = template.JunkHandling;
+            config.DropExpunged = template.DropExpunged;
 
             if (template.Outputs.Count == 1)
             {

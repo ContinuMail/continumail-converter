@@ -13,6 +13,7 @@ public sealed class MsfEnrichmentOptions
 {
     public IMsfTagResolver TagResolver { get; set; } = new DefaultMsfTagResolver();
     public JunkHandlingMode JunkHandling { get; set; } = JunkHandlingMode.Off;
+    public bool DropExpunged { get; set; }
 }
 
 public sealed class MsfEnrichmentResult
@@ -22,6 +23,7 @@ public sealed class MsfEnrichmentResult
     public int SkippedDuplicateId { get; set; }
     public int NoMsfMatch { get; set; }
     public int ExpungedMatched { get; set; }
+    public int ExpungedDropped { get; set; }
 }
 
 /// <summary>

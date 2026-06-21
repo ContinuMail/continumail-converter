@@ -22,7 +22,7 @@ public class ConversionReport
     private readonly List<string> _deletedFiles = new();
     private volatile bool _cancelled;
 
-    private int _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged;
+    private int _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged, _enrDropped;
     private int _srcAttempted, _srcEnriched, _srcDegraded;
 
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
@@ -88,6 +88,7 @@ public class ConversionReport
             _enrDup += result.SkippedDuplicateId;
             _enrNoMatch += result.NoMsfMatch;
             _enrExpunged += result.ExpungedMatched;
+            _enrDropped += result.ExpungedDropped;
         }
     }
 
@@ -98,6 +99,7 @@ public class ConversionReport
             lock (_lock)
                 return new MsfEnrichmentSummary(
                     _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged,
+                    _enrDropped,
                     _srcAttempted, _srcEnriched, _srcDegraded);
         }
     }
@@ -155,6 +157,7 @@ public class ConversionReport
         builder.AppendLine(
             $"Enrichment: matched={enr.Matched} missingId={enr.SkippedMissingId} " +
             $"duplicateId={enr.SkippedDuplicateId} noMsfMatch={enr.NoMsfMatch} expunged={enr.ExpungedMatched} " +
+            $"dropped={enr.ExpungedDropped} " +
             $"(sources attempted={enr.SourcesAttempted} enriched={enr.SourcesEnriched} degraded={enr.SourcesDegraded})");
 
         return builder.ToString();

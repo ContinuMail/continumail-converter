@@ -114,4 +114,25 @@ public class ConfigLoaderTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void DropExpunged_DefaultsToFalse()
+        => Assert.False(new ConversionConfig().DropExpunged);
+
+    [Fact]
+    public void Load_ParsesDropExpunged()
+    {
+        string json = """
+        { "dropExpunged": true, "outputs": [ { "name": "Out", "maxSizeMB": 100,
+          "folderMapping": "mirror", "sources": [ { "path": "a.mbox", "type": "mbox" } ] } ] }
+        """;
+        string tempPath = Path.GetTempFileName();
+        File.WriteAllText(tempPath, json);
+        try
+        {
+            ConversionConfig config = ConfigLoader.Load(tempPath);
+            Assert.True(config.DropExpunged);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

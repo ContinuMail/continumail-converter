@@ -43,6 +43,7 @@ public class ConversionRunner
         {
             TagResolver = new DefaultMsfTagResolver(),
             JunkHandling = config.JunkHandling,
+            DropExpunged = config.DropExpunged,
         };
 
         // Validate source types eagerly so an unsupported type fails loudly
