@@ -42,8 +42,10 @@ public static class MsfEnricher
         var result = new MsfEnrichmentResult();
         MsfJoinIndex index = MsfJoinIndex.Build(msf);
         MboxDuplicateIdSet mboxDuplicates = MboxDuplicateIdSet.FromMessages(messages);
+        // Batch mode keeps every message: the per-message keep return (used by the streaming
+        // path to drop expunged messages) is intentionally discarded here.
         foreach (MailMessage mail in messages)
-            TryApply(mail, index, mboxDuplicates, options, result);
+            _ = TryApply(mail, index, mboxDuplicates, options, result);
         return result;
     }
 
