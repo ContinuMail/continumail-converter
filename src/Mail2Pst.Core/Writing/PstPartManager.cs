@@ -32,6 +32,7 @@ internal sealed class PstPartManager
 
     private readonly List<string> _outputFiles = new();
     private readonly Dictionary<string, PSTFolder> _folders = new();
+    private readonly HashSet<PSTFolder> _dirtyFolders = new(ReferenceEqualityComparer.Instance);
     private PSTFile? _file;
     private string _currentPath = "";
     private int _partNumber = 1;
@@ -77,6 +78,7 @@ internal sealed class PstPartManager
     /// <summary>Predictive split: flushes the current part, then starts the next.</summary>
     public void FlushAndSplit()
     {
+        SaveDirtyFolders();
         _file!.EndSavingChanges();
         StartNextPartAfterFlush();
     }
@@ -85,6 +87,7 @@ internal sealed class PstPartManager
     {
         PSTFolder folder = GetOrCreateFolder(path);
         _writeMessage(_file!, folder, message);
+        _dirtyFolders.Add(folder);
     }
 
     public void OnWritten(long messageSize)
@@ -94,8 +97,24 @@ internal sealed class PstPartManager
         _messagesSinceCheck++;
     }
 
-    /// <summary>EndSavingChanges only — the checkpoint path flushes here so progress can emit before the size decision.</summary>
-    public void Flush() => _file!.EndSavingChanges();
+    // Flush every folder that received a message since the last save. The vendored library
+    // requires folder.SaveChanges() before file.EndSavingChanges() or the contents-table
+    // update is lost — batching the per-folder save to each flush boundary (instead of per
+    // message) avoids rewriting a folder's whole contents table on every single message.
+    // An empty dirty set is a no-op (empty PSTs, pre-created-only folders, finish-with-no-writes).
+    private void SaveDirtyFolders()
+    {
+        foreach (PSTFolder folder in _dirtyFolders)
+            folder.SaveChanges();
+        _dirtyFolders.Clear();
+    }
+
+    /// <summary>Saves dirty folders, then EndSavingChanges — the checkpoint path flushes here so progress can emit before the size decision.</summary>
+    public void Flush()
+    {
+        SaveDirtyFolders();
+        _file!.EndSavingChanges();
+    }
 
     /// <summary>
     /// PRECONDITION: Flush() was just called. Splits if the part reached the cap (returns
@@ -115,7 +134,11 @@ internal sealed class PstPartManager
         return false;
     }
 
-    public void Finish() => _file!.EndSavingChanges();
+    public void Finish()
+    {
+        SaveDirtyFolders();
+        _file!.EndSavingChanges();
+    }
 
     /// <summary>Closes the current handle. Idempotent: nulls the field so a double Close() is a no-op.</summary>
     public void Close()
@@ -167,6 +190,7 @@ internal sealed class PstPartManager
             _file = nextFile;
             nextFile = null;   // ownership transferred to _file
             _folders.Clear();
+            _dirtyFolders.Clear();
             _estimatedContentBytes = 0;
             _messagesSinceCheck = 0;
             _messagesInCurrentPart = 0;

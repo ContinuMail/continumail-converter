@@ -484,7 +484,9 @@ public class PstWriter
 
         note.SaveChanges();
         folder.AddMessage(note);
-        folder.SaveChanges();
+        // folder.SaveChanges() is intentionally NOT called per message: PstPartManager batches it
+        // (SaveDirtyFolders) to each checkpoint/split/finish flush, before EndSavingChanges. Saving
+        // a folder's whole contents table per message is ~O(n^2); batching is the E3 perf win.
     }
 
     private static void WriteAttachment(PSTFile file, Note note, MailAttachment a)
