@@ -50,7 +50,9 @@ internal static class ImportColoursCommand
             IReadOnlyList<CategoryCandidate> applied = RunOnSta(() =>
             {
                 using var store = new OutlookComCategoryStore();
-                return CategoryColorApplier.Apply(plan, store);
+                IReadOnlyList<CategoryCandidate> result = CategoryColorApplier.Apply(plan, store);
+                store.Commit(); // atomically persist the buffered adds before Dispose flushes + closes Outlook
+                return result;
             }, ApplyTimeout);
             Emit("apply", outlookAvailable: true, applied);
             return 0;

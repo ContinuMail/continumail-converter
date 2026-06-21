@@ -15,8 +15,10 @@ public class CategoryColorApplierTests
         public readonly List<(string Name, int Color)> Added = new();
         public FakeStore(params string[] existing) =>
             _existing = new HashSet<string>(existing, System.StringComparer.OrdinalIgnoreCase);
+        public int CommitCount { get; private set; }
         public IReadOnlySet<string> ExistingNames() => _existing;
         public void Add(string name, int outlookColorIndex) { Added.Add((name, outlookColorIndex)); _existing.Add(name); }
+        public void Commit() => CommitCount++;
     }
 
     [Fact]

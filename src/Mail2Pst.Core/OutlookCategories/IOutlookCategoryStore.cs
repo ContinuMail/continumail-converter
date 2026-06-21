@@ -10,6 +10,10 @@ public interface IOutlookCategoryStore
 {
     /// <summary>Existing master-list category names, compared case-insensitively (OrdinalIgnoreCase).</summary>
     IReadOnlySet<string> ExistingNames();
-    /// <summary>Add a category with the given OlCategoryColor integer (1-25).</summary>
+    /// <summary>Buffer a category with the given OlCategoryColor integer (1-25) for addition. Not persisted
+    /// until <see cref="Commit"/> is called — the master list must be written in a single atomic operation
+    /// (Outlook commits per-add writes lazily and racily, losing all but the first).</summary>
     void Add(string name, int outlookColorIndex);
+    /// <summary>Atomically persist all buffered <see cref="Add"/>s. No-op when nothing was buffered.</summary>
+    void Commit();
 }
