@@ -37,4 +37,18 @@ public class ImportColoursInputTests
         var input = ImportColoursInput.Parse(new[] { "--profile", "/p", "--bogus" });
         Assert.NotNull(input.Error);
     }
+
+    [Fact]
+    public void ProfileWithoutValue_IsError()
+    {
+        var input = ImportColoursInput.Parse(new[] { "--profile", "--apply" });
+        Assert.NotNull(input.Error);
+    }
+
+    [Fact]
+    public void ProfileFlagLast_NoValue_IsError()
+    {
+        var input = ImportColoursInput.Parse(new[] { "--profile" });
+        Assert.NotNull(input.Error);
+    }
 }

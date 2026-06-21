@@ -16,7 +16,12 @@ internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, strin
         {
             string a = args[i];
             if (!Known.Contains(a)) return new ImportColoursInput(null, false, $"Unknown argument: {a}");
-            if (a == "--profile") i++; // skip its value
+            if (a == "--profile")
+            {
+                i++;
+                if (i >= args.Length || args[i].StartsWith("--", System.StringComparison.Ordinal))
+                    return new ImportColoursInput(null, false, "--profile requires a value.");
+            }
         }
         string? profile = CliArgs.Flag(args, "--profile");
         if (string.IsNullOrWhiteSpace(profile))
