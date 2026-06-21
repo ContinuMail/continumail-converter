@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SplitSizeControl } from "@/components/ui/split-size-control";
 import { deriveOutputTarget, ConvertConfigError } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import {
@@ -11,8 +12,6 @@ import {
   buildConfigFromOptions,
   validateFolderName,
   findDuplicateFolderIds,
-  resolveCustomGbToMb,
-  SPLIT_PRESETS,
   type OptionsState,
 } from "@/lib/options";
 import type { ConversionConfig, SourceRow } from "@/lib/types";
@@ -36,13 +35,7 @@ export function OptionsView({
 }: OptionsViewProps) {
   const [startError, setStartError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-
-  const presetMatch = SPLIT_PRESETS.find((p) => p.mb === options.maxSizeMB);
-  const [splitMode, setSplitMode] = useState<"preset" | "custom">(presetMatch ? "preset" : "custom");
-  const [customText, setCustomText] = useState<string>(
-    presetMatch ? "" : String(Math.round(options.maxSizeMB / 1024)),
-  );
-  const [customErr, setCustomErr] = useState<string | null>(null);
+  const [splitOk, setSplitOk] = useState(true);
 
   const pstName = useMemo(() => {
     try { return deriveOutputTarget(outputPath).pstName; } catch { return "Output"; }
@@ -64,26 +57,7 @@ export function OptionsView({
     return m;
   }, [preview.folders, duplicateIds]);
 
-  const canStart = preview.folders.length > 0 && nameErrors.size === 0 && customErr === null;
-
-  function onSplitSelect(value: string) {
-    if (value === "custom") {
-      setSplitMode("custom");
-      setCustomText(String(Math.round(options.maxSizeMB / 1024)));
-      setCustomErr(null);
-    } else {
-      setSplitMode("preset");
-      setCustomErr(null);
-      onSetOptions({ maxSizeMB: Number(value) });
-    }
-  }
-
-  function onCustomChange(text: string) {
-    setCustomText(text);
-    const r = resolveCustomGbToMb(text, options.allowOversize);
-    if ("mb" in r) { setCustomErr(null); onSetOptions({ maxSizeMB: r.mb }); }
-    else setCustomErr(r.error);
-  }
+  const canStart = preview.folders.length > 0 && nameErrors.size === 0 && splitOk;
 
   function onStartClick() {
     try {
@@ -122,32 +96,12 @@ export function OptionsView({
 
           <div>
             <div className="mb-1 text-sm font-medium text-foreground">Split size</div>
-            <select
-              className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground"
-              value={splitMode === "custom" ? "custom" : String(options.maxSizeMB)}
-              onChange={(e) => onSplitSelect(e.target.value)}
-            >
-              {SPLIT_PRESETS.map((p) => (
-                <option key={p.mb} value={String(p.mb)}>{p.label}</option>
-              ))}
-              <option value="custom">Custom…</option>
-            </select>
-            {splitMode === "custom" && (
-              <div className="mt-2">
-                <input
-                  type="number" min={1} step="0.1"
-                  className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-foreground"
-                  value={customText}
-                  onChange={(e) => onCustomChange(e.target.value)}
-                  aria-label="Custom split size in GB"
-                />
-                <div className="mt-0.5 text-xs text-light-gray">Size in GB</div>
-                {customErr && <div className="mt-0.5 text-xs text-destructive">{customErr}</div>}
-              </div>
-            )}
-            <p className="mt-1 text-xs text-light-gray">
-              Uses the PST safety limit of 50&nbsp;GB. Very large archives may still be split.
-            </p>
+            <SplitSizeControl
+              maxSizeMB={options.maxSizeMB}
+              allowOversize={options.allowOversize}
+              onChange={(mb) => onSetOptions({ maxSizeMB: mb })}
+              onValidityChange={setSplitOk}
+            />
           </div>
         </div>
 

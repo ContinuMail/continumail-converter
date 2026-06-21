@@ -8,6 +8,8 @@ import { SelectView } from "@/components/views/SelectView";
 import { ScanningView } from "@/components/views/ScanningView";
 import { ReviewView } from "@/components/views/ReviewView";
 import { OptionsView } from "@/components/views/OptionsView";
+import { ProfileOptionsView } from "@/components/views/ProfileOptionsView";
+import type { ProfileSourceRow } from "@/lib/types";
 import { ScanErrorView } from "@/components/views/ScanErrorView";
 import { ConvertView } from "@/components/views/ConvertView";
 import { DoneView } from "@/components/views/DoneView";
@@ -113,19 +115,33 @@ export default function App() {
           warnings={f.inputMode === "profile" ? f.discoverWarnings : undefined}
         />
       )}
-      {f.stage === "options" && f.scan && f.outputPath && (
-        <OptionsView
-          scan={f.scan}
-          previewSources={flow.sortedSources}
-          outputPath={f.outputPath}
-          checkedIds={f.checkedIds}
-          skipEmpty={f.skipEmpty}
-          options={f.options}
-          onSetOptions={flow.setOptions}
-          onSetRename={flow.setRename}
-          onStart={start}
-          onBack={flow.backToReview}
-        />
+      {f.stage === "options" && f.outputPath && (
+        f.inputMode === "profile" && f.profileRoot ? (
+          <ProfileOptionsView
+            rows={flow.sortedSources as ProfileSourceRow[]}
+            outputPath={f.outputPath}
+            profileRoot={f.profileRoot}
+            checkedIds={f.checkedIds}
+            skipEmpty={f.skipEmpty}
+            options={f.options}
+            onSetOptions={flow.setOptions}
+            onStart={start}
+            onBack={flow.backToReview}
+          />
+        ) : f.scan ? (
+          <OptionsView
+            scan={f.scan}
+            previewSources={flow.sortedSources}
+            outputPath={f.outputPath}
+            checkedIds={f.checkedIds}
+            skipEmpty={f.skipEmpty}
+            options={f.options}
+            onSetOptions={flow.setOptions}
+            onSetRename={flow.setRename}
+            onStart={start}
+            onBack={flow.backToReview}
+          />
+        ) : null
       )}
       {f.stage === "scanError" && (
         <ScanErrorView message={f.errorMessage ?? "Unknown error"} onBack={flow.back} />

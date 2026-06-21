@@ -1,0 +1,119 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { SplitSizeControl } from "@/components/ui/split-size-control";
+import { buildProfileConfig } from "@/lib/profileConfig";
+import { effectiveRows } from "@/lib/review";
+import { ConvertConfigError, deriveOutputTarget } from "@/lib/convert";
+import { formatBytes } from "@/lib/format";
+import type { OptionsState } from "@/lib/options";
+import type { ConversionConfig, ProfileSourceRow } from "@/lib/types";
+
+interface ProfileOptionsViewProps {
+  rows: ProfileSourceRow[];
+  outputPath: string;
+  profileRoot: string;
+  checkedIds: Set<string>;
+  skipEmpty: boolean;
+  options: OptionsState;
+  onSetOptions: (patch: Partial<OptionsState>) => void;
+  onStart: (config: ConversionConfig, outputDir: string) => void;
+  onBack: () => void;
+}
+
+export function ProfileOptionsView({
+  rows, outputPath, profileRoot, checkedIds, skipEmpty, options, onSetOptions, onStart, onBack,
+}: ProfileOptionsViewProps) {
+  const [startError, setStartError] = useState<string | null>(null);
+  const [splitOk, setSplitOk] = useState(true);
+
+  const eff = useMemo(
+    () => effectiveRows(rows, checkedIds, skipEmpty) as ProfileSourceRow[],
+    [rows, checkedIds, skipEmpty],
+  );
+  const pstName = useMemo(() => {
+    try { return deriveOutputTarget(outputPath).pstName; } catch { return "Output"; }
+  }, [outputPath]);
+  const totalBytes = eff.reduce((n, r) => n + r.bytes, 0);
+  const canStart = eff.length > 0 && splitOk;
+
+  function onStartClick() {
+    try {
+      const { config, outputDir } = buildProfileConfig(
+        rows, checkedIds, skipEmpty, options.folderMapping, options.maxSizeMB, outputPath, profileRoot,
+      );
+      onStart(config, outputDir);
+    } catch (e) {
+      setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col min-h-0">
+      <h1 className="text-xl font-semibold text-foreground">Options</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Choose how the discovered folders are written and how large each PST may get.
+      </p>
+
+      <div className="mt-4 flex flex-1 gap-6 overflow-hidden">
+        <div className="flex w-64 shrink-0 flex-col gap-5">
+          <div>
+            <div className="mb-1 text-sm font-medium text-foreground">Folder structure</div>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input type="radio" name="mapping" checked={options.folderMapping === "mirror"}
+                onChange={() => onSetOptions({ folderMapping: "mirror" })} />
+              Mirror the Thunderbird tree
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
+              <input type="radio" name="mapping" checked={options.folderMapping === "flatten"}
+                onChange={() => onSetOptions({ folderMapping: "flatten" })} />
+              Flatten into one folder
+            </label>
+          </div>
+          <div>
+            <div className="mb-1 text-sm font-medium text-foreground">Split size</div>
+            <SplitSizeControl
+              maxSizeMB={options.maxSizeMB}
+              allowOversize={options.allowOversize}
+              onChange={(mb) => onSetOptions({ maxSizeMB: mb })}
+              onValidityChange={setSplitOk}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="mb-1 text-sm font-medium text-foreground">Preview</div>
+          <div className="flex-1 overflow-auto rounded-lg border border-border p-3 text-sm">
+            <div className="font-semibold text-foreground">{pstName}.pst</div>
+            <div className="mt-1 flex flex-col gap-1">
+              {options.folderMapping === "flatten" ? (
+                <div className="pl-3 text-foreground">└ Imported Mail
+                  <span className="ml-2 text-light-gray">{eff.reduce((n, r) => n + r.messages, 0).toLocaleString()} · {formatBytes(totalBytes)}</span>
+                </div>
+              ) : eff.map((r) => (
+                <div key={r.id} className="pl-3 text-foreground">
+                  └ {r.displayName}
+                  <span className="ml-2 text-light-gray">{r.messages.toLocaleString()} · {formatBytes(r.bytes)}</span>
+                </div>
+              ))}
+              {eff.length === 0 && <div className="pl-3 text-xs text-light-gray">No folders selected.</div>}
+            </div>
+          </div>
+          <div className="mt-2 rounded-lg border border-border border-l-[3px] border-l-primary bg-card px-3 py-2 text-xs text-muted-foreground">
+            Carried over from Thunderbird automatically: <span className="text-foreground">read/unread, replied, forwarded, starred</span> flags and <span className="text-foreground">tags → Outlook categories</span> (folders with an <span className="text-primary">.msf</span> badge). Junk routing &amp; drop-expunged are coming in a later update.
+          </div>
+        </div>
+      </div>
+
+      {startError && <p className="mt-3 text-sm text-destructive">{startError}</p>}
+
+      <div className="mt-4 flex items-center justify-end">
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onBack}>‹ Back</Button>
+          <Button disabled={!canStart} onClick={onStartClick}>Start conversion ›</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
