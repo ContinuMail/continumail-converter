@@ -12,13 +12,19 @@ import type { FileStat } from "@/lib/types";
 interface SelectViewProps {
   files: FileStat[];
   outputPath: string | null;
+  inputMode: "files" | "profile";
+  profileRoot: string | null;
+  sourceError?: string | null;
   onFilesChange: (files: FileStat[]) => void;
   onOutputPathChange: (path: string | null) => void;
+  onInputModeChange: (m: "files" | "profile") => void;
+  onProfileRootChange: (path: string | null) => void;
   onContinue: () => void;
 }
 
 export function SelectView({
-  files, outputPath, onFilesChange, onOutputPathChange, onContinue,
+  files, outputPath, inputMode, profileRoot, sourceError,
+  onFilesChange, onOutputPathChange, onInputModeChange, onProfileRootChange, onContinue,
 }: SelectViewProps) {
   // Picker errors are transient and screen-local (e.g. "no .mbox in folder").
   // Parent owns the durable file/output state; this does NOT belong there.
@@ -50,6 +56,12 @@ export function SelectView({
     await addFiles(found);
   }
 
+  async function onChooseProfile() {
+    setPickerError(null);
+    const dir = await pickFolder();
+    if (dir) onProfileRootChange(dir);
+  }
+
   async function onChooseOutput() {
     setPickerError(null);
     const path = await pickOutputPst();
@@ -67,50 +79,85 @@ export function SelectView({
   }
 
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-  const canContinue = files.length > 0 && outputPath !== null;
+  const canContinue =
+    outputPath !== null &&
+    (inputMode === "files" ? files.length > 0 : profileRoot !== null);
 
   return (
     <div className="flex flex-1 flex-col">
-      <h1 className="text-xl font-semibold text-foreground">Choose your mbox files</h1>
+      <h1 className="text-xl font-semibold text-foreground">Choose what to convert</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Select a folder that contains <code>.mbox</code> files, or pick individual <code>.mbox</code> files.
+        Select a Thunderbird profile or pick individual <code>.mbox</code> files.
       </p>
 
-      <div className="mt-4 flex gap-3">
-        <Button onClick={onChooseFiles}>
-          <FileText /> Choose .mbox files…
-        </Button>
-        <Button variant="outline" onClick={onChooseFolder}>
-          <FolderOpen /> Select folder…
-        </Button>
+      <div className="mt-4 inline-flex overflow-hidden rounded-md border border-border">
+        <button
+          type="button"
+          onClick={() => onInputModeChange("profile")}
+          className={"px-4 py-1.5 text-sm " + (inputMode === "profile" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+        >
+          Thunderbird profile
+        </button>
+        <button
+          type="button"
+          onClick={() => onInputModeChange("files")}
+          className={"px-4 py-1.5 text-sm " + (inputMode === "files" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+        >
+          .mbox files
+        </button>
       </div>
 
-      {files.length > 0 && (
+      {inputMode === "profile" && (
         <div className="mt-4">
-          <div className="text-xs text-light-gray">
-            {files.length} mbox file{files.length === 1 ? "" : "s"} · {formatBytes(totalBytes)}
-          </div>
-          <div className="mt-2 flex max-h-40 flex-col gap-1.5 overflow-auto">
-            {files.map((f) => (
-              <div
-                key={f.path}
-                className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
-              >
-                <span className="truncate">{splitPath(f.path).base}</span>
-                <span className="ml-auto shrink-0 text-light-gray">{formatBytes(f.size)}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(f.path)}
-                  aria-label={`Remove ${splitPath(f.path).base}`}
-                  title="Remove"
-                  className="shrink-0 rounded p-0.5 text-light-gray transition-colors hover:text-destructive"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <Button onClick={onChooseProfile}>
+            <FolderOpen /> {profileRoot ? splitPath(profileRoot).base : "Choose profile / mail folder…"}
+          </Button>
+          {profileRoot && <div className="mt-1 text-xs text-light-gray">{profileRoot}</div>}
+          <p className="mt-2 text-xs text-light-gray">
+            Point at a Thunderbird profile, a Mail/ImapMail store, or a single account folder. Nested folders and tags/flags are detected automatically.
+          </p>
         </div>
+      )}
+
+      {inputMode === "files" && (
+        <>
+          <div className="mt-4 flex gap-3">
+            <Button onClick={onChooseFiles}>
+              <FileText /> Choose .mbox files…
+            </Button>
+            <Button variant="outline" onClick={onChooseFolder}>
+              <FolderOpen /> Select folder…
+            </Button>
+          </div>
+
+          {files.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs text-light-gray">
+                {files.length} mbox file{files.length === 1 ? "" : "s"} · {formatBytes(totalBytes)}
+              </div>
+              <div className="mt-2 flex max-h-40 flex-col gap-1.5 overflow-auto">
+                {files.map((f) => (
+                  <div
+                    key={f.path}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+                  >
+                    <span className="truncate">{splitPath(f.path).base}</span>
+                    <span className="ml-auto shrink-0 text-light-gray">{formatBytes(f.size)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(f.path)}
+                      aria-label={`Remove ${splitPath(f.path).base}`}
+                      title="Remove"
+                      className="shrink-0 rounded p-0.5 text-light-gray transition-colors hover:text-destructive"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <div className="mt-5">
@@ -134,7 +181,9 @@ export function SelectView({
         {outputPath && <div className="mt-1 text-xs text-light-gray">{splitPath(outputPath).dir}</div>}
       </div>
 
-      {pickerError && <p className="mt-4 text-sm text-destructive">{pickerError}</p>}
+      {(pickerError || sourceError) && (
+        <p className="mt-4 text-sm text-destructive">{pickerError ?? sourceError}</p>
+      )}
 
       <div className="mt-auto flex items-center justify-end pt-5">
         <Button disabled={!canContinue} onClick={onContinue}>

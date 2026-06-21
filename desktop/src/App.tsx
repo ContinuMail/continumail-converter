@@ -86,8 +86,13 @@ export default function App() {
         <SelectView
           files={f.inputFiles}
           outputPath={f.outputPath}
+          inputMode={f.inputMode}
+          profileRoot={f.profileRoot}
+          sourceError={f.sourceError}
           onFilesChange={flow.setInputFiles}
           onOutputPathChange={flow.setOutputPath}
+          onInputModeChange={flow.setInputMode}
+          onProfileRootChange={flow.setProfileRoot}
           onContinue={flow.continueToScan}
         />
       )}
