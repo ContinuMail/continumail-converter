@@ -17,6 +17,8 @@ export interface OptionsState {
   allowOversize: boolean;
   renames: Record<string, string>; // sourceId -> folder name (Mirror)
   flattenFolderName: string;
+  junkHandling: "Off" | "Category" | "Folder";
+  dropExpunged: boolean;
 }
 
 /** Fresh default options (factory, so callers never share a mutable object). */
@@ -27,6 +29,8 @@ export function defaultOptions(): OptionsState {
     allowOversize: false,
     renames: {},
     flattenFolderName: FLATTEN_DEFAULT_NAME,
+    junkHandling: "Off",
+    dropExpunged: false,
   };
 }
 

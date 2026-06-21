@@ -258,3 +258,11 @@ describe("validateFolderName parity table (mirror of FolderNameValidatorTests.cs
     expect(validateFolderName(name)).not.toBeNull();
   });
 });
+
+describe("defaultOptions enrichment defaults", () => {
+  it("defaults junkHandling to Off and dropExpunged to false", () => {
+    const o = defaultOptions();
+    expect(o.junkHandling).toBe("Off");
+    expect(o.dropExpunged).toBe(false);
+  });
+});

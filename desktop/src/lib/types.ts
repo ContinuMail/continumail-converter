@@ -40,11 +40,25 @@ export interface OutputGroupConfig {
 export interface ConversionConfig {
   outputs: OutputGroupConfig[];
   profilePath?: string;
+  junkHandling?: "Off" | "Category" | "Folder";
+  dropExpunged?: boolean;
 }
 
 export interface FileStat {
   path: string;
   size: number;
+}
+
+export interface EnrichmentSummary {
+  matched: number;
+  skippedMissingId: number;
+  skippedDuplicateId: number;
+  noMsfMatch: number;
+  expungedMatched: number;
+  expungedDropped: number;
+  sourcesAttempted: number;
+  sourcesEnriched: number;
+  sourcesDegraded: number;
 }
 
 export type Versioned = { schemaVersion?: number };
@@ -72,6 +86,7 @@ export type ConvertEvent = (
       outputDirectory?: string;
       report?: string;
       elapsedMs: number;
+      enrichment?: EnrichmentSummary;
     }
   | { type: "error"; stage?: string; message: string; fatal: boolean }
   | {
