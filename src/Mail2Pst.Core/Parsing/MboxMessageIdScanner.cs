@@ -19,7 +19,7 @@ namespace Mail2Pst.Core.Parsing;
 internal static class MboxMessageIdScanner
 {
     /// <summary>The set of normalized Message-IDs occurring more than once in the mbox.</summary>
-    public static MboxDuplicateIdSet ScanDuplicateIds(string path)
+    internal static MboxDuplicateIdSet ScanDuplicateIds(string path)
     {
         using FileStream stream = File.OpenRead(path); // ordinary read, same as MboxParser
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);

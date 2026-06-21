@@ -21,6 +21,9 @@ internal static class ConvertCommand
         {
             CliArgs.WriteJsonLine(new { type = "error", stage = "convert", message = resolved.Error, fatal = true });
             Console.Error.WriteLine(resolved.Error);
+            Console.Error.WriteLine("Usage:");
+            Console.Error.WriteLine("  continumail-convert convert --config <config.json> --output <dir>");
+            Console.Error.WriteLine("  continumail-convert convert --profile <dir> [--config <options.json>] --output <dir>");
             return 1;
         }
 

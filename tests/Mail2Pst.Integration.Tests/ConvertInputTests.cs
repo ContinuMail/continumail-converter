@@ -47,6 +47,7 @@ public class ConvertInputTests
             Assert.NotNull(r.Config);
             OutputGroupConfig g = Assert.Single(r.Config!.Outputs);
             SourceConfig s = Assert.Single(g.Sources);
+            Assert.NotNull(s.MsfPath);
             Assert.EndsWith("Inbox.msf", s.MsfPath);
             Assert.Equal(profile, r.InputLabel);
         }
