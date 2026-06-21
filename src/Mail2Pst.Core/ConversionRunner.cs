@@ -154,7 +154,16 @@ public class ConversionRunner
                     }
 
                     MailMessage message = result.Message!;
-                    enrichment?.Apply(message);
+                    bool keep = enrichment?.Apply(message) ?? true;
+                    if (!keep)
+                    {
+                        // Expunged-dropped: never yielded, so it never reaches the writer's finally
+                        // (PstWriter.WritePlan) that disposes attachment streams per dequeued message —
+                        // dispose here in the producer so the dropped message's streams don't leak.
+                        foreach (MailAttachment attachment in message.Attachments)
+                            attachment.Content.Dispose();
+                        continue;
+                    }
 
                     // Route junk into a top-level "Junk Email" folder when JunkHandling.Folder.
                     // Evaluated AFTER enrichment, which is what makes message.IsJunk authoritative.

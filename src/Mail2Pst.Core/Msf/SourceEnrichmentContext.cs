@@ -34,7 +34,7 @@ internal sealed class SourceEnrichmentContext
         _options = options;
     }
 
-    public void Apply(MailMessage message) => MsfEnricher.TryApply(message, _index, _mboxDuplicates, _options, Result);
+    public bool Apply(MailMessage message) => MsfEnricher.TryApply(message, _index, _mboxDuplicates, _options, Result);
 
     public static SourceEnrichmentContext? TryCreate(
         SourceConfig source, MsfEnrichmentOptions options, ConversionReport report,

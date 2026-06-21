@@ -50,15 +50,17 @@ public static class MsfEnricher
     /// <summary>
     /// Applies one message. Increments EXACTLY ONE of matched/skippedMissingId/skippedDuplicateId/
     /// noMsfMatch on <paramref name="result"/>; mutates <paramref name="mail"/> only on a unique match.
+    /// Returns false ONLY for a unique match where the row is expunged and options.DropExpunged is set
+    /// (the message should be dropped, not written); true in every other case.
     /// </summary>
-    internal static void TryApply(
+    internal static bool TryApply(
         MailMessage mail, MsfJoinIndex index, MboxDuplicateIdSet mboxDuplicates,
         MsfEnrichmentOptions options, MsfEnrichmentResult result)
     {
         string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
-        if (key is null) { result.SkippedMissingId++; return; }
-        if (mboxDuplicates.Contains(key) || index.IsDuplicateMsfId(key)) { result.SkippedDuplicateId++; return; }
-        if (!index.TryGetUnique(key, out MsfMessage row)) { result.NoMsfMatch++; return; }
+        if (key is null) { result.SkippedMissingId++; return true; }
+        if (mboxDuplicates.Contains(key) || index.IsDuplicateMsfId(key)) { result.SkippedDuplicateId++; return true; }
+        if (!index.TryGetUnique(key, out MsfMessage row)) { result.NoMsfMatch++; return true; }
 
         // .msf wins for scalar flags.
         mail.IsRead = row.IsRead;
@@ -71,8 +73,17 @@ public static class MsfEnricher
         if (options.JunkHandling == JunkHandlingMode.Category && row.IsJunk) resolved.Add("Junk");
         MergeCategories(mail.Categories, resolved);
 
-        if (row.IsExpunged) result.ExpungedMatched++;
         result.Matched++;
+        if (row.IsExpunged)
+        {
+            result.ExpungedMatched++;
+            if (options.DropExpunged)
+            {
+                result.ExpungedDropped++;
+                return false;
+            }
+        }
+        return true;
     }
 
     // Append new categories to existing, dedupe ordinal, preserve first occurrence; never remove.

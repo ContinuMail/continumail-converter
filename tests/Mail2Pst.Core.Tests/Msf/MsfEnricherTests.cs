@@ -25,8 +25,76 @@ public class MsfEnricherTests
         return MsfMessageReader.Read(new MorkDocument(new[] { table }));
     }
 
-    private static MsfEnrichmentOptions Opts(JunkHandlingMode junk = JunkHandlingMode.Off) =>
-        new() { TagResolver = new DefaultMsfTagResolver(), JunkHandling = junk };
+    private static MsfEnrichmentOptions Opts(JunkHandlingMode junk = JunkHandlingMode.Off, bool dropExpunged = false) =>
+        new() { TagResolver = new DefaultMsfTagResolver(), JunkHandling = junk, DropExpunged = dropExpunged };
+
+    // Calls TryApply directly to observe the keep return for a single message.
+    private static (bool keep, MsfEnrichmentResult result) ApplyOne(
+        MailMessage mail, MsfReadResult msf, MsfEnrichmentOptions opts)
+    {
+        var result = new MsfEnrichmentResult();
+        bool keep = MsfEnricher.TryApply(
+            mail, MsfJoinIndex.Build(msf), MboxDuplicateIdSet.FromMessages(new[] { mail }), opts, result);
+        return (keep, result);
+    }
+
+    [Fact]
+    public void DropExpunged_True_UniqueExpungedMatch_DropsAndCounts()
+    {
+        var mail = new MailMessage { MessageId = "<x@h>" };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("flags", "8"))); // 0x8 = expunged
+        var (keep, result) = ApplyOne(mail, msf, Opts(dropExpunged: true));
+        Assert.False(keep);
+        Assert.Equal(1, result.Matched);
+        Assert.Equal(1, result.ExpungedMatched);
+        Assert.Equal(1, result.ExpungedDropped);
+    }
+
+    [Fact]
+    public void DropExpunged_False_UniqueExpungedMatch_KeptAndNotDropped()
+    {
+        var mail = new MailMessage { MessageId = "<x@h>" };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("flags", "8")));
+        var (keep, result) = ApplyOne(mail, msf, Opts(dropExpunged: false));
+        Assert.True(keep);
+        Assert.Equal(1, result.ExpungedMatched);
+        Assert.Equal(0, result.ExpungedDropped);
+    }
+
+    [Fact]
+    public void DropExpunged_True_NonExpungedMatch_Kept()
+    {
+        var mail = new MailMessage { MessageId = "<x@h>" };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("flags", "1"))); // read, not expunged
+        var (keep, result) = ApplyOne(mail, msf, Opts(dropExpunged: true));
+        Assert.True(keep);
+        Assert.Equal(0, result.ExpungedDropped);
+    }
+
+    [Fact]
+    public void DropExpunged_True_UnmatchedMissingId_Kept()
+    {
+        var mail = new MailMessage { MessageId = null };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("flags", "8")));
+        var (keep, result) = ApplyOne(mail, msf, Opts(dropExpunged: true));
+        Assert.True(keep);
+        Assert.Equal(1, result.SkippedMissingId);
+        Assert.Equal(0, result.ExpungedDropped);
+    }
+
+    [Fact]
+    public void DropExpunged_True_DuplicateMsfId_Kept()
+    {
+        // Two .msf rows share the id (both expunged); a non-unique match must NOT drop.
+        var mail = new MailMessage { MessageId = "<dup@h>" };
+        MsfReadResult msf = Msf(
+            Row("1", ("message-id", "dup@h"), ("flags", "8")),
+            Row("2", ("message-id", "dup@h"), ("flags", "8")));
+        var (keep, result) = ApplyOne(mail, msf, Opts(dropExpunged: true));
+        Assert.True(keep);
+        Assert.Equal(1, result.SkippedDuplicateId);
+        Assert.Equal(0, result.ExpungedDropped);
+    }
 
     [Fact]
     public void UniqueMatch_OverridesFlags_SetsJunk_AddsCategories()
