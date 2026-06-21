@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { parseConvertLine, appendWarningCapped, convertExitError, type WarningItem } from "./convert";
 import { startConvert } from "./engine";
 import { checkSchemaVersion } from "./schema";
-import type { ConversionConfig, ConvertEvent } from "./types";
+import type { ConversionConfig, ConvertEvent, EnrichmentSummary } from "./types";
 
 export type ConvertPhase = "idle" | "running" | "done" | "error" | "cancelled";
 
@@ -25,9 +25,10 @@ export interface ConvertState {
   outputDir: string;
   errorMessage: string | null;
   elapsedMs: number | null;
+  enrichment: EnrichmentSummary | null;
 }
 
-const initial: ConvertState = {
+export const initialConvertState: ConvertState = {
   phase: "idle",
   total: 0,
   converted: 0,
@@ -42,9 +43,10 @@ const initial: ConvertState = {
   outputDir: "",
   errorMessage: null,
   elapsedMs: null,
+  enrichment: null,
 };
 
-function reduce(state: ConvertState, ev: ConvertEvent): ConvertState {
+export function reduceConvert(state: ConvertState, ev: ConvertEvent): ConvertState {
   // Only process events during an active run. This blocks both already-terminal
   // states AND a stray late event arriving after `reset()` (idle) — which would
   // otherwise wrongly flip idle → running.
@@ -87,6 +89,7 @@ function reduce(state: ConvertState, ev: ConvertEvent): ConvertState {
         warnings: ev.warnings,
         outputs: ev.outputs,
         elapsedMs: ev.elapsedMs,
+        enrichment: ev.enrichment ?? null,
       };
     case "error":
       return { ...state, phase: "error", errorMessage: ev.message };
@@ -106,7 +109,7 @@ function reduce(state: ConvertState, ev: ConvertEvent): ConvertState {
 }
 
 export function useConvert() {
-  const [state, setState] = useState<ConvertState>(initial);
+  const [state, setState] = useState<ConvertState>(initialConvertState);
   const phaseRef = useRef<ConvertPhase>("idle");
   phaseRef.current = state.phase;
   const schemaWarnedRef = useRef(false);
@@ -120,7 +123,7 @@ export function useConvert() {
         const msg = checkSchemaVersion(ev.schemaVersion);
         if (msg) console.warn(`[mail2pst] ${msg}`);
       }
-      setState((s) => reduce(s, ev));
+      setState((s) => reduceConvert(s, ev));
     });
     const unlistenExit = listen<number | null>("convert://exit", async (e) => {
       // Let a convert://line handler already queued ahead of this exit run first
@@ -141,7 +144,7 @@ export function useConvert() {
 
   const start = useCallback(async (config: ConversionConfig, outputDir: string) => {
     schemaWarnedRef.current = false;
-    setState({ ...initial, phase: "running", outputDir, startedAtMs: Date.now() });
+    setState({ ...initialConvertState, phase: "running", outputDir, startedAtMs: Date.now() });
     try {
       await startConvert(config, outputDir);
     } catch (err) {
@@ -150,7 +153,7 @@ export function useConvert() {
     }
   }, []);
 
-  const reset = useCallback(() => setState(initial), []);
+  const reset = useCallback(() => setState(initialConvertState), []);
 
   return { state, start, reset };
 }
