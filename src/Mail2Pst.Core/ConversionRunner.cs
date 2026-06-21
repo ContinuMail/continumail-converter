@@ -155,10 +155,15 @@ public class ConversionRunner
                     MailMessage message = result.Message!;
                     enrichment?.Apply(message);
 
+                    // Route junk into a top-level "Junk Email" folder when JunkHandling.Folder.
+                    // Evaluated AFTER enrichment, which is what makes message.IsJunk authoritative.
+                    IReadOnlyList<string> targetPath = JunkRouting.ResolveTargetFolderPath(
+                        mapping.TargetFolderPath, message.IsJunk, enrichmentOptions.JunkHandling);
+
                     yield return new PlannedMessage
                     {
                         Message = message,
-                        TargetFolderPath = mapping.TargetFolderPath,
+                        TargetFolderPath = targetPath,
                     };
                 }
             }
