@@ -123,4 +123,15 @@ public class PrefsTagReaderTests
         try { Assert.Equal("Important", PrefsTagReader.Read(p)["$label1"]); }
         finally { File.Delete(p); }
     }
+
+    [Fact]
+    public void HandlesCrlfLineEndings()
+    {
+        string text =
+            "user_pref(\"mailnews.tags.$label1.tag\", \"Important\");\r\n" +
+            "user_pref(\"mailnews.tags.custom.tag\", \"Client X\");\r\n";
+        var map = PrefsTagReader.ParseText(text);
+        Assert.Equal("Important", map["$label1"]);
+        Assert.Equal("Client X", map["custom"]);
+    }
 }

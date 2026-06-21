@@ -39,7 +39,7 @@ public static class PrefsTagReader
     public static IReadOnlyDictionary<string, string> ParseText(string content)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (string line in content.Split('\n'))
+        foreach (string line in content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None))
         {
             Match m = TagPrefRegex.Match(line);
             if (!m.Success) continue;
