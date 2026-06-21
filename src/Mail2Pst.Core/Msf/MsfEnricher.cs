@@ -25,8 +25,8 @@ public sealed class MsfEnrichmentResult
 }
 
 /// <summary>
-/// Joins .msf rows to MailMessages by uniquely-resolvable normalized Message-ID and applies
-/// the .msf's authoritative flags, junk, and tags. Pure; no I/O or file pairing (SP4 wires that).
+/// Joins .msf rows to MailMessages by uniquely-resolvable normalized Message-ID and applies the
+/// .msf's authoritative flags, junk, and tags. Pure; no I/O or file pairing (SP4b wires that).
 /// </summary>
 public static class MsfEnricher
 {
@@ -36,48 +36,41 @@ public static class MsfEnricher
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(msf);
         ArgumentNullException.ThrowIfNull(options);
+
         var result = new MsfEnrichmentResult();
-
-        // Index the .msf side by normalized id; mark non-unique keys.
-        var byId = new Dictionary<string, MsfMessage>(StringComparer.Ordinal);
-        var dupMsf = new HashSet<string>(StringComparer.Ordinal);
-        foreach (MsfMessage m in msf.Messages)
-        {
-            string? key = MessageIdNormalizer.NormalizeForJoin(m.MessageId);
-            if (key is null) continue;
-            // On a duplicate, drop the first-seen entry too so byId and dupMsf stay consistent.
-            if (!byId.TryAdd(key, m)) { byId.Remove(key); dupMsf.Add(key); }
-        }
-        // Mark mbox-side duplicate keys too.
-        var mailKeyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        MsfJoinIndex index = MsfJoinIndex.Build(msf);
+        MboxDuplicateIdSet mboxDuplicates = MboxDuplicateIdSet.FromMessages(messages);
         foreach (MailMessage mail in messages)
-        {
-            string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
-            if (key is not null) mailKeyCounts[key] = mailKeyCounts.GetValueOrDefault(key) + 1;
-        }
-
-        foreach (MailMessage mail in messages)
-        {
-            string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
-            if (key is null) { result.SkippedMissingId++; continue; }
-            if (mailKeyCounts[key] > 1 || dupMsf.Contains(key)) { result.SkippedDuplicateId++; continue; }
-            if (!byId.TryGetValue(key, out MsfMessage? row)) { result.NoMsfMatch++; continue; }
-
-            // .msf wins for scalar flags.
-            mail.IsRead = row.IsRead;
-            mail.IsReplied = row.IsReplied;
-            mail.IsForwarded = row.IsForwarded;
-            mail.IsFlagged = row.IsFlagged;
-            mail.IsJunk = row.IsJunk;
-
-            var resolved = new List<string>(options.TagResolver.Resolve(row.Keywords));
-            if (options.JunkHandling == JunkHandlingMode.Category && row.IsJunk) resolved.Add("Junk");
-            MergeCategories(mail.Categories, resolved);
-
-            if (row.IsExpunged) result.ExpungedMatched++;
-            result.Matched++;
-        }
+            TryApply(mail, index, mboxDuplicates, options, result);
         return result;
+    }
+
+    /// <summary>
+    /// Applies one message. Increments EXACTLY ONE of matched/skippedMissingId/skippedDuplicateId/
+    /// noMsfMatch on <paramref name="result"/>; mutates <paramref name="mail"/> only on a unique match.
+    /// </summary>
+    internal static void TryApply(
+        MailMessage mail, MsfJoinIndex index, MboxDuplicateIdSet mboxDuplicates,
+        MsfEnrichmentOptions options, MsfEnrichmentResult result)
+    {
+        string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
+        if (key is null) { result.SkippedMissingId++; return; }
+        if (mboxDuplicates.Contains(key) || index.IsDuplicateMsfId(key)) { result.SkippedDuplicateId++; return; }
+        if (!index.TryGetUnique(key, out MsfMessage row)) { result.NoMsfMatch++; return; }
+
+        // .msf wins for scalar flags.
+        mail.IsRead = row.IsRead;
+        mail.IsReplied = row.IsReplied;
+        mail.IsForwarded = row.IsForwarded;
+        mail.IsFlagged = row.IsFlagged;
+        mail.IsJunk = row.IsJunk;
+
+        var resolved = new List<string>(options.TagResolver.Resolve(row.Keywords));
+        if (options.JunkHandling == JunkHandlingMode.Category && row.IsJunk) resolved.Add("Junk");
+        MergeCategories(mail.Categories, resolved);
+
+        if (row.IsExpunged) result.ExpungedMatched++;
+        result.Matched++;
     }
 
     // Append new categories to existing, dedupe ordinal, preserve first occurrence; never remove.
