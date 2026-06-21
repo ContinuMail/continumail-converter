@@ -7,6 +7,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { parseEngineOutput, type VersionResult, type ScanResult } from "./parse";
 import { parseScanLine } from "./scan";
 import { parseDiscover } from "./discover";
+import { parseColourImport, type ColourImportParse } from "./colourImport";
 import type { ConversionConfig, FileStat, DiscoverResult } from "./types";
 
 export async function checkEngineVersion(): Promise<VersionResult> {
@@ -147,4 +148,14 @@ export function openFolder(path: string): Promise<void> {
 
 export function openJunkHelp(): Promise<void> {
   return invoke<void>("open_junk_help");
+}
+
+/** Preview the Thunderbird→Outlook colour import (Outlook-free). */
+export async function previewColours(dir: string): Promise<ColourImportParse> {
+  return parseColourImport(await invoke<string>("preview_colours", { dir }));
+}
+
+/** Apply the colour import to Outlook's master list (Windows + Outlook, Outlook must be closed). */
+export async function applyColours(dir: string): Promise<ColourImportParse> {
+  return parseColourImport(await invoke<string>("apply_colours", { dir }));
 }

@@ -35,6 +35,30 @@ fn drain_lines(buf: &mut String) -> Vec<String> {
     out
 }
 
+// Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
+// something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
+// object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
+async fn run_sidecar_capture(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
+    let output = app
+        .shell()
+        .sidecar("mail2pst-cli")
+        .map_err(|e| format!("sidecar not found: {e}"))?
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| format!("failed to run engine: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if output.status.success() || !stdout.trim().is_empty() {
+        Ok(stdout)
+    } else {
+        Err(format!(
+            "engine exited with {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
 async fn run_sidecar(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
     let output = app
         .shell()
@@ -77,6 +101,20 @@ async fn scan_sample(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn discover_profile(app: tauri::AppHandle, dir: String) -> Result<String, String> {
     run_sidecar(&app, vec!["discover".to_string(), "--input".to_string(), dir]).await
+}
+
+#[tauri::command]
+async fn preview_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
+    run_sidecar_capture(&app, vec!["import-colours".to_string(), "--profile".to_string(), dir]).await
+}
+
+#[tauri::command]
+async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
+    run_sidecar_capture(
+        &app,
+        vec!["import-colours".to_string(), "--profile".to_string(), dir, "--apply".to_string()],
+    )
+    .await
 }
 
 #[derive(Serialize)]
@@ -337,7 +375,9 @@ pub fn run() {
             start_scan,
             cancel_convert,
             open_folder,
-            open_junk_help
+            open_junk_help,
+            preview_colours,
+            apply_colours
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
