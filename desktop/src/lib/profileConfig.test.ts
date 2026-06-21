@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import { mergeProfileSources, buildProfileConfig } from "./profileConfig";
 import type { DiscoveredSource, ProfileSourceRow } from "./types";
 import type { ScanResult } from "./parse";
+import { ConvertConfigError } from "./convert";
 
 const disc = (path: string, tfp: string[], msf: string | null): DiscoveredSource => ({
   path, type: "mbox", targetFolderPath: tfp, displayName: tfp[tfp.length - 1], sourceBytes: 1, msfPath: msf,
@@ -90,7 +91,7 @@ describe("buildProfileConfig", () => {
   });
 
   it("throws ConvertConfigError when no folders are effective", () => {
-    expect(() => buildProfileConfig(rows, new Set(), true, "mirror", 5120, "C:/out/G.pst", "C:/p")).toThrow();
+    expect(() => buildProfileConfig(rows, new Set(), true, "mirror", 5120, "C:/out/G.pst", "C:/p")).toThrow(ConvertConfigError);
   });
 
   it("derives outputDir + pstName from the .pst path", () => {

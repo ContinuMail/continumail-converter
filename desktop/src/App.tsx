@@ -150,7 +150,7 @@ export default function App() {
     <ConfirmDialog
       open={confirmSource}
       title="Rescan needed"
-      message="Going back to Source will discard this scan — you'll have to rescan the mbox files."
+      message="Going back to Source will discard this scan — you'll have to rescan the source."
       confirmLabel="Go back"
       cancelLabel="Stay"
       onConfirm={confirmGoToSource}

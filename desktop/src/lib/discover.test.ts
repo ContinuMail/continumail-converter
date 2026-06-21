@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { parseDiscover } from "./discover";
+import { EngineParseError } from "./parse";
 
 const SAMPLE = JSON.stringify({
   type: "discovery",
@@ -51,6 +52,6 @@ describe("parseDiscover", () => {
   });
 
   it("throws when no discovery object is present", () => {
-    expect(() => parseDiscover("not json at all")).toThrow();
+    expect(() => parseDiscover("not json at all")).toThrow(EngineParseError);
   });
 });

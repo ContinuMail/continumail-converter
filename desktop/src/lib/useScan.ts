@@ -7,7 +7,7 @@ import { mergeProfileSources } from "./profileConfig";
 import { checkSchemaVersion } from "./schema";
 import { defaultOptions, type OptionsState, FLATTEN_SOURCE_ID } from "./options";
 import { sortSources, type SortField, type SortDir } from "./review";
-import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning } from "./types";
+import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult } from "./types";
 import type { ScanResult } from "./parse";
 
 export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError";
@@ -83,7 +83,7 @@ export function useScan() {
 
       // Discovery failure / empty discovery is a SOURCE-selection problem → return to Source with
       // sourceError. Only a scan failure AFTER successful discovery goes to the ScanError view.
-      let disc;
+      let disc: DiscoverResult;
       try {
         disc = await discoverProfile(state.profileRoot);
       } catch (e) {

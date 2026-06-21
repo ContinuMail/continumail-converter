@@ -93,6 +93,7 @@ export function SelectView({
       <div className="mt-4 inline-flex overflow-hidden rounded-md border border-border">
         <button
           type="button"
+          aria-pressed={inputMode === "profile"}
           onClick={() => onInputModeChange("profile")}
           className={"px-4 py-1.5 text-sm " + (inputMode === "profile" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
         >
@@ -100,6 +101,7 @@ export function SelectView({
         </button>
         <button
           type="button"
+          aria-pressed={inputMode === "files"}
           onClick={() => onInputModeChange("files")}
           className={"px-4 py-1.5 text-sm " + (inputMode === "files" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
         >

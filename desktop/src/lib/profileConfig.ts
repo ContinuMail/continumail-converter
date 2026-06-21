@@ -54,7 +54,7 @@ export function buildProfileConfig(
   const sources: SourceConfigEntry[] = eff.map((r) => {
     const entry: SourceConfigEntry = { path: r.path, type: "mbox" };
     if (folderMapping === "mirror") entry.targetFolderPath = r.targetFolderPath;
-    if (r.msfPath) entry.msfPath = r.msfPath;
+    if (r.msfPath != null) entry.msfPath = r.msfPath;
     return entry;
   });
 
