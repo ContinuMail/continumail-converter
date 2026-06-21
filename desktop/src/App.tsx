@@ -109,6 +109,8 @@ export default function App() {
           onSkipEmptyChange={flow.setSkipEmpty}
           onContinue={flow.continueToOptions}
           onBack={requestGoToSource}
+          pairedIds={f.inputMode === "profile" ? flow.pairedIds : undefined}
+          warnings={f.inputMode === "profile" ? f.discoverWarnings : undefined}
         />
       )}
       {f.stage === "options" && f.scan && f.outputPath && (
