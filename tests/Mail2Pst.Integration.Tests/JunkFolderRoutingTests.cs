@@ -88,4 +88,41 @@ public class JunkFolderRoutingTests
         }
         finally { File.Delete(mbox); File.Delete(msf); Directory.Delete(outDir, true); }
     }
+
+    [Fact]
+    public void FolderMode_MsfDegrades_NoRouting_NoJunkCategory_StillWarns()
+    {
+        // .msf present but unreadable -> enrichment degrades -> IsJunk never set -> behaves like Off.
+        string mbox = WriteTemp(Msg("<a@h>", "one"), ".mbox");
+        string outDir = NewOutDir();
+        try
+        {
+            var (folders, report) = Convert(mbox, "no-such.msf", outDir, JunkHandlingMode.Folder);
+
+            Assert.DoesNotContain(folders, f => f.DisplayPath == "Junk Email");
+            ReadFolder inbox = folders.Single(f => f.DisplayPath == "Inbox");
+            ReadBackMessage m = Assert.Single(inbox.Messages);
+            Assert.Equal("<a@h>", m.MessageId);
+            Assert.DoesNotContain("Junk", m.Categories);
+            Assert.Equal(1, report.EnrichmentSummary.SourcesDegraded);
+            Assert.Equal(1, report.WarningCount);
+        }
+        finally { File.Delete(mbox); Directory.Delete(outDir, true); }
+    }
+
+    [Fact]
+    public void FolderMode_NoJunk_DoesNotPreCreateJunkEmail()
+    {
+        // No .msf -> nothing is junk. IncludeEmptyFolders defaults true (pre-creates mapped folders only).
+        string mbox = WriteTemp(Msg("<a@h>", "one"), ".mbox");
+        string outDir = NewOutDir();
+        try
+        {
+            var (folders, _) = Convert(mbox, null, outDir, JunkHandlingMode.Folder);
+
+            Assert.Contains(folders, f => f.DisplayPath == "Inbox");            // mapped folder present
+            Assert.DoesNotContain(folders, f => f.DisplayPath == "Junk Email"); // never pre-created
+        }
+        finally { File.Delete(mbox); Directory.Delete(outDir, true); }
+    }
 }

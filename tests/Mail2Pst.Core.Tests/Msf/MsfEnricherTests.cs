@@ -132,4 +132,15 @@ public class MsfEnricherTests
         MsfEnricher.Enrich(new[] { mail }, msf, Opts());
         Assert.Equal(new[] { "work", "keep", "newtag" }, mail.Categories);
     }
+
+    [Fact]
+    public void JunkFolderMode_SetsJunk_NoJunkCategory_KeepsTags()
+    {
+        var mail = new MailMessage { MessageId = "<jf@h>" };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "jf@h"), ("junkscore", "90"), ("keywords", "work")));
+        MsfEnricher.Enrich(new[] { mail }, msf, Opts(JunkHandlingMode.Folder));
+        Assert.True(mail.IsJunk);
+        Assert.DoesNotContain("Junk", mail.Categories); // synthetic "Junk" is Category-mode only
+        Assert.Contains("work", mail.Categories);        // user tag still becomes a category
+    }
 }
