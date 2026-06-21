@@ -19,21 +19,14 @@ public interface IMsfTagResolver
 /// </summary>
 public sealed class DefaultMsfTagResolver : IMsfTagResolver
 {
-    private static readonly HashSet<string> Filtered = new(StringComparer.Ordinal) { "NonJunk" };
-    private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
-    {
-        ["$label1"] = "Important", ["$label2"] = "Work", ["$label3"] = "Personal",
-        ["$label4"] = "To Do",     ["$label5"] = "Later",
-    };
-
     public IReadOnlyList<string> Resolve(IReadOnlyList<string> keywords)
     {
         var result = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (string kw in keywords)
         {
-            if (Filtered.Contains(kw)) continue;
-            string name = Labels.TryGetValue(kw, out string? mapped) ? mapped : kw;
+            if (MsfTagDefaults.Filtered.Contains(kw)) continue;
+            string name = MsfTagDefaults.BuiltinLabels.TryGetValue(kw, out string? mapped) ? mapped : kw;
             if (seen.Add(name)) result.Add(name);
         }
         return result;
