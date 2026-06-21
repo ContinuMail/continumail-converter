@@ -27,6 +27,17 @@ public static class MorkReader
         return Parse(fs);
     }
 
+    /// <summary>
+    /// Parses a .msf with a live-friendly share mode (<see cref="FileShare.ReadWrite"/>), so a running
+    /// Thunderbird holding the file open does not cause a sharing violation. Use this for conversion-time
+    /// .msf reads; <see cref="Parse(string)"/> keeps ordinary read semantics for all other callers.
+    /// </summary>
+    public static MorkDocument ParseSharedReadWrite(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        return Parse(fs);
+    }
+
     public static MorkDocument Parse(Stream stream)
     {
         using var ms = new MemoryStream();
