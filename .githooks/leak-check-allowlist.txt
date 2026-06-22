@@ -11,7 +11,6 @@
 # (Migrating these tests to @example.* would let us drop these two — minor future cleanup.)
 @x.com
 @b.com
-@y.com
 
 # Legitimate third-party references that may appear in tracked files
 noreply@github.com

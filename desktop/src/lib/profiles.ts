@@ -26,5 +26,5 @@ export function pickDefaultProfile(entries: ProfileEntry[], currentProfileRoot: 
   const conv = visibleProfiles(entries);
   if (conv.length === 0) return null;
   if (conv.length === 1) return conv[0].path;
-  return (conv.find((e) => e.isDefault) ?? null)?.path ?? null;
+  return conv.find((e) => e.isDefault)?.path ?? null;
 }

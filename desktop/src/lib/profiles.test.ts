@@ -7,7 +7,7 @@ const p = (o: Partial<ProfileEntry>): ProfileEntry =>
 
 describe("labels", () => {
   it("one email", () => expect(profilePrimaryLabel(p({ accounts: ["a@x.com"] }))).toBe("a@x.com"));
-  it("+N more", () => expect(profilePrimaryLabel(p({ accounts: ["a@x.com", "b@y.com"] }))).toBe("a@x.com +1 more"));
+  it("+N more", () => expect(profilePrimaryLabel(p({ accounts: ["a@x.com", "b@example.com"] }))).toBe("a@x.com +1 more"));
   it("falls back to raw name", () => expect(profilePrimaryLabel(p({ name: "work", accounts: [] }))).toBe("work"));
   it("subtext is name · path", () => expect(profileSubtext(p({ name: "work", path: "/p/w" }))).toBe("work · /p/w"));
 });
