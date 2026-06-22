@@ -104,7 +104,7 @@ export function SelectView({
     outputPath !== null &&
     (inputMode === "files" ? files.length > 0 : profileRoot !== null);
 
-  // For the "manual path shown when not a detected profile" check.
+  // For the "manual path shown when not a scanned profile" check.
   const scannedEntries = scan.k === "done" ? scan.entries : [];
 
   return (
@@ -205,7 +205,7 @@ export function SelectView({
               onClick={runScan}
               disabled={scan.k === "scanning"}
             >
-              <Search /> {scan.k === "idle" ? "Scan for Thunderbird profiles" : "Rescan"}
+              <Search /> {scan.k === "idle" ? "Scan for Thunderbird profiles" : scan.k === "scanning" ? "Scanning…" : "Rescan"}
             </Button>
           </div>
 
