@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { reduceConvert, initialConvertState } from "./useConvert";
-import type { ConvertEvent, EnrichmentSummary } from "./types";
+import type { ConvertEvent, EnrichmentSummary, ColourPlanEntry } from "./types";
 
 const enr: EnrichmentSummary = {
   matched: 10, skippedMissingId: 0, skippedDuplicateId: 0, noMsfMatch: 0,
@@ -25,5 +25,25 @@ describe("reduceConvert enrichment capture", () => {
 
   it("initial state has null enrichment", () => {
     expect(initialConvertState.enrichment).toBeNull();
+  });
+});
+
+describe("reduceConvert colourPlan capture", () => {
+  it("captures colourPlan from the done event", () => {
+    const plan: ColourPlanEntry[] = [{ name: "Important", hex: "#FF0000", outlookColor: 6, action: "would-add" }];
+    const next = reduceConvert(running, {
+      type: "done", converted: 1, skipped: 0, warnings: 0, outputs: ["a.pst"],
+      elapsedMs: 5, colourPlan: plan,
+    } as ConvertEvent);
+    expect(next.colourPlan).toEqual(plan);
+  });
+
+  it("defaults colourPlan to null when the done event omits it", () => {
+    const done: ConvertEvent = { type: "done", converted: 1, skipped: 0, warnings: 0, outputs: [], elapsedMs: 1 };
+    expect(reduceConvert(running, done).colourPlan).toBeNull();
+  });
+
+  it("initial state has null colourPlan", () => {
+    expect(initialConvertState.colourPlan).toBeNull();
   });
 });

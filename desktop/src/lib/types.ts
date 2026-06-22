@@ -87,6 +87,7 @@ export type ConvertEvent = (
       report?: string;
       elapsedMs: number;
       enrichment?: EnrichmentSummary;
+      colourPlan?: ColourPlanEntry[];
     }
   | { type: "error"; stage?: string; message: string; fatal: boolean }
   | {
@@ -154,6 +155,8 @@ export interface ColourCategory {
   outlookColor: number | null;
   action: string;
 }
+
+export type ColourPlanEntry = Pick<ColourCategory, "name" | "hex" | "outlookColor" | "action">;
 
 export interface ProfileEntry {
   name: string;

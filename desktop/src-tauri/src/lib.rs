@@ -117,6 +117,29 @@ async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, Str
     .await
 }
 
+/// Writes the supplied colour plan to a temp file and runs `import-colours --apply --plan-file`,
+/// then removes the temp file (mirrors start_convert's temp-config cleanup).
+#[tauri::command]
+async fn apply_colours_plan(app: AppHandle, plan: serde_json::Value) -> Result<String, String> {
+    let unique = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let plan_path = std::env::temp_dir().join(format!("continumail-colourplan-{unique}.json"));
+    std::fs::write(&plan_path, serde_json::to_string(&plan).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("cannot write plan: {e}"))?;
+    let path_str = plan_path.to_string_lossy().to_string();
+    let result = run_sidecar_capture(&app, vec![
+        "import-colours".into(), "--plan-file".into(), path_str, "--apply".into(),
+    ]).await;
+    let _ = std::fs::remove_file(&plan_path); // best-effort cleanup
+    result
+}
+
 #[derive(Serialize)]
 struct FileStat {
     path: String,
@@ -471,6 +494,7 @@ pub fn run() {
             open_junk_help,
             preview_colours,
             apply_colours,
+            apply_colours_plan,
             default_thunderbird_profiles_dir,
             list_thunderbird_profiles
         ])

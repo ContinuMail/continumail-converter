@@ -74,7 +74,9 @@ export function DoneView({ state, profileRoot, onConvertAnother }: { state: Conv
         </div>
       )}
 
-      {profileRoot && <ColourImportCard profileRoot={profileRoot} />}
+      {profileRoot && state.colourPlan && state.colourPlan.length > 0 && (
+        <ColourImportCard plan={state.colourPlan} />
+      )}
 
       <div className="mt-4 rounded-[10px] border border-dashed border-border bg-card px-3.5 py-3 text-xs text-muted-foreground">
         Keep your original .mbox files until you've opened the PST in Outlook and confirmed everything looks right.
