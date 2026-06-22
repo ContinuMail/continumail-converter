@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Mail2Pst.Integration.Tests;
 
+[Collection("ConsoleCapture")]
 public class ConvertCommandDoneTests
 {
     [Fact]

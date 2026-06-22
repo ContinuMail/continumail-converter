@@ -18,5 +18,6 @@
   <ItemGroup>
     <None Include="../../fixtures/**/*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />
     <None Include="../../assets/template.pst" CopyToOutputDirectory="PreserveNewest" LinkBase="assets" />
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
