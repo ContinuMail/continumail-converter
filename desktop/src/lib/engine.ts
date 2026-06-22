@@ -139,6 +139,12 @@ export async function pickOutputPst(): Promise<string | null> {
   return result ?? null;
 }
 
+/** Folder picker for a multi-account output directory, or null if cancelled. */
+export async function pickOutputFolder(): Promise<string | null> {
+  const result = await open({ multiple: false, directory: true });
+  return typeof result === "string" ? result : null;
+}
+
 export function startConvert(config: ConversionConfig, outputDir: string): Promise<void> {
   // Tauri v2 auto-converts camelCase JS arg keys to snake_case Rust params, so
   // `outputDir` here maps to the Rust `output_dir` parameter.

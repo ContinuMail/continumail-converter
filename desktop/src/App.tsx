@@ -83,12 +83,12 @@ export default function App() {
       {f.stage === "select" && (
         <SelectView
           files={f.inputFiles}
-          outputPath={f.outputPath}
+          outputTarget={f.outputTarget}
           inputMode={f.inputMode}
           profileRoot={f.profileRoot}
           sourceError={f.sourceError}
           onFilesChange={flow.setInputFiles}
-          onOutputPathChange={flow.setOutputPath}
+          onOutputTargetChange={flow.setOutputTarget}
           onInputModeChange={flow.setInputMode}
           onProfileRootChange={flow.setProfileRoot}
           onContinue={flow.continueToScan}
@@ -111,11 +111,12 @@ export default function App() {
           warnings={f.inputMode === "profile" ? f.discoverWarnings : undefined}
         />
       )}
-      {f.stage === "options" && f.outputPath && (
+      {f.stage === "options" && (
         f.inputMode === "profile" && f.profileRoot ? (
           <ProfileOptionsView
             rows={flow.sortedSources as ProfileSourceRow[]}
-            outputPath={f.outputPath}
+            outputTarget={f.outputTarget}
+            onOutputTargetChange={flow.setOutputTarget}
             profileRoot={f.profileRoot}
             checkedIds={f.checkedIds}
             skipEmpty={f.skipEmpty}
@@ -124,11 +125,11 @@ export default function App() {
             onStart={start}
             onBack={flow.backToReview}
           />
-        ) : f.scan ? (
+        ) : f.scan && f.outputTarget?.kind === "pstFile" ? (
           <OptionsView
             scan={f.scan}
             previewSources={flow.sortedSources}
-            outputPath={f.outputPath}
+            outputPath={f.outputTarget.path}
             checkedIds={f.checkedIds}
             skipEmpty={f.skipEmpty}
             options={f.options}

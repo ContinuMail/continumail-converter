@@ -9,24 +9,25 @@ import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst, lis
 import { visibleProfiles, hiddenNote, profilePrimaryLabel, profileSubtext, pickDefaultProfile } from "@/lib/profiles";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
-import type { FileStat, ProfileEntry } from "@/lib/types";
+import { canScan } from "@/lib/outputTarget";
+import type { FileStat, ProfileEntry, OutputTarget } from "@/lib/types";
 
 interface SelectViewProps {
   files: FileStat[];
-  outputPath: string | null;
+  outputTarget: OutputTarget | null;
   inputMode: "files" | "profile";
   profileRoot: string | null;
   sourceError?: string | null;
   onFilesChange: (files: FileStat[]) => void;
-  onOutputPathChange: (path: string | null) => void;
+  onOutputTargetChange: (target: OutputTarget | null) => void;
   onInputModeChange: (m: "files" | "profile") => void;
   onProfileRootChange: (path: string | null) => void;
   onContinue: () => void;
 }
 
 export function SelectView({
-  files, outputPath, inputMode, profileRoot, sourceError,
-  onFilesChange, onOutputPathChange, onInputModeChange, onProfileRootChange, onContinue,
+  files, outputTarget, inputMode, profileRoot, sourceError,
+  onFilesChange, onOutputTargetChange, onInputModeChange, onProfileRootChange, onContinue,
 }: SelectViewProps) {
   // Picker errors are transient and screen-local (e.g. "no .mbox in folder").
   // Parent owns the durable file/output state; this does NOT belong there.
@@ -86,7 +87,7 @@ export function SelectView({
   async function onChooseOutput() {
     setPickerError(null);
     const path = await pickOutputPst();
-    if (path) onOutputPathChange(path);
+    if (path) onOutputTargetChange({ kind: "pstFile", path });
   }
 
   function removeFile(path: string) {
@@ -96,13 +97,12 @@ export function SelectView({
 
   function clearOutput() {
     setPickerError(null);
-    onOutputPathChange(null);
+    onOutputTargetChange(null);
   }
 
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-  const canContinue =
-    outputPath !== null &&
-    (inputMode === "files" ? files.length > 0 : profileRoot !== null);
+  const outputPath = outputTarget?.kind === "pstFile" ? outputTarget.path : null;
+  const canContinue = canScan(inputMode, files.map((f) => f.path), profileRoot, outputTarget);
 
   // For the "manual path shown when not a scanned profile" check.
   const scannedEntries = scan.k === "done" ? scan.entries : [];
@@ -259,26 +259,28 @@ export function SelectView({
         </>
       )}
 
-      <div className="mt-5">
-        <div className="mb-1 text-sm font-medium text-foreground">Output location and PST name</div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={onChooseOutput}>
-            <Save /> {outputPath ? splitPath(outputPath).base : "Choose output…"}
-          </Button>
-          {outputPath && (
-            <button
-              type="button"
-              onClick={clearOutput}
-              aria-label="Clear output location"
-              title="Clear"
-              className="shrink-0 rounded p-0.5 text-light-gray transition-colors hover:text-destructive"
-            >
-              <X className="size-4" />
-            </button>
-          )}
+      {inputMode === "files" && (
+        <div className="mt-5">
+          <div className="mb-1 text-sm font-medium text-foreground">Output location and PST name</div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={onChooseOutput}>
+              <Save /> {outputPath ? splitPath(outputPath).base : "Choose output…"}
+            </Button>
+            {outputPath && (
+              <button
+                type="button"
+                onClick={clearOutput}
+                aria-label="Clear output location"
+                title="Clear"
+                className="shrink-0 rounded p-0.5 text-light-gray transition-colors hover:text-destructive"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+          {outputPath && <div className="mt-1 text-xs text-light-gray">{splitPath(outputPath).dir}</div>}
         </div>
-        {outputPath && <div className="mt-1 text-xs text-light-gray">{splitPath(outputPath).dir}</div>}
-      </div>
+      )}
 
       {(pickerError || sourceError) && (
         <p className="mt-4 text-sm text-destructive">{pickerError ?? sourceError}</p>

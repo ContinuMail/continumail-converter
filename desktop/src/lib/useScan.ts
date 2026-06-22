@@ -7,14 +7,14 @@ import { mergeProfileSources } from "./profileConfig";
 import { checkSchemaVersion } from "./schema";
 import { defaultOptions, type OptionsState, FLATTEN_SOURCE_ID } from "./options";
 import { sortSources, type SortField, type SortDir } from "./review";
-import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult } from "./types";
+import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget } from "./types";
 import type { ScanResult } from "./parse";
 
 export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError";
 
 export interface PreConvertState {
   inputFiles: FileStat[];
-  outputPath: string | null;
+  outputTarget: OutputTarget | null;
   stage: FlowStage;
   scan: ScanResult | null;
   errorMessage: string | null;
@@ -34,7 +34,7 @@ export interface PreConvertState {
 function initialState(): PreConvertState {
   return {
     inputFiles: [],
-    outputPath: null,
+    outputTarget: null,
     stage: "select",
     scan: null,
     errorMessage: null,
@@ -59,8 +59,8 @@ export function useScan() {
     (inputFiles: FileStat[]) => setState((s) => ({ ...s, inputFiles })),
     [],
   );
-  const setOutputPath = useCallback(
-    (outputPath: string | null) => setState((s) => ({ ...s, outputPath })),
+  const setOutputTarget = useCallback(
+    (outputTarget: OutputTarget | null) => setState((s) => ({ ...s, outputTarget })),
     [],
   );
 
@@ -216,7 +216,7 @@ export function useScan() {
   return {
     state,
     setInputFiles,
-    setOutputPath,
+    setOutputTarget,
     setInputMode,
     setProfileRoot,
     continueToScan,

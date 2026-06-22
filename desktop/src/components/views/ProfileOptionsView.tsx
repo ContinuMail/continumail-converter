@@ -1,20 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useMemo, useState } from "react";
+import { Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { SplitSizeControl } from "@/components/ui/split-size-control";
 import { buildProfileConfig } from "@/lib/profileConfig";
 import { effectiveRows } from "@/lib/review";
 import { ConvertConfigError, deriveOutputTarget } from "@/lib/convert";
+import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
-import { openJunkHelp } from "@/lib/engine";
+import { openJunkHelp, pickOutputPst } from "@/lib/engine";
 import type { OptionsState } from "@/lib/options";
-import type { ConversionConfig, ProfileSourceRow } from "@/lib/types";
+import type { ConversionConfig, ProfileSourceRow, OutputTarget } from "@/lib/types";
 
 interface ProfileOptionsViewProps {
   rows: ProfileSourceRow[];
-  outputPath: string;
+  outputTarget: OutputTarget | null;
+  onOutputTargetChange: (target: OutputTarget | null) => void;
   profileRoot: string;
   checkedIds: Set<string>;
   skipEmpty: boolean;
@@ -25,7 +28,7 @@ interface ProfileOptionsViewProps {
 }
 
 export function ProfileOptionsView({
-  rows, outputPath, profileRoot, checkedIds, skipEmpty, options, onSetOptions, onStart, onBack,
+  rows, outputTarget, onOutputTargetChange, profileRoot, checkedIds, skipEmpty, options, onSetOptions, onStart, onBack,
 }: ProfileOptionsViewProps) {
   const [startError, setStartError] = useState<string | null>(null);
   const [splitOk, setSplitOk] = useState(true);
@@ -34,13 +37,30 @@ export function ProfileOptionsView({
     () => effectiveRows(rows, checkedIds, skipEmpty) as ProfileSourceRow[],
     [rows, checkedIds, skipEmpty],
   );
+
+  const outputPath = outputTarget?.kind === "pstFile" ? outputTarget.path : null;
+
   const pstName = useMemo(() => {
+    if (!outputPath) return "Output";
     try { return deriveOutputTarget(outputPath).pstName; } catch { return "Output"; }
   }, [outputPath]);
   const totalBytes = eff.reduce((n, r) => n + r.bytes, 0);
-  const canStart = eff.length > 0 && splitOk;
+  const canStart = eff.length > 0 && splitOk && outputTarget !== null;
+
+  async function onChooseOutput() {
+    const path = await pickOutputPst();
+    if (path) onOutputTargetChange({ kind: "pstFile", path });
+  }
+
+  function onClearOutput() {
+    onOutputTargetChange(null);
+  }
 
   function onStartClick() {
+    if (!outputPath) {
+      setStartError("Choose an output .pst file first.");
+      return;
+    }
     try {
       const { config, outputDir } = buildProfileConfig(
         rows, checkedIds, skipEmpty, options, outputPath, profileRoot,
@@ -153,6 +173,27 @@ export function ProfileOptionsView({
             Carried over from Thunderbird automatically: <span className="text-foreground">read/unread, replied, forwarded, starred</span> flags and <span className="text-foreground">tags → Outlook categories</span> (folders with an <span className="text-primary">.msf</span> badge).
           </div>
         </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1 text-sm font-medium text-foreground">Output PST file</div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={onChooseOutput}>
+            <Save /> {outputPath ? splitPath(outputPath).base : "Choose output…"}
+          </Button>
+          {outputPath && (
+            <button
+              type="button"
+              onClick={onClearOutput}
+              aria-label="Clear output location"
+              title="Clear"
+              className="shrink-0 rounded p-0.5 text-light-gray transition-colors hover:text-destructive"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+        {outputPath && <div className="mt-1 text-xs text-light-gray">{splitPath(outputPath).dir}</div>}
       </div>
 
       {startError && <p className="mt-3 text-sm text-destructive">{startError}</p>}
