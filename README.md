@@ -1,6 +1,6 @@
 # ContinuMail Converter
 
-**Convert Gmail Takeout and other mbox mail archives into Outlook PST files — locally, with no upload and no Outlook installation required.**
+**Convert Thunderbird profiles and mbox mail archives — Gmail Takeout, exported Local Folders, old POP stores — into Outlook PST files, locally, with no upload and no Outlook installation required.**
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/ContinuMail/continumail-converter?label=release)](../../releases/latest)
@@ -16,11 +16,11 @@
 
 - **No Outlook, no COM automation.** Writes `.pst` directly with a from-scratch PST engine — nothing to install, nothing hijacked.
 - **Private & local-first.** Reads your archive on disk, makes **no network connections**, uploads nothing. Originals are only ever read.
-- **Gmail-Takeout–aware.** Built and validated against real Google Takeout exports — including the quirks and a MimeKit mbox bug that truncates some archives (worked around here).
-- **Faithful.** Preserves folder structure (including Thunderbird subfolders via the CLI), attachments (inline images + embedded `.eml`), HTML bodies, dates, To/Cc/Bcc, importance, and threading headers.
+- **Thunderbird-first, mbox-everywhere.** Converts a whole **Thunderbird profile** — folder tree plus `.msf` flag/tag fidelity — or any **mbox** archive: Gmail Takeout, exported Local Folders, old POP stores. Built and validated against real exports, including a MimeKit mbox bug that truncates some archives (worked around here).
+- **Faithful.** Preserves folder structure (including nested Thunderbird folders), attachments (inline images + embedded `.eml`), HTML bodies, dates, To/Cc/Bcc, importance, and threading headers — and, from a live **Thunderbird profile**, recovers read/unread, replied/forwarded/starred flags, junk, and tags (→ Outlook categories, with their colours on Windows).
 - **Free, open, and it stays free** — GPL-3.0-or-later, part of the [ContinuMail](#-license) family of honest mail tools.
 
-> **Early release (0.x).** Covered by a comprehensive automated test suite and validated on real Gmail Takeout and Thunderbird/Exchange exports — but please keep backups and validate output before relying on it. See [`TESTING.md`](TESTING.md) for how releases are validated.
+> **Early release (0.x).** Covered by a comprehensive automated test suite and validated on real Thunderbird profiles and Gmail Takeout / Exchange exports — but please keep backups and validate output before relying on it. See [`TESTING.md`](TESTING.md) for how releases are validated.
 
 ## Overview
 
@@ -41,21 +41,27 @@ Prefer the command line? See [Command-line interface](#-command-line-interface).
 
 The desktop app walks you through the whole conversion; your originals are never modified.
 
-1. **Source** — pick `.mbox` files or a folder of them.
-2. **Scanning** — a fast dry-run counts messages and estimates output size before anything is written.
-3. **Review** — see per-folder counts; choose whether to include empty folders.
-4. **Options** — pick folder mapping (mirror or flatten), set a split size, preview the resulting PST folder tree, and rename folders if you like.
-5. **Convert** — watch live progress (count, MB/s, ETA); cancel any time.
-6. **Done** — open the output folder, or review any warnings.
+1. **Source** — point it at a **Thunderbird profile** (auto-discovered, or browse to one) or pick individual `.mbox` files / a folder of them.
+2. **Accounts** *(multi-account profiles)* — when a profile holds more than one mail account, review them and keep or drop each; by default each account becomes its **own PST**, or combine them into one.
+3. **Scanning** — a fast dry-run counts messages and estimates output size before anything is written.
+4. **Review** — see per-folder counts (with an `.msf` badge where Thunderbird flag/tag data is available); choose whether to include empty folders.
+5. **Options** — pick folder mapping (mirror or flatten), set a split size, preview the resulting PST tree, and (for profiles) choose junk handling and whether to skip deleted messages.
+6. **Convert** — watch live progress (count, MB/s, ETA); cancel any time.
+7. **Done** — open the output folder, review any warnings, see what Thunderbird state was applied, and (Windows + Outlook) optionally **import your Thunderbird tag colours** into Outlook so the new categories match.
 
 ## 🎯 Features
 
 - **mbox input** via a custom mbox splitter plus MimeKit entity parsing (robust to the Gmail Takeout / MimeKit EOF quirk).
+- **Thunderbird profile mode:** point the app (or `convert --profile`) at a Thunderbird profile and it auto-discovers the nested folder tree and pairs each mbox with its `.msf` for full flag/tag fidelity.
+- **Multi-account:** a profile with several mail accounts produces **one PST per account** by default (each account a top-level folder), or combine them into a single PST.
+- **Category colours (Windows + Outlook):** optionally import your Thunderbird tag colours into Outlook's category master list so the new categories match — one click on the Done screen, or the `import-colours` CLI command.
+- **Junk & expunged handling:** route Thunderbird-scored junk (leave / tag as a "Junk" category / move to a Junk Email folder), and optionally drop messages Thunderbird marked deleted.
 - **Folder mapping:** mirror (one PST folder per source file), flatten, or per-source custom target folder. Empty source folders can be kept as empty PST folders.
 - **Size-based splitting:** one PST per output group, auto-split into `Name-1.pst`, `Name-2.pst`, … when a size cap is exceeded (a single un-split output is just `Name.pst`).
 - **HTML bodies** (`PidTagHtml` + `PidTagNativeBody`) with an always-present plain-text fallback.
 - **Full attachments:** regular files, inline CID images (correctly hidden, so no phantom paperclip), and embedded `.eml` messages.
-- **Metadata fidelity:** To/Cc/Bcc recipient types, importance/priority, Message-ID / In-Reply-To / References, conversation topic. (Read/unread, replied, forwarded, and starred state are preserved when the source mbox carries `X-Mozilla-Status` flags — typical of POP accounts and older Local Folders stores; see [Limitations](#-limitations) for when flags are absent.) Bcc recipients are preserved with their MAPI Bcc type and appear in Outlook's Bcc field (this is a faithful archive of mail you already sent — nothing to hide in a local store).
+- **Metadata fidelity:** To/Cc/Bcc recipient types, importance/priority, Message-ID / In-Reply-To / References, conversation topic. Bcc recipients are preserved with their MAPI Bcc type and appear in Outlook's Bcc field (this is a faithful archive of mail you already sent — nothing to hide in a local store).
+- **Thunderbird flag & tag fidelity:** from a **live Thunderbird profile**, the converter reads each folder's `.msf` index to recover **read/unread, replied, forwarded, starred** (→ Outlook follow-up flag), **junk**, and **tags** — and turns tags into Outlook **categories** using your real tag names. (Without a profile, these are recovered only from inline `X-Mozilla-Status` flags where present — see [Limitations](#-limitations).)
 - **Memory-friendly:** large attachments (≥ 4 MB) spill to a temp file so many don't pile up in memory at once.
 - **Conversion reports** (human-readable + JSON) listing skipped messages and warnings.
 
@@ -63,7 +69,8 @@ The desktop app walks you through the whole conversion; your originals are never
 
 - **Non-UTF-8 / UTF-16 mbox envelopes.** The mbox envelope and headers are read as UTF-8/ASCII; archives whose *envelope framing* uses other encodings may not parse cleanly. (Message **bodies** honour their own MIME charset — this caveat is about the mbox framing, not body text.)
 - **Plain-text body is a best-effort fallback.** Real HTML is preserved faithfully (`PidTagHtml`) and is what Outlook displays; the generated plain-text alternative is a lightweight stripper, not a full renderer.
-- **Read/unread & starred state from Thunderbird is not preserved for IMAP/EWS accounts.** Thunderbird stores per-message flag state in its own index (`.msf`), not in the mbox, so an mbox-based conversion cannot recover it for modern server-backed stores — messages import as read and unflagged. When the mbox *does* carry `X-Mozilla-Status` (POP accounts, older Local Folders stores), the converter honors read/unread, replied (→ reply arrow), forwarded (→ forward arrow), and starred (→ follow-up flag). Tags (`X-Mozilla-Keys`) remain unsupported.
+- **Thunderbird flag/tag recovery needs a live profile.** Thunderbird stores per-message flag state in its `.msf` index, not the mbox. Point the converter at a **live profile** (the app's profile mode, or `convert --profile`) and it reads the `.msf` to recover read/unread, replied, forwarded, starred (→ follow-up flag), junk, and tags (→ Outlook categories) — including for IMAP/EWS accounts. A **standalone exported `.mbox`** with no adjacent `.msf` can't carry that: there, only inline `X-Mozilla-Status` flags (read/replied/forwarded/starred, typical of POP / older Local Folders stores) are recoverable, and tags/junk are not.
+- **Category *colours* need Outlook (Windows).** The conversion needs no Outlook, but matching Outlook's category colours to your Thunderbird tags is done by `import-colours` (one click on Done, or the CLI), which edits Outlook's master category list via COM and so requires Outlook installed and **closed**.
 
 ## ⌨️ Command-line interface
 
@@ -78,6 +85,14 @@ dotnet run --project src/Mail2Pst.Cli -- discover --input <mail-dir>
 
 # Convert: JSON Lines progress to stdout, PST + reports to the output directory.
 dotnet run --project src/Mail2Pst.Cli -- convert --config <config.json> --output <output-dir>
+
+# Convert a whole Thunderbird profile: discovers folders, pairs each mbox with its .msf,
+# and applies flag/tag/junk enrichment (optional --config tunes mapping/junk/split).
+dotnet run --project src/Mail2Pst.Cli -- convert --profile <thunderbird-profile-dir> --output <output-dir>
+
+# Import Thunderbird tag colours into Outlook's category list (Windows; Outlook must be closed).
+# Preview with --profile; write with --apply (or apply a saved plan with --plan-file).
+dotnet run --project src/Mail2Pst.Cli -- import-colours --profile <thunderbird-profile-dir> [--apply]
 ```
 
 A minimal working example lives in `fixtures/sample-config.json` + `fixtures/sample.mbox`. Send `cancel` on the process's **stdin** (or `SIGTERM` / `Ctrl+C`) to stop a running `convert` cleanly. Exit codes: **0** success, **1** fatal error, **2** cancelled.
@@ -86,7 +101,7 @@ A minimal working example lives in `fixtures/sample-config.json` + `fixtures/sam
 
 Point `discover` at a Thunderbird mail directory — a file `Inbox` sitting beside a sibling `Inbox.sbd/` that holds its subfolders — and it reconstructs the nested tree, emitting one source per folder with a nested `targetFolderPath` (parse-free and fast). Feed those into a `convert` config and the resulting PST preserves the folder hierarchy, including parent folders that have both their own mail and subfolders. A plain directory of `.mbox` files is handled too (each becomes a top-level folder).
 
-> **CLI-only for now.** This nested-folder/Thunderbird support is available through the `discover` command; the desktop app does not yet expose it (planned). The desktop app handles flat `.mbox` archives.
+> The **desktop app exposes this directly** via its Thunderbird **profile mode** (Source → *Thunderbird profile*), which runs `discover` under the hood and adds `.msf` flag/tag enrichment and multi-account handling. `discover` remains available on its own for scripting and for pointing at a bare mail directory (a plain folder of `.mbox` files also works in both the app and the CLI).
 
 <details>
 <summary><b>Configuration, scan output, and JSON Lines reference</b></summary>

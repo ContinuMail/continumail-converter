@@ -4,14 +4,77 @@ All notable changes to ContinuMail Converter are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-06-23
 
-### Added
-- **More Thunderbird/mbox status flags preserved.** When a source mbox carries `X-Mozilla-Status`
-  flags (typical of POP accounts and older Local Folders stores), the converter now also preserves
-  **replied** (→ Outlook reply arrow), **forwarded** (→ forward arrow), and **starred/marked**
-  (→ follow-up flag), in addition to read/unread. Modern IMAP/EWS exports carry no flags in the
-  mbox, so this has no effect there; tags (`X-Mozilla-Keys`) remain unsupported.
+**Major feature enrichments — and a hard-won grudge against Mozilla Mork — ship with 0.2.0. The
+headline is Thunderbird profile conversion.**
+
+ContinuMail Converter now reads Thunderbird's `.msf` / **Mork** metadata. Point it at a profile and
+your full folder and subfolder tree comes across — and the per-message state the mbox alone throws
+away (**read/unread, stars, replied/forwarded flags, junk, and tags**) is translated into native
+**MAPI properties (PID tags)** and shows up natively in Outlook. Tags become Outlook **categories**
+under your real Thunderbird tag names. It's paired with a **scan-for-profiles** step that
+automatically matches every mail account and local archive with its `.msf` sidecar — no hunting for
+files. This resolves the v0.1.2 "Thunderbird flags/starred not preserved" and "tags unsupported"
+limitations for live-profile conversions.
+
+*(Mork is an undocumented, dictionary-compressed text format from ~2000 that nobody should have to
+parse in 2026. We wrote a from-scratch reader for it so you never have to think about it.)*
+
+### New in 0.2.0 (CLI + GUI)
+- **Thunderbird `.msf` / Mork enrichment** — read/unread, replied, forwarded, starred (→ follow-up
+  flag), junk, and tags, recovered from a live profile and written as native MAPI properties.
+  Degrades gracefully: an unreadable or mismatched `.msf` is skipped per-source and reported, never
+  fatal.
+- **Tags → Outlook categories** using your real tag display-names from `prefs.js` (non-ASCII included).
+- **Scan for profiles** — auto-discovers Thunderbird profiles and pairs every mail account and local
+  archive with its `.msf` sidecar; per-account detection (email / host) included.
+- **Multi-account → one PST per account** by default (each account a top-level folder), with a
+  "Combine into a single PST" toggle.
+- **Junk handling** — leave / tag as a "Junk" category / move to a Junk Email folder.
+- **Drop expunged messages** — optionally skip mail Thunderbird marked deleted but hasn't compacted
+  out yet.
+- **Outlook category colours** — `import-colours` (CLI) and a one-click card on the Done screen (GUI)
+  push your Thunderbird tag colours into Outlook so the categories match.
+
+**On category colours and COM:** category *assignments* live in the PST as MAPI properties (PID tags)
+and need no Outlook. The **Master Category List** — the names-and-colours registry Outlook draws from
+— does **not** live in the PST and can't be written from PID tags, so colour import drives Outlook
+over COM to edit the CategoryList FAI message atomically (Windows only; Outlook installed and
+**closed**). A `--plan-file` mode applies a previewed plan without re-scanning.
+
+### Hardening, security & other changes
+- **Mork reader — nested folders no longer read as empty.** Real `.msf` files reuse a small numeric
+  table id across scopes; tables are now keyed by the composite (scope, id), so enrichment no longer
+  silently finds zero messages on real profiles.
+- **Mork reader — wider charset support** (windows-1252, Shift-JIS, Big5, EUC-JP, via the runtime
+  code-page provider) and more robust column-dictionary detection.
+- **`import-colours` fixes** — correct bytes for non-ASCII categories (e.g. "ÆØÅ"); only shuts down an
+  Outlook instance it actually started; excludes the `NonJunk` pseudo-tag from candidates.
+- **More mbox `X-Mozilla-Status` flags even without a profile** — replied / forwarded / starred added
+  to read/unread (POP / older Local Folders stores; no effect on flag-less IMAP/EWS exports) (#7).
+- **Faster large-folder writes** — per-folder `SaveChanges` is batched at checkpoints instead of after
+  every message. No behaviour change.
+- **GUI polish** — real source count on the Scanning screen (was "0 files"); one box per account on
+  the Source step (was "first@x +N more"); full-height rail with no sideways scroll; multi-account
+  defaults to split; stepper Back-navigation reaches the Accounts step.
+- **Security** — the vendored multi-string deserializer validates its item count with unsigned
+  arithmetic against the buffer length before casting, turning a malformed/oversized count into a
+  clean `InvalidDataException` instead of `OverflowException`/`OutOfMemoryException`.
+
+### Known limitations
+- **`.msf` enrichment needs a live profile** (the mbox plus its sibling `.msf`). A bare exported
+  `.mbox` still imports as before — only inline `X-Mozilla-Status` flags are recoverable, not
+  tags / junk / expunged state.
+- **`import-colours` is Windows-only and needs Outlook installed and closed.** Conversion itself still
+  requires no Outlook — only tag *colours* do.
+
+### Internal
+- New from-scratch, read-only **Mork (`.msf`) reader** (`src/Mail2Pst.Core/Mork/`) with enrichment
+  built on top (`src/Mail2Pst.Core/Msf/`); extensive unit + env-gated real-corpus tests.
+- Pure, COM-free, unit-tested category-colour XML/stream helpers extracted from the colour-import path.
+- Desktop helper extractions (account grouping, PST-name sanitization/de-dup, output-path join,
+  discovery parsing) and the single public-primary repo migration with a `leak-check` safety net.
 
 ## [0.1.2] — 2026-06-18
 

@@ -6,8 +6,8 @@ real-world validation method used on actual mail (which, being private, is **not
 
 ## Automated tests
 
-The engine and the desktop app each have a unit-test suite (274+ engine, 113+ desktop tests
-as of the v0.1.1 follow-up; the suites, not the exact counts, are the contract):
+The engine and the desktop app each have a unit-test suite (~575 engine, ~214 desktop tests
+as of v0.2.0; the suites, not the exact counts, are the contract):
 
 ```bash
 # Engine + CLI (xUnit)
@@ -19,7 +19,10 @@ cd desktop && npm test
 
 These cover mbox boundary/parse behaviour (including a worked-around MimeKit mbox EOF bug),
 PST writing and metadata fidelity, size-based splitting, output-name validation, the
-CLI JSON-Lines contract, and the template-provenance guard.
+CLI JSON-Lines contract, and the template-provenance guard — plus the v0.2.0 surface:
+Thunderbird `.msf`/Mork parsing and flag/junk/tag enrichment, tag → Outlook-category mapping
+and colour-plan building, profile discovery and multi-account routing, and junk/expunged
+handling.
 
 The repository contains only **synthetic fixtures** (`fixtures/`) — no real mail.
 
@@ -34,7 +37,8 @@ gitignored; it contains private mail). For each corpus the following is checked:
 - **Attachments:** regular files, inline CID images (no phantom paperclip), embedded
   `.eml` messages.
 - **Folder structure:** both `mirror` and `flatten` mappings.
-- **Metadata:** To/Cc/Bcc recipient types, read/unread, dates, threading headers.
+- **Metadata:** To/Cc/Bcc recipient types, dates, threading headers, and (from a live
+  Thunderbird profile) read/unread, replied/forwarded/starred flags, junk, and tags → categories.
 - **Splitting:** size-capped output produces complete, non-overlapping parts.
 - **End-to-end:** the output PST is opened in Outlook and imported into a test
   Microsoft 365 profile.
