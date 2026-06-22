@@ -122,7 +122,7 @@ export default function App() {
           onToggle={flow.toggleChecked}
           onSkipEmptyChange={flow.setSkipEmpty}
           onContinue={flow.continueToOptions}
-          onBack={requestGoToSource}
+          onBack={isMultiAccount ? flow.backToAccounts : requestGoToSource}
           pairedIds={f.inputMode === "profile" ? flow.pairedIds : undefined}
           warnings={f.inputMode === "profile" ? f.discoverWarnings : undefined}
         />
