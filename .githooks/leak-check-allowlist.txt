@@ -5,15 +5,12 @@
 @example.com
 @example.net
 @example.org
+@example.test
 
 # Synthetic placeholder domains used throughout the unit-test suite (not real recipients).
 # (Migrating these tests to @example.* would let us drop these two — minor future cleanup.)
 @x.com
 @b.com
-
-# Synthetic addresses used in profile_scan_tests fixtures (Rust unit tests — no real PII).
-alice@gmail.com
-bob@work.com
 
 # Legitimate third-party references that may appear in tracked files
 noreply@github.com

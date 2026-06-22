@@ -602,11 +602,11 @@ mod profile_scan_tests {
     #[test]
     fn parse_emails_dedupes_case_insensitively_keeping_first() {
         let p = "\
-user_pref(\"mail.identity.id1.useremail\", \"Alice@GMAIL.com\");\n\
-user_pref(\"mail.identity.id2.useremail\", \"alice@gmail.com\");\n\
-user_pref(\"mail.identity.id3.useremail\", \"bob@work.com\");\n\
+user_pref(\"mail.identity.id1.useremail\", \"Alice@EXAMPLE.com\");\n\
+user_pref(\"mail.identity.id2.useremail\", \"alice@example.com\");\n\
+user_pref(\"mail.identity.id3.useremail\", \"bob@example.test\");\n\
 user_pref(\"mail.identity.id4.fullName\", \"Not An Email\");\n";
-        assert_eq!(parse_identity_emails(p), vec!["Alice@GMAIL.com", "bob@work.com"]);
+        assert_eq!(parse_identity_emails(p), vec!["Alice@EXAMPLE.com", "bob@example.test"]);
     }
 
     #[test]
