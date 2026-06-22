@@ -6,8 +6,9 @@ real-world validation method used on actual mail (which, being private, is **not
 
 ## Automated tests
 
-The engine and the desktop app each have a unit-test suite (~575 engine, ~214 desktop tests
-as of v0.2.0; the suites, not the exact counts, are the contract):
+The engine and the desktop app each have a unit-test suite (~615 engine, ~214 desktop tests
+as of v0.2.0, plus a separate engine round-trip integration harness; the suites, not the exact
+counts, are the contract):
 
 ```bash
 # Engine + CLI (xUnit)
