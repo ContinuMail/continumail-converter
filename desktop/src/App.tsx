@@ -96,7 +96,7 @@ export default function App() {
           onContinue={flow.continueToScan}
         />
       )}
-      {f.stage === "scanning" && <ScanningView fileCount={f.inputFiles.length} progress={f.scanProgress} />}
+      {f.stage === "scanning" && <ScanningView fileCount={f.scanFileCount} progress={f.scanProgress} />}
       {f.stage === "accounts" && f.inputMode === "profile" && (
         <AccountsView
           rows={f.profileRows}

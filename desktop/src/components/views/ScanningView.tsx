@@ -6,6 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { easeToward } from "@/lib/progressStats";
 import { formatBytes } from "@/lib/format";
+import { scanningTitle } from "@/lib/scan";
 
 export interface ScanProgress {
   bytes: number;
@@ -53,7 +54,7 @@ export function ScanningView({
       <div className="flex flex-1 flex-col items-center justify-center text-center">
         <Spinner className="size-8 text-primary" />
         <h1 className="mt-4 text-lg font-semibold text-foreground">
-          Scanning {fileCount} file{fileCount === 1 ? "" : "s"}…
+          {scanningTitle(fileCount)}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">Large archives can take a while.</p>
       </div>
@@ -64,7 +65,7 @@ export function ScanningView({
   return (
     <div className="flex flex-1 flex-col items-center justify-center text-center">
       <h1 className="text-lg font-semibold text-foreground">
-        Scanning {fileCount} file{fileCount === 1 ? "" : "s"}…
+        {scanningTitle(fileCount)}
       </h1>
       <div className="mt-4 w-full max-w-md">
         <div className="flex justify-between text-sm text-foreground">

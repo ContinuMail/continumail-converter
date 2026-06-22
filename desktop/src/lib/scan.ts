@@ -28,3 +28,12 @@ export function parseScanLine(line: string): ScanLineEvent | null {
   if (o.type === "scan") return { type: "scan", result: toScanResult(o) };
   return null;
 }
+
+/** Heading for the Scanning view. The count is the number of sources being
+ * scanned (files in .mbox mode, discovered folders in profile mode). During
+ * profile discovery the count isn't known yet — render a bare "Scanning…"
+ * rather than the misleading "Scanning 0 files…". */
+export function scanningTitle(fileCount: number): string {
+  if (fileCount <= 0) return "Scanning…";
+  return `Scanning ${fileCount} file${fileCount === 1 ? "" : "s"}…`;
+}

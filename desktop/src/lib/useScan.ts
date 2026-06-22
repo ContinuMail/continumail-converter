@@ -62,6 +62,7 @@ export interface PreConvertState {
   skipEmpty: boolean;
   options: OptionsState;
   scanProgress: { bytes: number; totalBytes: number } | null;
+  scanFileCount: number; // sources being scanned: files (.mbox mode) or discovered folders (profile mode); 0 until known
   sortBy: SortField;
   sortDir: SortDir;
   inputMode: "files" | "profile";
@@ -86,6 +87,7 @@ function initialState(): PreConvertState {
     skipEmpty: true,
     options: defaultOptions(),
     scanProgress: null,
+    scanFileCount: 0,
     sortBy: "default",
     sortDir: "desc",
     inputMode: "files",
@@ -126,7 +128,7 @@ export function useScan() {
         setState((s) => ({ ...s, sourceError: "Choose a Thunderbird profile or mail folder." }));
         return;
       }
-      setState((s) => ({ ...s, stage: "scanning", sourceError: null, errorMessage: null, scanProgress: null }));
+      setState((s) => ({ ...s, stage: "scanning", sourceError: null, errorMessage: null, scanProgress: null, scanFileCount: 0 }));
 
       // Discovery failure / empty discovery is a SOURCE-selection problem → return to Source with
       // sourceError. Only a scan failure AFTER successful discovery goes to the ScanError view.
@@ -142,6 +144,9 @@ export function useScan() {
         setState((s) => ({ ...s, stage: "select", sourceError: "No mail folders found in that location.", scanProgress: null }));
         return;
       }
+
+      // Discovery done: the source count is now known — surface it on the Scanning view.
+      setState((s) => (s.stage === "scanning" ? { ...s, scanFileCount: disc.sources.length } : s));
 
       try {
         const paths = disc.sources.map((d) => d.path);
@@ -181,7 +186,7 @@ export function useScan() {
       setState((s) => ({ ...s, errorMessage: "Select at least one .mbox file." }));
       return;
     }
-    setState((s) => ({ ...s, stage: "scanning", sourceError: null, errorMessage: null, scanProgress: null }));
+    setState((s) => ({ ...s, stage: "scanning", sourceError: null, errorMessage: null, scanProgress: null, scanFileCount: paths.length }));
     try {
       // Guard the progress update on stage so a late/queued event after the scan
       // resolves can't leak a bar into Review or ScanError.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { parseScanLine } from "./scan";
+import { parseScanLine, scanningTitle } from "./scan";
 
 const SCAN_LINE =
   '{"type":"scan","totals":{"messages":2,"bytes":167,"sourceBytes":735,"sources":1},"sources":[{"id":"sample","path":"C:/x/sample.mbox","displayName":"sample","messages":2,"bytes":167,"sourceBytes":735,"dateFrom":"2024-01-01T10:00:00Z","dateTo":"2024-01-02T11:30:00Z","warnings":0,"skipped":0}],"skipped":[],"warnings":[]}';
@@ -36,5 +36,22 @@ describe("parseScanLine", () => {
 
   it("returns null for scanProgress with non-numeric fields", () => {
     expect(parseScanLine('{"type":"scanProgress","bytes":"x","totalBytes":1}')).toBeNull();
+  });
+});
+
+describe("scanningTitle", () => {
+  it("omits the count when it is not yet known (0 or negative)", () => {
+    // Profile mode shows the Scanning view during discovery, before the
+    // discovered-source count exists — don't claim "0 files".
+    expect(scanningTitle(0)).toBe("Scanning…");
+    expect(scanningTitle(-1)).toBe("Scanning…");
+  });
+
+  it("uses the singular for one source", () => {
+    expect(scanningTitle(1)).toBe("Scanning 1 file…");
+  });
+
+  it("uses the plural for multiple sources", () => {
+    expect(scanningTitle(3)).toBe("Scanning 3 files…");
   });
 });
