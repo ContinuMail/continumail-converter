@@ -5,14 +5,15 @@ import { Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { SplitSizeControl } from "@/components/ui/split-size-control";
-import { buildProfileConfig } from "@/lib/profileConfig";
+import { buildProfileConfig, buildProfileConfigMulti } from "@/lib/profileConfig";
 import { effectiveRows } from "@/lib/review";
 import { ConvertConfigError, deriveOutputTarget } from "@/lib/convert";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import { openJunkHelp, pickOutputPst } from "@/lib/engine";
+import { groupByAccount } from "@/lib/accounts";
 import type { OptionsState } from "@/lib/options";
-import type { ConversionConfig, ProfileSourceRow, OutputTarget } from "@/lib/types";
+import type { ConversionConfig, ProfileSourceRow, OutputTarget, Account } from "@/lib/types";
 
 interface ProfileOptionsViewProps {
   rows: ProfileSourceRow[];
@@ -25,10 +26,15 @@ interface ProfileOptionsViewProps {
   onSetOptions: (patch: Partial<OptionsState>) => void;
   onStart: (config: ConversionConfig, outputDir: string) => void;
   onBack: () => void;
+  // multi-account (optional — only present in profile mode with ≥2 accounts)
+  accounts?: Account[];
+  selectedAccountKeys?: Set<string>;
+  pstNames?: Record<string, string>;
 }
 
 export function ProfileOptionsView({
   rows, outputTarget, onOutputTargetChange, profileRoot, checkedIds, skipEmpty, options, onSetOptions, onStart, onBack,
+  accounts, selectedAccountKeys, pstNames,
 }: ProfileOptionsViewProps) {
   const [startError, setStartError] = useState<string | null>(null);
   const [splitOk, setSplitOk] = useState(true);
@@ -45,7 +51,8 @@ export function ProfileOptionsView({
     try { return deriveOutputTarget(outputPath).pstName; } catch { return "Output"; }
   }, [outputPath]);
   const totalBytes = eff.reduce((n, r) => n + r.bytes, 0);
-  const canStart = eff.length > 0 && splitOk && outputTarget !== null;
+  const isMultiAccount = outputTarget?.kind === "folder";
+  const canStart = eff.length > 0 && splitOk && outputTarget !== null && (isMultiAccount ? (selectedAccountKeys?.size ?? 0) > 0 : outputPath !== null);
 
   async function onChooseOutput() {
     const path = await pickOutputPst();
@@ -57,6 +64,31 @@ export function ProfileOptionsView({
   }
 
   function onStartClick() {
+    // Multi-account folder mode: build one output group per selected account.
+    if (outputTarget?.kind === "folder") {
+      const accs = accounts ?? [];
+      const keys = selectedAccountKeys ?? new Set<string>();
+      const names = pstNames ?? {};
+      try {
+        const allGroups = groupByAccount(rows, accs);
+        const selectedGroups = allGroups
+          .filter((g) => keys.has(g.key))
+          .map((g) => ({ key: g.key, pstName: names[g.key] ?? g.defaultPstName, rows: g.rows }));
+        const { config, outputDir } = buildProfileConfigMulti({
+          groups: selectedGroups,
+          checkedIds,
+          skipEmpty,
+          options,
+          target: outputTarget,
+          profileRoot,
+        });
+        onStart(config, outputDir);
+      } catch (e) {
+        setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
+      }
+      return;
+    }
+    // Single-account / files mode: existing pstFile path.
     if (!outputPath) {
       setStartError("Choose an output .pst file first.");
       return;

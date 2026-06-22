@@ -9,6 +9,7 @@ import { ScanningView } from "@/components/views/ScanningView";
 import { ReviewView } from "@/components/views/ReviewView";
 import { OptionsView } from "@/components/views/OptionsView";
 import { ProfileOptionsView } from "@/components/views/ProfileOptionsView";
+import { AccountsView } from "@/components/views/AccountsView";
 import type { ProfileSourceRow } from "@/lib/types";
 import { ScanErrorView } from "@/components/views/ScanErrorView";
 import { ConvertView } from "@/components/views/ConvertView";
@@ -25,10 +26,7 @@ export default function App() {
   const { state: f } = flow;
   const [confirmSource, setConfirmSource] = useState(false);
 
-  // Task 9c will wire the real discovered account count; for now pass 0 so
-  // behaviour is identical to the hard-coded 5-step list (files-mode + profile
-  // single-account both produce ["Source","Review","Options","Convert","Done"]).
-  const steps = buildSteps(f.inputMode, 0);
+  const steps = buildSteps(f.inputMode, flow.discoveredAccountCount);
 
   // Memoized so ConfirmDialog's Esc-key effect (deps on onCancel) doesn't
   // re-register its keydown listener on every App render.
@@ -67,13 +65,18 @@ export default function App() {
   };
 
   // Clickable stepper (backward only, pre-convert stable stages). Step 0 → Source
-  // (guarded), step 1 → Review, reusing the existing transitions. Not offered during
-  // scanning/scanError (transient) so the stepper can't bail an in-flight scan.
+  // (guarded), step 1 → Accounts (multi) or Review (single), step 2 → Review
+  // (multi only). Not offered during scanning/scanError (transient) so the stepper
+  // can't bail an in-flight scan.
+  const isMultiAccount = flow.discoveredAccountCount >= 2 && f.inputMode === "profile";
   const onStepSelect =
-    f.stage === "review" || f.stage === "options"
+    f.stage === "accounts" || f.stage === "review" || f.stage === "options"
       ? (step: number) => {
           if (step === 0) requestGoToSource();
-          else if (step === 1) flow.backToReview();
+          else if (isMultiAccount && step === 1 && f.stage !== "accounts") {
+            // jump back to accounts (not yet wired via useScan — fall back to backToReview for now)
+            flow.backToReview();
+          } else if (step === (isMultiAccount ? 2 : 1)) flow.backToReview();
         }
       : undefined;
 
@@ -95,6 +98,20 @@ export default function App() {
         />
       )}
       {f.stage === "scanning" && <ScanningView fileCount={f.inputFiles.length} progress={f.scanProgress} />}
+      {f.stage === "accounts" && f.inputMode === "profile" && (
+        <AccountsView
+          rows={f.profileRows}
+          accounts={f.accounts}
+          selectedAccountKeys={f.selectedAccountKeys}
+          pstNames={f.pstNames}
+          outputTarget={f.outputTarget}
+          onOutputTargetChange={flow.setOutputTarget}
+          onToggleAccount={flow.toggleAccount}
+          onSetPstName={flow.setPstName}
+          onBack={requestGoToSource}
+          onContinue={flow.continueToReviewFromAccounts}
+        />
+      )}
       {f.stage === "review" && f.scan && (
         <ReviewView
           sources={flow.sortedSources}
@@ -124,6 +141,9 @@ export default function App() {
             onSetOptions={flow.setOptions}
             onStart={start}
             onBack={flow.backToReview}
+            accounts={f.accounts}
+            selectedAccountKeys={f.selectedAccountKeys}
+            pstNames={f.pstNames}
           />
         ) : f.scan && f.outputTarget?.kind === "pstFile" ? (
           <OptionsView
