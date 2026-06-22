@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { mergeProfileSources, buildProfileConfig } from "./profileConfig";
+import { mergeProfileSources, buildProfileConfig, buildProfileConfigMulti } from "./profileConfig";
 import type { DiscoveredSource, ProfileSourceRow } from "./types";
+import type { OutputTarget } from "./types";
 import type { ScanResult } from "./parse";
 import { ConvertConfigError } from "./convert";
 import { defaultOptions } from "./options";
@@ -127,5 +128,138 @@ describe("buildProfileConfig", () => {
       expect(config.junkHandling).toBe("Folder");                   // junk/expunged ARE top-level
       expect(config.dropExpunged).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildProfileConfigMulti
+// ---------------------------------------------------------------------------
+
+const srcRow = (
+  id: string,
+  accountId: string,
+  tfp: string[],
+  msfPath: string | null,
+  messages = 1,
+): ProfileSourceRow => ({
+  id,
+  path: id,
+  displayName: tfp.join(" / "),
+  messages,
+  bytes: messages * 100,
+  sourceBytes: messages * 10,
+  dateFrom: null,
+  dateTo: null,
+  warnings: 0,
+  skipped: 0,
+  targetFolderPath: tfp,
+  msfPath,
+  accountId,
+});
+
+type MultiGroup = { key: string; pstName: string; rows: ProfileSourceRow[] };
+
+const buildProfileConfigMultiWrapper = ({
+  groups,
+  mapping,
+  target,
+  skipEmpty = false,
+  checkedIds,
+  profileRoot = "/profile",
+}: {
+  groups: MultiGroup[];
+  mapping: "mirror" | "flatten";
+  target: OutputTarget;
+  skipEmpty?: boolean;
+  checkedIds?: Set<string>;
+  profileRoot?: string;
+}) => {
+  const allIds = new Set(groups.flatMap((g) => g.rows.map((r) => r.id)));
+  return buildProfileConfigMulti({
+    groups,
+    checkedIds: checkedIds ?? allIds,
+    skipEmpty,
+    options: opts({ folderMapping: mapping }),
+    target,
+    profileRoot,
+  });
+};
+
+describe("buildProfileConfigMulti", () => {
+  it("emits one output group per kept account with stripped paths", () => {
+    const { config } = buildProfileConfigMultiWrapper({
+      groups: [
+        { key: "A", pstName: "alice@example.com", rows: [
+          srcRow("a", "A", ["imap.example.com", "Inbox"], "a.msf"),
+          srcRow("b", "A", ["imap.example.com", "Inbox", "Archive"], null)] },
+        { key: "B", pstName: "Office365", rows: [srcRow("c", "B", ["Office365", "Inbox"], null)] },
+      ],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" },
+    });
+    expect(config.outputs).toHaveLength(2);
+    const a = config.outputs[0];
+    expect(a.name).toBe("alice@example.com");
+    expect(a.sources[0].targetFolderPath).toEqual(["Inbox"]);          // account prefix stripped
+    expect(a.sources[1].targetFolderPath).toEqual(["Inbox", "Archive"]);
+    expect(a.sources[0].msfPath).toBe("a.msf");                         // preserved
+  });
+
+  it("preserves profilePath and honours checkedIds (folder selection)", () => {
+    const { config } = buildProfileConfigMultiWrapper({
+      groups: [{ key: "A", pstName: "A", rows: [
+        srcRow("a", "A", ["imap.example.com", "Inbox"], null),
+        srcRow("b", "A", ["imap.example.com", "Spam"], null)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" },
+      checkedIds: new Set(["a"]),            // only Inbox selected in Review
+      profileRoot: "/p",
+    });
+    expect((config as any).profilePath).toBe("/p");
+    expect(config.outputs[0].sources).toHaveLength(1);
+    expect(config.outputs[0].sources[0].targetFolderPath).toEqual(["Inbox"]);
+  });
+
+  it("THROWS when stripping the account prefix leaves no folder (mirror)", () => {
+    expect(() => buildProfileConfigMultiWrapper({
+      groups: [{ key: "A", pstName: "A", rows: [srcRow("a", "A", ["imap.example.com"], null)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" },
+    })).toThrow(/no folder below its account/i);
+  });
+
+  it("excludes an account with no effective sources after skip-empty", () => {
+    const { config } = buildProfileConfigMultiWrapper({
+      groups: [
+        { key: "A", pstName: "A", rows: [srcRow("a", "A", ["imap.example.com", "Inbox"], null, 5)] },
+        { key: "B", pstName: "B", rows: [srcRow("c", "B", ["Office365", "Empty"], null, 0)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" }, skipEmpty: true,
+    });
+    expect(config.outputs.map((o) => o.name)).toEqual(["A"]);
+  });
+
+  it("suffixes colliding PST names deterministically", () => {
+    const { config } = buildProfileConfigMultiWrapper({
+      groups: [
+        { key: "A", pstName: "Mail", rows: [srcRow("a", "A", ["x", "Inbox"], null, 1)] },
+        { key: "B", pstName: "Mail", rows: [srcRow("c", "B", ["y", "Inbox"], null, 1)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" },
+    });
+    expect(config.outputs.map((o) => o.name)).toEqual(["Mail", "Mail-2"]);
+  });
+
+  it("skips an already-taken suffix (Mail-2 exists → next is Mail-3)", () => {
+    const { config } = buildProfileConfigMultiWrapper({
+      groups: [
+        { key: "A", pstName: "Mail", rows: [srcRow("a", "A", ["x", "Inbox"], null, 1)] },
+        { key: "B", pstName: "Mail-2", rows: [srcRow("c", "B", ["y", "Inbox"], null, 1)] },
+        { key: "C", pstName: "Mail", rows: [srcRow("d", "C", ["z", "Inbox"], null, 1)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" },
+    });
+    expect(config.outputs.map((o) => o.name)).toEqual(["Mail", "Mail-2", "Mail-3"]);
+  });
+
+  it("throws when all groups are empty after skip-empty", () => {
+    expect(() => buildProfileConfigMultiWrapper({
+      groups: [{ key: "A", pstName: "A", rows: [srcRow("a", "A", ["x", "Empty"], null, 0)] }],
+      mapping: "mirror", target: { kind: "folder", dir: "/out" }, skipEmpty: true,
+    })).toThrow(/at least one folder/i);
   });
 });

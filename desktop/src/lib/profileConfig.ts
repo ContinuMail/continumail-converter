@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry } from "./types";
+import type { DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry, OutputTarget, OutputGroupConfig } from "./types";
 import type { ScanResult } from "./parse";
 import type { OptionsState } from "./options";
 import { effectiveRows } from "./review";
 import { deriveOutputTarget, ConvertConfigError } from "./convert";
+import { sanitizePstName } from "./accounts";
 
 /** Merge discovery sources with scan counts. Identity = discovered `path`; the
  * scan row's id is ignored (it is scan-local). displayName = joined nested path. */
@@ -75,6 +76,96 @@ export function buildProfileConfig(
         includeEmptyFolders: !skipEmpty,
         sources,
       }],
+    },
+  };
+}
+
+export interface MultiAccountGroup {
+  key: string;
+  pstName: string;
+  rows: ProfileSourceRow[];
+}
+
+/** Build a full profile-mode ConversionConfig with one OutputGroup per kept
+ * account. Mirror strips the first path segment (the account prefix) from each
+ * source's targetFolderPath and throws if stripping leaves an empty path.
+ * Flatten omits targetFolderPath entirely. Groups with no effective rows (after
+ * checkedIds + skipEmpty filtering) are silently dropped; a ConvertConfigError
+ * is thrown when none survive. PST names are de-duplicated by appending -2, -3,
+ * … in order, skipping suffixes already taken by other groups. */
+export function buildProfileConfigMulti({
+  groups,
+  checkedIds,
+  skipEmpty,
+  options,
+  target,
+  profileRoot,
+}: {
+  groups: MultiAccountGroup[];
+  checkedIds: Set<string>;
+  skipEmpty: boolean;
+  options: OptionsState;
+  target: OutputTarget;
+  profileRoot: string;
+}): { config: ConversionConfig; outputDir: string } {
+  const folderMapping = options.folderMapping;
+  const outputDir = target.kind === "folder" ? target.dir : deriveOutputTarget(target.path).outputDir;
+
+  // Build surviving output groups
+  const outputGroups: OutputGroupConfig[] = [];
+  for (const group of groups) {
+    const eff = effectiveRows(group.rows, checkedIds, skipEmpty) as ProfileSourceRow[];
+    if (eff.length === 0) continue; // drop group with no effective sources
+
+    const sources: SourceConfigEntry[] = eff.map((r) => {
+      const entry: SourceConfigEntry = { path: r.path, type: "mbox" };
+      if (folderMapping === "mirror") {
+        const stripped = r.targetFolderPath.slice(1);
+        if (stripped.length === 0) {
+          throw new ConvertConfigError(
+            `Discovered source ${r.path} has no folder below its account.`,
+          );
+        }
+        entry.targetFolderPath = stripped;
+      }
+      if (r.msfPath != null) entry.msfPath = r.msfPath;
+      return entry;
+    });
+
+    outputGroups.push({
+      name: sanitizePstName(group.pstName), // placeholder — de-duped below
+      maxSizeMB: options.maxSizeMB,
+      folderMapping,
+      includeEmptyFolders: !skipEmpty,
+      sources,
+    });
+  }
+
+  if (outputGroups.length === 0) {
+    throw new ConvertConfigError("Select at least one folder to convert.");
+  }
+
+  // De-duplicate names: case-insensitive, skip already-taken suffixes
+  const usedNames = new Set<string>();
+  for (const g of outputGroups) {
+    const base = g.name;
+    if (!usedNames.has(base.toLowerCase())) {
+      usedNames.add(base.toLowerCase());
+    } else {
+      let n = 2;
+      while (usedNames.has(`${base}-${n}`.toLowerCase())) n++;
+      g.name = `${base}-${n}`;
+      usedNames.add(g.name.toLowerCase());
+    }
+  }
+
+  return {
+    outputDir,
+    config: {
+      profilePath: profileRoot,
+      junkHandling: options.junkHandling,
+      dropExpunged: options.dropExpunged,
+      outputs: outputGroups,
     },
   };
 }
