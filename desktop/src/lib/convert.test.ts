@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { parseConvertLine, deriveOutputTarget, appendWarningCapped, convertExitError } from "./convert";
+import { parseConvertLine, deriveOutputTarget, appendWarningCapped, convertExitError, joinOutputPstPath } from "./convert";
 import type { WarningItem } from "./convert";
 
 describe("parseConvertLine", () => {
@@ -78,5 +78,21 @@ describe("convertExitError", () => {
   it("errors on a zero/null exit while still running (no terminal event)", () => {
     expect(convertExitError(0, true)).toMatch(/without a terminal event/);
     expect(convertExitError(null, true)).toMatch(/without a terminal event/);
+  });
+});
+
+describe("joinOutputPstPath", () => {
+  it("joins a Windows dir with backslash separator and appends .pst", () => {
+    expect(joinOutputPstPath("C:\\Users\\me\\out", "Mail")).toBe("C:\\Users\\me\\out\\Mail.pst");
+  });
+  it("joins a POSIX dir with forward slash", () => {
+    expect(joinOutputPstPath("/home/me/out", "Mail")).toBe("/home/me/out/Mail.pst");
+  });
+  it("collapses a trailing separator on the dir", () => {
+    expect(joinOutputPstPath("C:\\Users\\me\\out\\", "Mail")).toBe("C:\\Users\\me\\out\\Mail.pst");
+    expect(joinOutputPstPath("/home/me/out/", "Mail")).toBe("/home/me/out/Mail.pst");
+  });
+  it("handles a drive-root dir", () => {
+    expect(joinOutputPstPath("C:\\", "Mail")).toBe("C:\\Mail.pst");
   });
 });

@@ -26,6 +26,17 @@ export function deriveOutputTarget(outputPstPath: string): { outputDir: string; 
   return { outputDir: dir, pstName: stem };
 }
 
+/** Join an output directory and an already-sanitized PST stem into a full
+ * `<dir><sep><pstName>.pst` path. Preserves the dir's separator style (the
+ * Windows folder picker returns `\`-style paths); collapses a trailing
+ * separator. `pstName` must already be sanitized (no separators survive
+ * sanitizePstName), so no path-injection re-guard is needed here. */
+export function joinOutputPstPath(dir: string, pstName: string): string {
+  const sep = dir.includes("\\") ? "\\" : "/";
+  const cleanDir = dir.replace(/[/\\]+$/, "");
+  return `${cleanDir}${sep}${pstName}.pst`;
+}
+
 const KNOWN_TYPES = new Set([
   "started",
   "scan",
