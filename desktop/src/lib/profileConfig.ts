@@ -6,7 +6,7 @@ import type { ScanResult } from "./parse";
 import type { OptionsState } from "./options";
 import { effectiveRows } from "./review";
 import { deriveOutputTarget, ConvertConfigError } from "./convert";
-import { sanitizePstName } from "./accounts";
+import { sanitizePstName, dedupePstNames } from "./accounts";
 
 /** Merge discovery sources with scan counts. Identity = discovered `path`; the
  * scan row's id is ignored (it is scan-local). displayName = joined nested path. */
@@ -145,19 +145,9 @@ export function buildProfileConfigMulti({
     throw new ConvertConfigError("Select at least one folder to convert.");
   }
 
-  // De-duplicate names: case-insensitive, skip already-taken suffixes
-  const usedNames = new Set<string>();
-  for (const g of outputGroups) {
-    const base = g.name;
-    if (!usedNames.has(base.toLowerCase())) {
-      usedNames.add(base.toLowerCase());
-    } else {
-      let n = 2;
-      while (usedNames.has(`${base}-${n}`.toLowerCase())) n++;
-      g.name = `${base}-${n}`;
-      usedNames.add(g.name.toLowerCase());
-    }
-  }
+  // De-duplicate names (shared helper — keeps parity with the Options preview).
+  const dedup = dedupePstNames(outputGroups.map((g) => g.name));
+  outputGroups.forEach((g, i) => { g.name = dedup[i]; });
 
   return {
     outputDir,

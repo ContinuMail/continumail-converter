@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupByAccount, sanitizePstName } from "./accounts";
+import { groupByAccount, sanitizePstName, dedupePstNames } from "./accounts";
 import type { Account, ProfileSourceRow } from "./types";
 
 const acct = (id: string, email: string | null, seg: string): Account =>
@@ -49,5 +49,20 @@ describe("sanitizePstName", () => {
   it("escapes reserved Windows device names", () => {
     expect(sanitizePstName("CON")).toBe("CON-mail");
     expect(sanitizePstName("LPT1.backup")).toBe("LPT1.backup-mail"); // stem LPT1 is reserved
+  });
+});
+
+describe("dedupePstNames", () => {
+  it("leaves distinct names unchanged", () => {
+    expect(dedupePstNames(["A", "B"])).toEqual(["A", "B"]);
+  });
+  it("suffixes a collision with -2", () => {
+    expect(dedupePstNames(["Same", "Same"])).toEqual(["Same", "Same-2"]);
+  });
+  it("is case-insensitive", () => {
+    expect(dedupePstNames(["mail", "MAIL"])).toEqual(["mail", "MAIL-2"]);
+  });
+  it("skips an already-taken suffix", () => {
+    expect(dedupePstNames(["a", "a-2", "a"])).toEqual(["a", "a-2", "a-3"]);
   });
 });

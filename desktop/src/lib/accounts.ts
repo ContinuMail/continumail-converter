@@ -27,6 +27,24 @@ export function sanitizePstName(raw: string): string {
   return s;
 }
 
+/** De-duplicate PST names case-insensitively, appending -2, -3, … to collisions
+ * (skipping suffixes already taken) while preserving order. Shared by the
+ * multi-account config builder and the Options preview so names never drift. */
+export function dedupePstNames(names: string[]): string[] {
+  const used = new Set<string>();
+  return names.map((base) => {
+    if (!used.has(base.toLowerCase())) {
+      used.add(base.toLowerCase());
+      return base;
+    }
+    let n = 2;
+    while (used.has(`${base}-${n}`.toLowerCase())) n++;
+    const name = `${base}-${n}`;
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
 /** Single source of truth for "which account does this row belong to". Reused by grouping, Review
  * filtering, and config building so the key never drifts. */
 export function accountKeyForRow(row: ProfileSourceRow): string {
