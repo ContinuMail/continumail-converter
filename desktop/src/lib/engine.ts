@@ -114,7 +114,14 @@ export async function pickMboxFiles(): Promise<string[]> {
 
 /** Returns a chosen folder path, or null if cancelled. */
 export async function pickFolder(): Promise<string | null> {
-  const result = await open({ multiple: false, directory: true });
+  let defaultPath: string | undefined;
+  try {
+    const d = await invoke<string | null>("default_thunderbird_profiles_dir");
+    defaultPath = d ?? undefined;
+  } catch {
+    defaultPath = undefined; // never block the picker on this
+  }
+  const result = await open({ multiple: false, directory: true, defaultPath });
   return typeof result === "string" ? result : null;
 }
 

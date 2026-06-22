@@ -357,6 +357,17 @@ fn open_junk_help(app: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not open link: {e}"))
 }
 
+/// Returns %APPDATA%\Thunderbird\Profiles when it exists, else None. Windows-only app.
+#[tauri::command]
+fn default_thunderbird_profiles_dir() -> Result<Option<String>, String> {
+    let appdata = match std::env::var_os("APPDATA") {
+        Some(v) => std::path::PathBuf::from(v),
+        None => return Ok(None),
+    };
+    let dir = appdata.join("Thunderbird").join("Profiles");
+    Ok(if dir.is_dir() { Some(dir.to_string_lossy().to_string()) } else { None })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -377,7 +388,8 @@ pub fn run() {
             open_folder,
             open_junk_help,
             preview_colours,
-            apply_colours
+            apply_colours,
+            default_thunderbird_profiles_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
