@@ -83,14 +83,14 @@ describe("convertExitError", () => {
 
 describe("joinOutputPstPath", () => {
   it("joins a Windows dir with backslash separator and appends .pst", () => {
-    expect(joinOutputPstPath("C:\\Users\\me\\out", "Mail")).toBe("C:\\Users\\me\\out\\Mail.pst");
+    expect(joinOutputPstPath("C:\\Mail\\out", "Mail")).toBe("C:\\Mail\\out\\Mail.pst");
   });
   it("joins a POSIX dir with forward slash", () => {
-    expect(joinOutputPstPath("/home/me/out", "Mail")).toBe("/home/me/out/Mail.pst");
+    expect(joinOutputPstPath("/srv/out", "Mail")).toBe("/srv/out/Mail.pst");
   });
   it("collapses a trailing separator on the dir", () => {
-    expect(joinOutputPstPath("C:\\Users\\me\\out\\", "Mail")).toBe("C:\\Users\\me\\out\\Mail.pst");
-    expect(joinOutputPstPath("/home/me/out/", "Mail")).toBe("/home/me/out/Mail.pst");
+    expect(joinOutputPstPath("C:\\Mail\\out\\", "Mail")).toBe("C:\\Mail\\out\\Mail.pst");
+    expect(joinOutputPstPath("/srv/out/", "Mail")).toBe("/srv/out/Mail.pst");
   });
   it("handles a drive-root dir", () => {
     expect(joinOutputPstPath("C:\\", "Mail")).toBe("C:\\Mail.pst");

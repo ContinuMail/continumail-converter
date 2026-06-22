@@ -14,7 +14,7 @@ const row = (id: string, accountId: string, tfp: string[], messages = 1, bytes =
   messages, bytes, sourceBytes: bytes * 2, dateFrom: null, dateTo: null, warnings: 0, skipped: 0, msfPath: null,
 });
 
-const accounts = [acct("a", "alice@x.com", "a"), acct("b", "bob@y.com", "b")];
+const accounts = [acct("a", "alice@example.com", "a"), acct("b", "bob@example.test", "b")];
 const rows = [
   row("a/Inbox", "a", ["a", "Inbox"], 10, 1000),
   row("a/Sent", "a", ["a", "Sent"], 5, 500),
@@ -25,7 +25,7 @@ const all = new Set(["a", "b"]);
 describe("buildAccountPreview", () => {
   it("one entry per selected account; mirror shows the account-stripped folder path", () => {
     const out = buildAccountPreview(rows, accounts, all, {}, "mirror");
-    expect(out.map((e) => e.pstName)).toEqual(["alice@x.com", "bob@y.com"]);
+    expect(out.map((e) => e.pstName)).toEqual(["alice@example.com", "bob@example.test"]);
     // account segment "a" is stripped (it becomes the PST), matching buildProfileConfigMulti
     expect(out[0].folders.map((f) => f.displayName)).toEqual(["Inbox", "Sent"]);
     expect(out[0].folders[0]).toEqual({ displayName: "Inbox", messages: 10, bytes: 1000 });
@@ -40,7 +40,7 @@ describe("buildAccountPreview", () => {
   it("uses edited pstNames (sanitized) and falls back to the account default", () => {
     const out = buildAccountPreview(rows, accounts, all, { a: "My Mail" }, "mirror");
     expect(out[0].pstName).toBe("My Mail");
-    expect(out[1].pstName).toBe("bob@y.com");
+    expect(out[1].pstName).toBe("bob@example.test");
   });
 
   it("de-duplicates colliding pst names with -2, matching the builder", () => {
