@@ -7,10 +7,50 @@ import { mergeProfileSources } from "./profileConfig";
 import { checkSchemaVersion } from "./schema";
 import { defaultOptions, type OptionsState, FLATTEN_SOURCE_ID } from "./options";
 import { sortSources, type SortField, type SortDir } from "./review";
-import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget } from "./types";
+import { groupByAccount, accountKeyForRow } from "./accounts";
+import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget, Account } from "./types";
 import type { ScanResult } from "./parse";
 
-export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError";
+export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError" | "accounts";
+
+// ── Pure helpers (exported for unit-testing) ─────────────────────────────────
+
+/**
+ * Given the rows + discovered accounts after a profile scan, compute:
+ *   - which stage to navigate to ("accounts" if ≥2 accounts, else "review")
+ *   - initial `selectedAccountKeys` (all keys when multi-account, empty otherwise)
+ *   - initial `pstNames` (keyed by account key, seeded from groupByAccount defaultPstName)
+ */
+export function computeAccountRouting(
+  rows: ProfileSourceRow[],
+  accounts: Account[],
+): { stage: "accounts" | "review"; selectedAccountKeys: Set<string>; pstNames: Record<string, string> } {
+  if (accounts.length >= 2) {
+    const groups = groupByAccount(rows, accounts);
+    const selectedAccountKeys = new Set(groups.map((g) => g.key));
+    const pstNames: Record<string, string> = {};
+    for (const g of groups) pstNames[g.key] = g.defaultPstName;
+    return { stage: "accounts", selectedAccountKeys, pstNames };
+  }
+  return { stage: "review", selectedAccountKeys: new Set(), pstNames: {} };
+}
+
+/**
+ * Filter profile rows to those belonging to selected accounts.
+ * Only active in multi-account profile mode (inputMode === "profile" AND accounts.length >= 2).
+ * Files mode and single-account mode pass through all rows unchanged.
+ */
+export function filterSourcesBySelection(
+  rows: ProfileSourceRow[],
+  selectedAccountKeys: Set<string>,
+  inputMode: "files" | "profile",
+  accounts: Account[],
+): ProfileSourceRow[] {
+  if (inputMode !== "profile" || accounts.length < 2) return rows;
+  return rows.filter((r) => selectedAccountKeys.has(accountKeyForRow(r)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface PreConvertState {
   inputFiles: FileStat[];
@@ -29,6 +69,10 @@ export interface PreConvertState {
   profileRows: ProfileSourceRow[];
   discoverWarnings: DiscoverWarning[];
   sourceError: string | null; // parent-owned discover-time error, shown on the Source screen
+  // Account selection (multi-account profile mode)
+  accounts: Account[];
+  selectedAccountKeys: Set<string>;
+  pstNames: Record<string, string>; // per-account edited PST name, keyed by account key
 }
 
 function initialState(): PreConvertState {
@@ -49,6 +93,9 @@ function initialState(): PreConvertState {
     profileRows: [],
     discoverWarnings: [],
     sourceError: null,
+    accounts: [],
+    selectedAccountKeys: new Set(),
+    pstNames: {},
   };
 }
 
@@ -104,9 +151,10 @@ export function useScan() {
         const schemaMsg = checkSchemaVersion(result.schemaVersion);
         if (schemaMsg) console.warn(`[mail2pst] ${schemaMsg}`);
         const profileRows = mergeProfileSources(disc.sources, result);
+        const { stage: nextStage, selectedAccountKeys, pstNames } = computeAccountRouting(profileRows, disc.accounts);
         setState((s) => ({
           ...s,
-          stage: "review",
+          stage: nextStage,
           scan: result,
           profileRows,
           discoverWarnings: disc.warnings,
@@ -116,6 +164,9 @@ export function useScan() {
           scanProgress: null,
           sortBy: "default",
           sortDir: "desc",
+          accounts: disc.accounts,
+          selectedAccountKeys,
+          pstNames,
         }));
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
@@ -196,6 +247,20 @@ export function useScan() {
 
   const continueToOptions = useCallback(() => setState((s) => ({ ...s, stage: "options" })), []);
   const backToReview = useCallback(() => setState((s) => ({ ...s, stage: "review" })), []);
+  const continueToReviewFromAccounts = useCallback(() => setState((s) => ({ ...s, stage: "review" })), []);
+
+  const toggleAccount = useCallback((key: string) => {
+    setState((s) => {
+      const next = new Set(s.selectedAccountKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...s, selectedAccountKeys: next };
+    });
+  }, []);
+
+  const setPstName = useCallback((key: string, name: string) => {
+    setState((s) => ({ ...s, pstNames: { ...s.pstNames, [key]: name } }));
+  }, []);
 
   const back = useCallback(
     () => setState((s) => ({ ...s, stage: "select", scan: null, profileRows: [], discoverWarnings: [], errorMessage: null, sourceError: null, scanProgress: null })),
@@ -204,14 +269,19 @@ export function useScan() {
   const resetFlow = useCallback(() => setState(initialState()), []);
 
   const sortedSources: SourceRow[] = useMemo(() => {
-    if (state.inputMode === "profile") return sortSources(state.profileRows, state.sortBy, state.sortDir);
+    if (state.inputMode === "profile") {
+      const filtered = filterSourcesBySelection(state.profileRows, state.selectedAccountKeys, state.inputMode, state.accounts);
+      return sortSources(filtered, state.sortBy, state.sortDir);
+    }
     return state.scan ? sortSources(state.scan.sources, state.sortBy, state.sortDir) : [];
-  }, [state.inputMode, state.profileRows, state.scan, state.sortBy, state.sortDir]);
+  }, [state.inputMode, state.profileRows, state.selectedAccountKeys, state.accounts, state.scan, state.sortBy, state.sortDir]);
 
   const pairedIds: Set<string> = useMemo(
     () => new Set(state.profileRows.filter((r) => r.msfPath).map((r) => r.id)),
     [state.profileRows],
   );
+
+  const discoveredAccountCount = state.accounts.length;
 
   return {
     state,
@@ -229,6 +299,10 @@ export function useScan() {
     setRename,
     continueToOptions,
     backToReview,
+    continueToReviewFromAccounts,
+    toggleAccount,
+    setPstName,
+    discoveredAccountCount,
     back,
     resetFlow,
   };
