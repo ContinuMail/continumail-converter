@@ -18,9 +18,6 @@ automatically matches every mail account and local archive with its `.msf` sidec
 files. This resolves the v0.1.2 "Thunderbird flags/starred not preserved" and "tags unsupported"
 limitations for live-profile conversions.
 
-*(Mork is an undocumented, dictionary-compressed text format from ~2000 that nobody should have to
-parse in 2026. We wrote a from-scratch reader for it so you never have to think about it.)*
-
 ### New in 0.2.0 (CLI + GUI)
 - **Thunderbird `.msf` / Mork enrichment** — read/unread, replied, forwarded, starred (→ follow-up
   flag), junk, and tags, recovered from a live profile and written as native MAPI properties.

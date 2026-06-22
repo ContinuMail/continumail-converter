@@ -234,6 +234,7 @@ The **ContinuMail** name, logos, icons, and brand assets are **not** covered by 
 
 - **[ROM-Knowledgeware/PSTFileFormat](https://github.com/ROM-Knowledgeware/PSTFileFormat)** by **Tal Aloni** — the rare, from-scratch MS-PST reader/writer that makes ContinuMail's Outlook-independence possible. **ContinuMail would not exist without it.** (Vendored, with local modifications, per the LGPL.)
 - **[MimeKit](https://github.com/jstedfast/MimeKit)** by **Jeffrey Stedfast** — the MIME parsing that reads every message.
+- **[knk106/MorkReader](https://github.com/knk106/MorkReader)** — a clear, public-domain reference implementation that helped us understand Thunderbird's undocumented Mork `.msf` format. ContinuMail's Mork reader is project-native code (not forked or vendored), but knk106's work was a valuable map of the territory — thank you.
 
 ## 🧑‍💻 How it works (for contributors)
 
