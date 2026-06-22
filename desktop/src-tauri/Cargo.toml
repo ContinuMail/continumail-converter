@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.1.2"
+version = "0.2.0"
 description = "ContinuMail Converter — convert mbox mail archives to Outlook PST"
 authors = ["Aksel Visby <aksel@visby.it>"]
 edition = "2021"
