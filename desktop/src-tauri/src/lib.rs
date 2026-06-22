@@ -357,6 +357,88 @@ fn open_junk_help(app: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not open link: {e}"))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileEntry {
+    name: String,
+    path: String,
+    is_default: bool,
+}
+
+/// Parse profiles.ini. `tb_root` = the Thunderbird dir (parent of Profiles/). Pure + testable.
+fn parse_profiles_ini(content: &str, tb_root: &std::path::Path) -> Vec<ProfileEntry> {
+    let mut defaults: Vec<String> = Vec::new();
+    let mut profiles: Vec<(String, String, bool, Option<String>)> = Vec::new();
+    let mut sec = String::new();
+    let (mut name, mut path, mut is_rel, mut sec_default) =
+        (None::<String>, None::<String>, true, None::<String>);
+
+    for line in content.lines() {
+        let l = line.trim();
+        if l.starts_with('[') && l.ends_with(']') {
+            if sec.starts_with("Profile") {
+                if let (Some(n), Some(p)) = (name.take(), path.take()) {
+                    profiles.push((n, p, is_rel, sec_default.take()));
+                }
+            }
+            sec = l[1..l.len() - 1].to_string();
+            name = None;
+            path = None;
+            is_rel = true;
+            sec_default = None;
+            continue;
+        }
+        let Some((k, v)) = l.split_once('=') else {
+            continue;
+        };
+        let (k, v) = (k.trim(), v.trim());
+        if sec.starts_with("Install") && k == "Default" {
+            defaults.push(v.replace('\\', "/"));
+        } else if sec.starts_with("Profile") {
+            match k {
+                "Name" => name = Some(v.to_string()),
+                "Path" => path = Some(v.to_string()),
+                "IsRelative" => is_rel = v == "1",
+                "Default" if v == "1" => sec_default = Some("1".into()),
+                _ => {}
+            }
+        }
+    }
+    if sec.starts_with("Profile") {
+        if let (Some(n), Some(p)) = (name.take(), path.take()) {
+            profiles.push((n, p, is_rel, sec_default.take()));
+        }
+    }
+
+    profiles
+        .into_iter()
+        .map(|(name, raw, is_rel, sd)| {
+            let abs = if is_rel {
+                tb_root.join(&raw).to_string_lossy().to_string()
+            } else {
+                raw.clone()
+            };
+            let norm = raw.replace('\\', "/");
+            let is_default = sd.is_some() || defaults.iter().any(|d| d.as_str() == norm);
+            ProfileEntry { name, path: abs, is_default }
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn list_thunderbird_profiles() -> Result<Vec<ProfileEntry>, String> {
+    let appdata = match std::env::var_os("APPDATA") {
+        Some(v) => std::path::PathBuf::from(v),
+        None => return Ok(vec![]),
+    };
+    let tb = appdata.join("Thunderbird");
+    let ini = tb.join("profiles.ini");
+    match std::fs::read_to_string(&ini) {
+        Ok(content) => Ok(parse_profiles_ini(&content, &tb)),
+        Err(_) => Ok(vec![]),
+    }
+}
+
 /// Returns %APPDATA%\Thunderbird\Profiles when it exists, else None. Windows-only app.
 #[tauri::command]
 fn default_thunderbird_profiles_dir() -> Result<Option<String>, String> {
@@ -389,10 +471,46 @@ pub fn run() {
             open_junk_help,
             preview_colours,
             apply_colours,
-            default_thunderbird_profiles_dir
+            default_thunderbird_profiles_dir,
+            list_thunderbird_profiles
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod profiles_ini_tests {
+    use super::*;
+    use std::path::Path;
+
+    const INI: &str = "\
+[Install4F96D1932A9F858E]\n\
+Default=Profiles/abc.default-release\n\
+\n\
+[Profile0]\n\
+Name=default-release\n\
+IsRelative=1\n\
+Path=Profiles/abc.default-release\n\
+\n\
+[Profile1]\n\
+Name=dev\n\
+IsRelative=1\n\
+Path=Profiles/xyz.dev\n";
+
+    #[test]
+    fn parses_profiles_and_marks_default() {
+        let out = parse_profiles_ini(INI, Path::new("C:/TB"));
+        assert_eq!(out.len(), 2);
+        let def = out.iter().find(|p| p.is_default).unwrap();
+        assert_eq!(def.name, "default-release");
+        assert!(def.path.ends_with("Profiles/abc.default-release") || def.path.ends_with("Profiles\\abc.default-release"));
+        assert!(!out.iter().find(|p| p.name == "dev").unwrap().is_default);
+    }
+
+    #[test]
+    fn empty_content_yields_empty() {
+        assert!(parse_profiles_ini("", Path::new("C:/x")).is_empty());
+    }
 }
 
 #[cfg(test)]

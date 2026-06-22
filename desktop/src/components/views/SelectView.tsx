@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FileText, FolderOpen, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst } from "@/lib/engine";
+import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst, listThunderbirdProfiles } from "@/lib/engine";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
-import type { FileStat } from "@/lib/types";
+import type { FileStat, ProfileEntry } from "@/lib/types";
 
 interface SelectViewProps {
   files: FileStat[];
@@ -29,6 +29,24 @@ export function SelectView({
   // Picker errors are transient and screen-local (e.g. "no .mbox in folder").
   // Parent owns the durable file/output state; this does NOT belong there.
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const [detectedProfiles, setDetectedProfiles] = useState<ProfileEntry[]>([]);
+
+  // Load profiles.ini entries on mount (or when switching to profile mode).
+  useEffect(() => {
+    if (inputMode !== "profile") return;
+    let cancelled = false;
+    listThunderbirdProfiles().then((profiles) => {
+      if (cancelled) return;
+      setDetectedProfiles(profiles);
+      // Only preselect the default when the user hasn't already chosen a path.
+      if (profileRoot === null) {
+        const def = profiles.find((p) => p.isDefault) ?? profiles[0];
+        if (def) onProfileRootChange(def.path);
+      }
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputMode]);
 
   async function addFiles(paths: string[]) {
     if (paths.length === 0) return;
@@ -111,10 +129,43 @@ export function SelectView({
 
       {inputMode === "profile" && (
         <div className="mt-4">
-          <Button onClick={onChooseProfile}>
-            <FolderOpen /> {profileRoot ? splitPath(profileRoot).base : "Choose profile / mail folder…"}
+          {detectedProfiles.length > 0 && (
+            <div className="mb-3 flex flex-col gap-1.5">
+              {detectedProfiles.map((p) => (
+                <label
+                  key={p.path}
+                  className={
+                    "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-sm transition-colors " +
+                    (profileRoot === p.path
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-card text-foreground hover:bg-muted")
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="profile"
+                    value={p.path}
+                    checked={profileRoot === p.path}
+                    onChange={() => { setPickerError(null); onProfileRootChange(p.path); }}
+                    className="mt-0.5 accent-primary shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <span className="font-medium">{p.name}</span>
+                    {p.isDefault && (
+                      <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">default</span>
+                    )}
+                    <div className="truncate text-xs text-light-gray">{p.path}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          <Button variant="outline" onClick={onChooseProfile}>
+            <FolderOpen /> Browse manually…
           </Button>
-          {profileRoot && <div className="mt-1 text-xs text-light-gray">{profileRoot}</div>}
+          {profileRoot && detectedProfiles.every((p) => p.path !== profileRoot) && (
+            <div className="mt-1 text-xs text-light-gray">{profileRoot}</div>
+          )}
           <p className="mt-2 text-xs text-light-gray">
             Point at a Thunderbird profile, a Mail/ImapMail store, or a single account folder. Nested folders and tags/flags are detected automatically.
           </p>

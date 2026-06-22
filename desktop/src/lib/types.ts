@@ -154,3 +154,9 @@ export interface ColourCategory {
   outlookColor: number | null;
   action: string;
 }
+
+export interface ProfileEntry {
+  name: string;
+  path: string;
+  isDefault: boolean;
+}

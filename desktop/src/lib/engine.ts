@@ -8,7 +8,7 @@ import { parseEngineOutput, type VersionResult, type ScanResult } from "./parse"
 import { parseScanLine } from "./scan";
 import { parseDiscover } from "./discover";
 import { parseColourImport, type ColourImportParse } from "./colourImport";
-import type { ConversionConfig, FileStat, DiscoverResult } from "./types";
+import type { ConversionConfig, FileStat, DiscoverResult, ProfileEntry } from "./types";
 
 export async function checkEngineVersion(): Promise<VersionResult> {
   const stdout = await invoke<string>("check_engine_version");
@@ -165,4 +165,13 @@ export async function previewColours(dir: string): Promise<ColourImportParse> {
 /** Apply the colour import to Outlook's master list (Windows + Outlook, Outlook must be closed). */
 export async function applyColours(dir: string): Promise<ColourImportParse> {
   return parseColourImport(await invoke<string>("apply_colours", { dir }));
+}
+
+/** List installed Thunderbird profiles from profiles.ini. Returns [] if none found or on error. */
+export async function listThunderbirdProfiles(): Promise<ProfileEntry[]> {
+  try {
+    return await invoke<ProfileEntry[]>("list_thunderbird_profiles");
+  } catch {
+    return [];
+  }
 }
