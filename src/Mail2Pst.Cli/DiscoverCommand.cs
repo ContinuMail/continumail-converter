@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Cli;
 using Mail2Pst.Core.Discovery;
+using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Cli;
 
@@ -40,6 +41,12 @@ internal static class DiscoverCommand
                 {
                     path = s.Path, type = s.Type, targetFolderPath = s.TargetFolderPath,
                     displayName = s.DisplayName, sourceBytes = s.SourceBytes, msfPath = s.MsfPath,
+                    accountId = s.AccountId,
+                }),
+                accounts = r.Accounts.Select(a => new
+                {
+                    id = a.Id, folderSegment = a.FolderSegment, accountPath = a.AccountPath, store = a.Store,
+                    email = a.Email, host = a.Host, addressResolution = ResolutionString(a.AddressResolution),
                 }),
                 warnings = r.Warnings.Select(w => new
                 {
@@ -64,4 +71,12 @@ internal static class DiscoverCommand
             return 1;
         }
     }
+
+    private static string ResolutionString(AddressResolution r) => r switch
+    {
+        AddressResolution.Identity => "identity",
+        AddressResolution.Server => "server",
+        AddressResolution.LocalFolders => "local-folders",
+        _ => "not-found",
+    };
 }
