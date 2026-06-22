@@ -6,7 +6,7 @@ import { FileText, FolderOpen, Save, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst, listThunderbirdProfiles } from "@/lib/engine";
-import { visibleProfiles, hiddenNote, profilePrimaryLabel, profileSubtext, pickDefaultProfile } from "@/lib/profiles";
+import { visibleProfiles, hiddenNote, profileAccountLabels, profileSubtext, pickDefaultProfile } from "@/lib/profiles";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import { canScan } from "@/lib/outputTarget";
@@ -179,12 +179,25 @@ export function SelectView({
                         onChange={() => { setPickerError(null); onProfileRootChange(e.path); }}
                         className="mt-0.5 accent-primary shrink-0"
                       />
-                      <div className="min-w-0">
-                        <span className="font-medium">{profilePrimaryLabel(e)}</span>
-                        {e.isDefault && (
-                          <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">default</span>
-                        )}
-                        <div className="truncate text-xs text-light-gray">{profileSubtext(e)}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          {/* One box per account found in the profile (each its own
+                              email) — the radio still selects the whole profile. */}
+                          <div className="flex min-w-0 flex-col gap-1">
+                            {profileAccountLabels(e).map((label) => (
+                              <span
+                                key={label}
+                                className="w-fit max-w-full truncate rounded-md border border-border bg-background px-2 py-0.5 text-sm font-medium"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                          {e.isDefault && (
+                            <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">default</span>
+                          )}
+                        </div>
+                        <div className="mt-1.5 truncate text-xs text-light-gray">{profileSubtext(e)}</div>
                       </div>
                     </label>
                   ))}

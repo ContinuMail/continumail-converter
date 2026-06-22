@@ -1,14 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { visibleProfiles, hiddenProfiles, hiddenNote, profilePrimaryLabel, profileSubtext, pickDefaultProfile } from "./profiles";
+import { visibleProfiles, hiddenProfiles, hiddenNote, profileAccountLabels, profileSubtext, pickDefaultProfile } from "./profiles";
 import type { ProfileEntry } from "./types";
 
 const p = (o: Partial<ProfileEntry>): ProfileEntry =>
   ({ name: "default", path: "/p/default", isDefault: false, accounts: [], convertible: true, ...o });
 
 describe("labels", () => {
-  it("one email", () => expect(profilePrimaryLabel(p({ accounts: ["a@x.com"] }))).toBe("a@x.com"));
-  it("+N more", () => expect(profilePrimaryLabel(p({ accounts: ["a@x.com", "b@example.com"] }))).toBe("a@x.com +1 more"));
-  it("falls back to raw name", () => expect(profilePrimaryLabel(p({ name: "work", accounts: [] }))).toBe("work"));
+  it("one account -> single label", () =>
+    expect(profileAccountLabels(p({ accounts: ["a@x.com"] }))).toEqual(["a@x.com"]));
+  it("multiple accounts -> one label each, no collapsing", () =>
+    expect(profileAccountLabels(p({ accounts: ["a@x.com", "b@example.com"] }))).toEqual(["a@x.com", "b@example.com"]));
+  it("falls back to raw name when no accounts resolved", () =>
+    expect(profileAccountLabels(p({ name: "work", accounts: [] }))).toEqual(["work"]));
   it("subtext is name · path", () => expect(profileSubtext(p({ name: "work", path: "/p/w" }))).toBe("work · /p/w"));
 });
 
