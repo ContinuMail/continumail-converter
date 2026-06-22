@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using Mail2Pst.Core.Cli;
 using Mail2Pst.Core.Msf;
@@ -23,13 +24,30 @@ internal static class ImportColoursCommand
         {
             Console.Error.WriteLine($"{input.Error}");
             Console.Error.WriteLine("Usage: continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply]");
+            Console.Error.WriteLine("       continumail-convert import-colours --plan-file <path> [--apply]");
             return 1;
         }
 
-        string prefsPath = Path.Combine(input.ProfilePath!, "prefs.js");
-        string content = File.Exists(prefsPath) ? File.ReadAllText(prefsPath) : string.Empty;
-        IReadOnlyList<CategoryCandidate> plan =
-            CategoryColorPlan.Build(PrefsTagReader.ParseText(content), PrefsTagReader.ParseColors(content));
+        IReadOnlyList<CategoryCandidate> plan;
+        if (input.PlanFile is not null)
+        {
+            try
+            {
+                plan = LoadPlanFromFile(input.PlanFile);
+            }
+            catch (Exception ex)
+            {
+                CliArgs.WriteJsonLine(new { type = "error", stage = "import-colours", message = $"Could not load plan file: {ex.Message}", fatal = true });
+                Console.Error.WriteLine($"import-colours failed: {ex.Message}");
+                return 1;
+            }
+        }
+        else
+        {
+            string prefsPath = Path.Combine(input.ProfilePath!, "prefs.js");
+            string content = File.Exists(prefsPath) ? File.ReadAllText(prefsPath) : string.Empty;
+            plan = CategoryColorPlan.Build(PrefsTagReader.ParseText(content), PrefsTagReader.ParseColors(content));
+        }
 
         if (!input.Apply)
         {
@@ -71,6 +89,45 @@ internal static class ImportColoursCommand
             Console.Error.WriteLine($"import-colours failed: {ex.Message}");
             return 1;
         }
+    }
+
+    // Reads a colour plan JSON array (shape: [{name,hex,outlookColor,action}]) and normalises
+    // the action field so a would-add with no colour is safely downgraded to skipped-no-colour.
+    internal static IReadOnlyList<CategoryCandidate> LoadPlanFromFile(string path)
+    {
+        string json = File.ReadAllText(path);
+        using JsonDocument doc = JsonDocument.Parse(json);
+        JsonElement root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Array)
+            throw new FormatException("Plan file must be a JSON array.");
+
+        var result = new List<CategoryCandidate>();
+        foreach (JsonElement el in root.EnumerateArray())
+        {
+            string name = el.GetProperty("name").GetString() ?? string.Empty;
+            string? hex = el.TryGetProperty("hex", out JsonElement hexEl) ? hexEl.GetString() : null;
+            int? outlookColor = el.TryGetProperty("outlookColor", out JsonElement ocEl) && ocEl.ValueKind == JsonValueKind.Number
+                ? ocEl.GetInt32()
+                : null;
+            string? rawAction = el.TryGetProperty("action", out JsonElement actEl) ? actEl.GetString() : null;
+
+            // Safe normalisation:
+            // - action present → use it, but demote would-add with null colour
+            // - action absent + colour present → would-add
+            // - action absent + colour absent → skipped-no-colour
+            string action;
+            if (rawAction is not null)
+            {
+                action = (rawAction == "would-add" && outlookColor is null) ? "skipped-no-colour" : rawAction;
+            }
+            else
+            {
+                action = outlookColor is not null ? "would-add" : "skipped-no-colour";
+            }
+
+            result.Add(new CategoryCandidate(name, hex, outlookColor, action));
+        }
+        return result;
     }
 
     private static bool ProgIdRegistered() =>

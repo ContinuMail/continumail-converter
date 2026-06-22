@@ -51,4 +51,27 @@ public class ImportColoursInputTests
         var input = ImportColoursInput.Parse(new[] { "--profile" });
         Assert.NotNull(input.Error);
     }
+
+    [Fact]
+    public void Parse_PlanFile_IsAccepted()
+    {
+        var input = ImportColoursInput.Parse(new[] { "--plan-file", "C:\\tmp\\plan.json" });
+        Assert.Null(input.Error);
+        Assert.Equal("C:\\tmp\\plan.json", input.PlanFile);
+        Assert.Null(input.ProfilePath);
+    }
+
+    [Fact]
+    public void Parse_PlanFileAndProfile_IsRejected()
+    {
+        var input = ImportColoursInput.Parse(new[] { "--plan-file", "p.json", "--profile", "d" });
+        Assert.NotNull(input.Error);
+    }
+
+    [Fact]
+    public void Parse_PlanFileWithoutValue_IsRejected()
+    {
+        var input = ImportColoursInput.Parse(new[] { "--plan-file" });
+        Assert.NotNull(input.Error);
+    }
 }
