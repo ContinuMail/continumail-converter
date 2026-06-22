@@ -3,11 +3,14 @@
 
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Msf;
+using Mail2Pst.Core.OutlookCategories;
 using Mail2Pst.Core.Progress;
 
 namespace Mail2Pst.Cli;
@@ -133,6 +136,8 @@ internal static class ConvertCommand
             string reportTxtPath = Path.Combine(outputDir, "conversion-report.txt");
             File.WriteAllText(reportTxtPath, report.ToSummary());
 
+            var colourPlan = BuildColourPlan(config.ProfilePath);
+
             CliArgs.WriteJsonLine(new
             {
                 type = "done",
@@ -144,6 +149,7 @@ internal static class ConvertCommand
                 report = reportJsonPath,
                 elapsedMs = stopwatch.ElapsedMilliseconds,
                 enrichment = report.EnrichmentSummary,
+                colourPlan = colourPlan,
             });
 
             return 0;
@@ -164,5 +170,25 @@ internal static class ConvertCommand
         {
             try { File.Delete(templatePath); } catch { /* best-effort temp cleanup */ }
         }
+    }
+
+    private static object[] BuildColourPlan(string? profilePath)
+    {
+        if (string.IsNullOrEmpty(profilePath)) return Array.Empty<object>();
+        string prefsPath = Path.Combine(profilePath, "prefs.js");
+        if (!File.Exists(prefsPath)) return Array.Empty<object>();
+        string content;
+        try { content = File.ReadAllText(prefsPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { return Array.Empty<object>(); }
+
+        var plan = CategoryColorPlan.Build(
+            PrefsTagReader.ParseText(content),
+            PrefsTagReader.ParseColors(content));
+
+        var list = new List<object>();
+        foreach (var c in plan)
+            list.Add(new { name = c.Name, hex = c.Hex, outlookColor = c.OutlookColor, action = c.Action });
+        return list.ToArray();
     }
 }
