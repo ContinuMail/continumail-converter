@@ -6,7 +6,6 @@
 @example.net
 @example.org
 @example.test
-@contoso.test
 
 # Synthetic placeholder domains used throughout the unit-test suite (not real recipients).
 # (Migrating these tests to @example.* would let us drop these two — minor future cleanup.)

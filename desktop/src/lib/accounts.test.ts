@@ -15,7 +15,7 @@ describe("groupByAccount", () => {
       [row("a", "A", ["imap.example.com", "Inbox"], 10, 100),
        row("b", "A", ["imap.example.com", "Sent"], 5, 50),
        row("c", "B", ["Office365", "Inbox"], 3, 30)],
-      [acct("A", "alice@example.com", "imap.example.com"), acct("B", "alice@contoso.test", "Office365")]);
+      [acct("A", "alice@example.com", "imap.example.com"), acct("B", "alice@example.test", "Office365")]);
     expect(groups).toHaveLength(2);
     const a = groups.find((g) => g.key === "A")!;
     expect(a.folderCount).toBe(2);
