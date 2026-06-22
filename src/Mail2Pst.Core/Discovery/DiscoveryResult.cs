@@ -3,6 +3,7 @@
 
 #nullable enable
 using System.Collections.Generic;
+using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Discovery;
 
@@ -18,9 +19,16 @@ public sealed record DiscoverySkipped(string Code, string Path, string Reason);
 
 public sealed record DiscoveryPairingSummary(int PairedMsfCount, int UnpairedMboxCount, int OrphanMsfCount);
 
+public sealed record Account(
+    string Id, string FolderSegment, string AccountPath, string? Store,
+    string? Email, string? Host, AddressResolution AddressResolution);
+
 public sealed record DiscoveryResult(
     string Root, string Layout,
     IReadOnlyList<DiscoveredSource> Sources,
     IReadOnlyList<DiscoveryWarning> Warnings,
     IReadOnlyList<DiscoverySkipped> Skipped,
-    DiscoveryPairingSummary Pairing);
+    DiscoveryPairingSummary Pairing)
+{
+    public IReadOnlyList<Account> Accounts { get; init; } = System.Array.Empty<Account>();
+}

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Discovery;
 
@@ -24,7 +25,10 @@ public static class MailProfileDiscovery
 
         // 1) Store-root: the input directory itself is named Mail/ImapMail.
         if (StoreNames.Contains(ownName, StringComparer.OrdinalIgnoreCase))
-            return DiscoverStores(path, new[] { path }, "thunderbird-store-root");
+        {
+            string? storeRootPrefs = Directory.GetParent(path)?.FullName;
+            return DiscoverStores(path, new[] { path }, "thunderbird-store-root", storeRootPrefs);
+        }
 
         // 2) Profile: contains Mail and/or ImapMail child directories.
         var stores = StoreNames
@@ -32,13 +36,13 @@ public static class MailProfileDiscovery
             .Where(Directory.Exists)
             .ToList();
         if (stores.Count > 0)
-            return DiscoverStores(path, stores, "thunderbird-profile");
+            return DiscoverStores(path, stores, "thunderbird-profile", path);
 
         // 3) Single tree: today's behaviour, no prefix.
         return MailTreeDiscovery.Discover(path);
     }
 
-    private static DiscoveryResult DiscoverStores(string root, IReadOnlyList<string> stores, string layout)
+    private static DiscoveryResult DiscoverStores(string root, IReadOnlyList<string> stores, string layout, string? prefsRoot)
     {
         // Track each source's ORIGIN (the account directory it came from) so the cross-account dedupe
         // can require >1 distinct origin — two same-named account dirs collide on path AND first segment,
@@ -111,9 +115,37 @@ public static class MailProfileDiscovery
         AddCrossAccountDuplicateWarnings(indexed, warnings);
 
         var sources = indexed.Select(x => x.Source).ToList();
+
+        var prefs = string.IsNullOrEmpty(prefsRoot)
+            ? new Dictionary<string, PrefsAccount>()
+            : PrefsAccountReader.Read(Path.Combine(prefsRoot, "prefs.js"));
+
+        var accounts = indexed
+            .Select(x => x.OriginKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(dir =>
+            {
+                string seg = Path.GetFileName(dir);
+                string? store = Path.GetFileName(Path.GetDirectoryName(dir));
+                string key = ((store ?? "") + "/" + seg).ToLowerInvariant();
+                PrefsAccount? pa = prefs.TryGetValue(key, out var v) ? v : null;
+                AddressResolution fallback = IsLocalFolders(store, seg)
+                    ? AddressResolution.LocalFolders
+                    : AddressResolution.NotFound;
+                return new Account(dir, seg, dir, store, pa?.Email, pa?.Host, pa?.Resolution ?? fallback);
+            })
+            .ToList();
+
         return new DiscoveryResult(root, layout, sources, warnings, skipped,
-            new DiscoveryPairingSummary(paired, unpaired, orphan));
+            new DiscoveryPairingSummary(paired, unpaired, orphan))
+        {
+            Accounts = accounts
+        };
     }
+
+    private static bool IsLocalFolders(string? store, string segment) =>
+        string.Equals(store, "Mail", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(segment, "Local Folders", StringComparison.OrdinalIgnoreCase);
 
     // Emit a duplicate-target-folder-path warning ONLY for groups whose sources come from >1 distinct
     // ORIGIN (account dir). Same-account duplicates were already warned by MailTreeDiscovery's per-tree
