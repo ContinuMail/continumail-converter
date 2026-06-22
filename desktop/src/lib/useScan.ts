@@ -248,6 +248,7 @@ export function useScan() {
   const continueToOptions = useCallback(() => setState((s) => ({ ...s, stage: "options" })), []);
   const backToReview = useCallback(() => setState((s) => ({ ...s, stage: "review" })), []);
   const continueToReviewFromAccounts = useCallback(() => setState((s) => ({ ...s, stage: "review" })), []);
+  const backToAccounts = useCallback(() => setState((s) => ({ ...s, stage: "accounts" })), []);
 
   const toggleAccount = useCallback((key: string) => {
     setState((s) => {
@@ -299,6 +300,7 @@ export function useScan() {
     setRename,
     continueToOptions,
     backToReview,
+    backToAccounts,
     continueToReviewFromAccounts,
     toggleAccount,
     setPstName,

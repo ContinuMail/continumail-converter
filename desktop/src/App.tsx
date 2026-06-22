@@ -74,8 +74,7 @@ export default function App() {
       ? (step: number) => {
           if (step === 0) requestGoToSource();
           else if (isMultiAccount && step === 1 && f.stage !== "accounts") {
-            // jump back to accounts (not yet wired via useScan — fall back to backToReview for now)
-            flow.backToReview();
+            flow.backToAccounts();
           } else if (step === (isMultiAccount ? 2 : 1)) flow.backToReview();
         }
       : undefined;
