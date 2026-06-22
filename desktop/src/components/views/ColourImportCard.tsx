@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Palette, TriangleAlert, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -37,8 +37,7 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
   // Guard against setting state after unmount (e.g. user clicks "Convert another" while
   // apply is still running — there is no cancellation, so just drop the late result).
   const mounted = useRef(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useCallback(() => () => { mounted.current = false; }, [])();
+  useEffect(() => () => { mounted.current = false; }, []);
 
   const runApply = useCallback(() => {
     setPhase({ k: "applying" });
