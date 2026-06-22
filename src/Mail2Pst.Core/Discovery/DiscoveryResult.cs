@@ -8,7 +8,7 @@ namespace Mail2Pst.Core.Discovery;
 
 public sealed record DiscoveredSource(
     string Path, string Type, IReadOnlyList<string> TargetFolderPath, string DisplayName, long SourceBytes,
-    string? MsfPath);
+    string? MsfPath, string? AccountId = null);
 
 public sealed record DiscoveryWarning(
     string Code, string Path, IReadOnlyList<string>? TargetFolderPath,

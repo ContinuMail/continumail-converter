@@ -98,7 +98,8 @@ public static class MailProfileDiscovery
                     continue;
                 }
 
-                foreach (DiscoveredSource s in acct.Sources) indexed.Add((s, entry)); // OriginKey = account dir path
+                foreach (DiscoveredSource s in acct.Sources)
+                    indexed.Add((s with { AccountId = entry }, entry)); // OriginKey = account dir path
                 warnings.AddRange(acct.Warnings);
                 skipped.AddRange(acct.Skipped);
                 paired += acct.Pairing.PairedMsfCount;
