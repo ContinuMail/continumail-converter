@@ -5,14 +5,14 @@ import type { ReactNode } from "react";
 import { ArrowRightLeft, Clock, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["Source", "Review", "Options", "Convert", "Done"];
-
 export function Shell({
   children,
+  steps,
   currentStep = 0,
   onStepSelect,
 }: {
   children: ReactNode;
+  steps: string[];
   currentStep?: number;
   // When provided, already-completed steps (index < currentStep) become
   // clickable to navigate back. Forward/current steps are never clickable.
@@ -39,7 +39,7 @@ export function Shell({
       {/* main area */}
       <main className="flex flex-1 flex-col p-6">
         <ol className="mb-5 flex flex-wrap items-center gap-2 text-xs text-light-gray">
-          {STEPS.map((label, i) => {
+          {steps.map((label, i) => {
             const navigable = onStepSelect != null && i < currentStep;
             return (
               <li key={label} className="flex items-center gap-2">
@@ -62,7 +62,7 @@ export function Shell({
                     {i + 1} {label}
                   </span>
                 )}
-                {i < STEPS.length - 1 && <span aria-hidden>›</span>}
+                {i < steps.length - 1 && <span aria-hidden>›</span>}
               </li>
             );
           })}

@@ -17,28 +17,18 @@ import { ErrorView } from "@/components/views/ErrorView";
 import { CancelledView } from "@/components/views/CancelledView";
 import { useConvert } from "@/lib/useConvert";
 import { useScan } from "@/lib/useScan";
-
-const STEP_FOR_PHASE: Record<string, number> = {
-  running: 3,
-  done: 4,
-  error: 4,
-  cancelled: 4,
-};
-
-// scanning/review/scanError live on stepper step 1 ("Review"); options on step 2.
-const STEP_FOR_STAGE: Record<string, number> = {
-  select: 0,
-  scanning: 1,
-  review: 1,
-  scanError: 1,
-  options: 2,
-};
+import { buildSteps, stepIndexForStage, stepIndexForPhase } from "@/lib/steps";
 
 export default function App() {
   const { state: conv, start, reset } = useConvert();
   const flow = useScan();
   const { state: f } = flow;
   const [confirmSource, setConfirmSource] = useState(false);
+
+  // Task 9c will wire the real discovered account count; for now pass 0 so
+  // behaviour is identical to the hard-coded 5-step list (files-mode + profile
+  // single-account both produce ["Source","Review","Options","Convert","Done"]).
+  const steps = buildSteps(f.inputMode, 0);
 
   // Memoized so ConfirmDialog's Esc-key effect (deps on onCancel) doesn't
   // re-register its keydown listener on every App render.
@@ -54,7 +44,7 @@ export default function App() {
       flow.resetFlow();
     };
     return (
-      <Shell currentStep={STEP_FOR_PHASE[conv.phase] ?? 0}>
+      <Shell steps={steps} currentStep={stepIndexForPhase(steps, conv.phase)}>
         {conv.phase === "running" && <ConvertView state={conv} />}
         {conv.phase === "done" && (
           <DoneView
@@ -89,7 +79,7 @@ export default function App() {
 
   return (
     <>
-    <Shell currentStep={STEP_FOR_STAGE[f.stage] ?? 0} onStepSelect={onStepSelect}>
+    <Shell steps={steps} currentStep={stepIndexForStage(steps, f.stage)} onStepSelect={onStepSelect}>
       {f.stage === "select" && (
         <SelectView
           files={f.inputFiles}
