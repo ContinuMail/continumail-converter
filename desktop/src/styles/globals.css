@@ -111,3 +111,11 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* Vertical-only scrolling app-wide: the shell's <main> owns vertical scroll;
+   nothing should ever scroll horizontally. Backstop so no view can introduce
+   a horizontal scrollbar (long folder paths/emails truncate or wrap instead). */
+html,
+body {
+  overflow-x: hidden;
+}

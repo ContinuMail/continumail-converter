@@ -19,7 +19,7 @@ export function Shell({
   onStepSelect?: (step: number) => void;
 }) {
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       {/* icon rail */}
       <nav className="flex w-16 flex-col items-center gap-5 bg-midnight pt-4 text-cream">
         <BrandMark />
@@ -36,8 +36,10 @@ export function Shell({
         </div>
       </nav>
 
-      {/* main area */}
-      <main className="flex flex-1 flex-col p-6">
+      {/* main area — the single scroll region: vertical scrolls, horizontal is
+          clipped so the app never scrolls sideways. Keeping scroll here (not on
+          the document) leaves the icon rail pinned full-height. */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-6">
         <ol className="mb-5 flex flex-wrap items-center gap-2 text-xs text-light-gray">
           {steps.map((label, i) => {
             const navigable = onStepSelect != null && i < currentStep;
