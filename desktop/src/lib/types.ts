@@ -158,8 +158,4 @@ export interface ColourCategory {
 
 export type ColourPlanEntry = Pick<ColourCategory, "name" | "hex" | "outlookColor" | "action">;
 
-export interface ProfileEntry {
-  name: string;
-  path: string;
-  isDefault: boolean;
-}
+export interface ProfileEntry { name: string; path: string; isDefault: boolean; accounts: string[]; convertible: boolean }
