@@ -172,11 +172,7 @@ export async function applyColoursPlan(plan: ColourPlanEntry[]): Promise<ColourI
   return parseColourImport(await invoke<string>("apply_colours_plan", { plan }));
 }
 
-/** List installed Thunderbird profiles from profiles.ini. Returns [] if none found or on error. */
+/** List installed Thunderbird profiles from profiles.ini. Resolves [] if none found; rejects on unexpected failure. */
 export async function listThunderbirdProfiles(): Promise<ProfileEntry[]> {
-  try {
-    return await invoke<ProfileEntry[]>("list_thunderbird_profiles");
-  } catch {
-    return [];
-  }
+  return invoke<ProfileEntry[]>("list_thunderbird_profiles");
 }

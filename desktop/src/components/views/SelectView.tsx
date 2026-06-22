@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState, useEffect } from "react";
-import { FileText, FolderOpen, Save, X } from "lucide-react";
+import { useState } from "react";
+import { FileText, FolderOpen, Save, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst, listThunderbirdProfiles } from "@/lib/engine";
+import { visibleProfiles, hiddenNote, profilePrimaryLabel, profileSubtext, pickDefaultProfile } from "@/lib/profiles";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import type { FileStat, ProfileEntry } from "@/lib/types";
@@ -29,24 +31,25 @@ export function SelectView({
   // Picker errors are transient and screen-local (e.g. "no .mbox in folder").
   // Parent owns the durable file/output state; this does NOT belong there.
   const [pickerError, setPickerError] = useState<string | null>(null);
-  const [detectedProfiles, setDetectedProfiles] = useState<ProfileEntry[]>([]);
 
-  // Load profiles.ini entries on mount (or when switching to profile mode).
-  useEffect(() => {
-    if (inputMode !== "profile") return;
-    let cancelled = false;
-    listThunderbirdProfiles().then((profiles) => {
-      if (cancelled) return;
-      setDetectedProfiles(profiles);
-      // Only preselect the default when the user hasn't already chosen a path.
-      if (profileRoot === null) {
-        const def = profiles.find((p) => p.isDefault) ?? profiles[0];
-        if (def) onProfileRootChange(def.path);
-      }
-    });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputMode]);
+  const [scan, setScan] = useState<
+    | { k: "idle" }
+    | { k: "scanning" }
+    | { k: "done"; entries: ProfileEntry[] }
+    | { k: "error" }
+  >({ k: "idle" });
+
+  async function runScan() {
+    setScan({ k: "scanning" });
+    try {
+      const entries = await listThunderbirdProfiles();
+      setScan({ k: "done", entries });
+      const pick = pickDefaultProfile(entries, profileRoot);
+      if (pick) onProfileRootChange(pick);
+    } catch {
+      setScan({ k: "error" });
+    }
+  }
 
   async function addFiles(paths: string[]) {
     if (paths.length === 0) return;
@@ -101,6 +104,9 @@ export function SelectView({
     outputPath !== null &&
     (inputMode === "files" ? files.length > 0 : profileRoot !== null);
 
+  // For the "manual path shown when not a detected profile" check.
+  const scannedEntries = scan.k === "done" ? scan.entries : [];
+
   return (
     <div className="flex flex-1 flex-col">
       <h1 className="text-xl font-semibold text-foreground">Choose what to convert</h1>
@@ -129,41 +135,81 @@ export function SelectView({
 
       {inputMode === "profile" && (
         <div className="mt-4">
-          {detectedProfiles.length > 0 && (
-            <div className="mb-3 flex flex-col gap-1.5">
-              {detectedProfiles.map((p) => (
-                <label
-                  key={p.path}
-                  className={
-                    "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-sm transition-colors " +
-                    (profileRoot === p.path
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border bg-card text-foreground hover:bg-muted")
-                  }
-                >
-                  <input
-                    type="radio"
-                    name="profile"
-                    value={p.path}
-                    checked={profileRoot === p.path}
-                    onChange={() => { setPickerError(null); onProfileRootChange(p.path); }}
-                    className="mt-0.5 accent-primary shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <span className="font-medium">{p.name}</span>
-                    {p.isDefault && (
-                      <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">default</span>
-                    )}
-                    <div className="truncate text-xs text-light-gray">{p.path}</div>
-                  </div>
-                </label>
-              ))}
+          {scan.k === "scanning" && (
+            <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner size="sm" />
+              Scanning for Thunderbird profiles…
             </div>
           )}
-          <Button variant="outline" onClick={onChooseProfile}>
-            <FolderOpen /> Browse manually…
-          </Button>
-          {profileRoot && detectedProfiles.every((p) => p.path !== profileRoot) && (
+
+          {scan.k === "error" && (
+            <p className="mb-3 text-sm text-destructive">
+              Could not scan Thunderbird profiles — use Browse manually…
+            </p>
+          )}
+
+          {scan.k === "done" && (() => {
+            const vis = visibleProfiles(scan.entries);
+            const note = hiddenNote(scan.entries);
+            if (vis.length === 0) {
+              return (
+                <p className="mb-3 text-sm text-muted-foreground">
+                  No Thunderbird profiles with mail found — use Browse manually… to point at a profile or folder.
+                </p>
+              );
+            }
+            return (
+              <div className="mb-3">
+                <div className="flex flex-col gap-1.5">
+                  {vis.map((e) => (
+                    <label
+                      key={e.path}
+                      className={
+                        "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-sm transition-colors " +
+                        (profileRoot === e.path
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-card text-foreground hover:bg-muted")
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="profile"
+                        value={e.path}
+                        checked={profileRoot === e.path}
+                        onChange={() => { setPickerError(null); onProfileRootChange(e.path); }}
+                        className="mt-0.5 accent-primary shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <span className="font-medium">{profilePrimaryLabel(e)}</span>
+                        {e.isDefault && (
+                          <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">default</span>
+                        )}
+                        <div className="truncate text-xs text-light-gray">{profileSubtext(e)}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                {note && (
+                  <p className="mt-1 text-xs italic text-light-gray">{note}</p>
+                )}
+              </div>
+            );
+          })()}
+
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onChooseProfile}>
+              <FolderOpen /> Browse manually…
+            </Button>
+            <Button
+              variant="outline"
+              onClick={runScan}
+              disabled={scan.k === "scanning"}
+            >
+              <Search /> {scan.k === "idle" ? "Scan for Thunderbird profiles" : "Rescan"}
+            </Button>
+          </div>
+
+          {profileRoot && scannedEntries.every((e) => e.path !== profileRoot) && (
             <div className="mt-1 text-xs text-light-gray">{profileRoot}</div>
           )}
           <p className="mt-2 text-xs text-light-gray">
