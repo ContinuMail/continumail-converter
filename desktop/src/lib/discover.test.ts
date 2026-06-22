@@ -54,4 +54,39 @@ describe("parseDiscover", () => {
   it("throws when no discovery object is present", () => {
     expect(() => parseDiscover("not json at all")).toThrow(EngineParseError);
   });
+
+  it("parses accounts[] and accountId", () => {
+    const json = JSON.stringify({
+      type: "discovery", root: "P", layout: "profile",
+      sources: [{ path: "a", type: "mbox", targetFolderPath: ["imap.example.com", "Inbox"],
+        displayName: "Inbox", sourceBytes: 1, msfPath: null, accountId: "/p/ImapMail/imap.example.com" }],
+      warnings: [], skipped: [], pairing: { pairedMsfCount: 0, unpairedMboxCount: 1, orphanMsfCount: 0 },
+      accounts: [{ id: "/p/ImapMail/imap.example.com", folderSegment: "imap.example.com",
+        accountPath: "/p/ImapMail/imap.example.com", store: "ImapMail",
+        email: "alice@example.com", host: "imap.example.com", addressResolution: "identity" }],
+    });
+    const r = parseDiscover(json);
+    expect(r.accounts[0].email).toBe("alice@example.com");
+    expect(r.sources[0].accountId).toBe("/p/ImapMail/imap.example.com");
+  });
+
+  it("defaults accounts to [] and accountId to null when absent", () => {
+    const json = JSON.stringify({
+      type: "discovery", root: "P", layout: "single", sources: [
+        { path: "a", type: "mbox", targetFolderPath: ["Inbox"], displayName: "Inbox", sourceBytes: 1, msfPath: null }],
+      warnings: [], skipped: [], pairing: { pairedMsfCount: 0, unpairedMboxCount: 1, orphanMsfCount: 0 },
+    });
+    const r = parseDiscover(json);
+    expect(r.accounts).toEqual([]);
+    expect(r.sources[0].accountId).toBeNull();
+  });
+
+  it("clamps an invalid addressResolution to not-found", () => {
+    const json = JSON.stringify({
+      type: "discovery", root: "P", layout: "profile", sources: [],
+      warnings: [], skipped: [], pairing: { pairedMsfCount: 0, unpairedMboxCount: 0, orphanMsfCount: 0 },
+      accounts: [{ id: "x", folderSegment: "x", accountPath: "x", store: null, email: null, host: null, addressResolution: "bogus" }],
+    });
+    expect(parseDiscover(json).accounts[0].addressResolution).toBe("not-found");
+  });
 });

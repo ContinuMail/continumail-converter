@@ -101,6 +101,18 @@ export type ConvertEvent = (
     }
 ) & Versioned;
 
+export type AddressResolution = "identity" | "server" | "local-folders" | "not-found";
+
+export interface Account {
+  id: string;
+  folderSegment: string;
+  accountPath: string;
+  store: string | null;
+  email: string | null;
+  host: string | null;
+  addressResolution: AddressResolution;
+}
+
 export interface DiscoveredSource {
   path: string;
   type: string;
@@ -108,6 +120,7 @@ export interface DiscoveredSource {
   displayName: string;
   sourceBytes: number;
   msfPath: string | null;
+  accountId: string | null;
 }
 
 export interface DiscoverWarning {
@@ -139,6 +152,7 @@ export interface DiscoverResult {
   warnings: DiscoverWarning[];
   skipped: DiscoverSkipped[];
   pairing: DiscoverPairing;
+  accounts: Account[];
   schemaVersion?: number;
 }
 
@@ -147,6 +161,7 @@ export interface DiscoverResult {
 export interface ProfileSourceRow extends SourceRow {
   targetFolderPath: string[];
   msfPath: string | null;
+  accountId: string | null;
 }
 
 export interface ColourCategory {

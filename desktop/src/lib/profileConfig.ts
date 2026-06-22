@@ -28,6 +28,7 @@ export function mergeProfileSources(
       skipped: s?.skipped ?? 0,
       targetFolderPath: d.targetFolderPath,
       msfPath: d.msfPath,
+      accountId: d.accountId,
     };
   });
 }

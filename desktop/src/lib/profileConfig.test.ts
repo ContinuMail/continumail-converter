@@ -9,7 +9,7 @@ import { ConvertConfigError } from "./convert";
 import { defaultOptions } from "./options";
 
 const disc = (path: string, tfp: string[], msf: string | null): DiscoveredSource => ({
-  path, type: "mbox", targetFolderPath: tfp, displayName: tfp[tfp.length - 1], sourceBytes: 1, msfPath: msf,
+  path, type: "mbox", targetFolderPath: tfp, displayName: tfp[tfp.length - 1], sourceBytes: 1, msfPath: msf, accountId: null,
 });
 
 const scan: ScanResult = {
@@ -24,6 +24,14 @@ const scan: ScanResult = {
 const opts = (over: Partial<import("./options").OptionsState> = {}) => ({ ...defaultOptions(), ...over });
 
 describe("mergeProfileSources", () => {
+  it("mergeProfileSources preserves accountId from discovery", () => {
+    const rows = mergeProfileSources(
+      [{ path: "a", type: "mbox", targetFolderPath: ["imap.example.com", "Inbox"],
+         displayName: "Inbox", sourceBytes: 1, msfPath: null, accountId: "/p/ImapMail/imap.example.com" }],
+      { sources: [{ path: "a", messages: 1, bytes: 2, sourceBytes: 1, dateFrom: null, dateTo: null, warnings: 0, skipped: 0 }] } as any);
+    expect(rows[0].accountId).toBe("/p/ImapMail/imap.example.com");
+  });
+
   it("joins by path, sets id=path and displayName=joined targetFolderPath, takes counts from scan", () => {
     const rows = mergeProfileSources(
       [disc("C:/p/A", ["Account", "Inbox"], "C:/p/A.msf"), disc("C:/p/B", ["Work", "Inbox"], null)],
@@ -51,8 +59,8 @@ describe("mergeProfileSources", () => {
 
 describe("buildProfileConfig", () => {
   const rows: ProfileSourceRow[] = [
-    { id: "C:/p/A", path: "C:/p/A", displayName: "Account / Inbox", messages: 5, bytes: 500, sourceBytes: 50, dateFrom: null, dateTo: null, warnings: 0, skipped: 0, targetFolderPath: ["Account", "Inbox"], msfPath: "C:/p/A.msf" },
-    { id: "C:/p/B", path: "C:/p/B", displayName: "Work / Inbox", messages: 3, bytes: 300, sourceBytes: 30, dateFrom: null, dateTo: null, warnings: 0, skipped: 0, targetFolderPath: ["Work", "Inbox"], msfPath: null },
+    { id: "C:/p/A", path: "C:/p/A", displayName: "Account / Inbox", messages: 5, bytes: 500, sourceBytes: 50, dateFrom: null, dateTo: null, warnings: 0, skipped: 0, targetFolderPath: ["Account", "Inbox"], msfPath: "C:/p/A.msf", accountId: null },
+    { id: "C:/p/B", path: "C:/p/B", displayName: "Work / Inbox", messages: 3, bytes: 300, sourceBytes: 30, dateFrom: null, dateTo: null, warnings: 0, skipped: 0, targetFolderPath: ["Work", "Inbox"], msfPath: null, accountId: null },
   ];
   const checked = new Set(["C:/p/A", "C:/p/B"]);
 
