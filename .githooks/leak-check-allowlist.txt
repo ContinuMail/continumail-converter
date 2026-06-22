@@ -11,6 +11,10 @@
 @x.com
 @b.com
 
+# Synthetic addresses used in profile_scan_tests fixtures (Rust unit tests — no real PII).
+alice@gmail.com
+bob@work.com
+
 # Legitimate third-party references that may appear in tracked files
 noreply@github.com
 

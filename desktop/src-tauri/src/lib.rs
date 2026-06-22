@@ -386,6 +386,8 @@ struct ProfileEntry {
     name: String,
     path: String,
     is_default: bool,
+    accounts: Vec<String>,
+    convertible: bool,
 }
 
 /// Parse profiles.ini. `tb_root` = the Thunderbird dir (parent of Profiles/). Pure + testable.
@@ -443,9 +445,89 @@ fn parse_profiles_ini(content: &str, tb_root: &std::path::Path) -> Vec<ProfileEn
             };
             let norm = raw.replace('\\', "/");
             let is_default = sd.is_some() || defaults.iter().any(|d| d.as_str() == norm);
-            ProfileEntry { name, path: abs, is_default }
+            ProfileEntry { name, path: abs, is_default, accounts: Vec::new(), convertible: false }
         })
         .collect()
+}
+
+/// Parse mail.identity.*.useremail values from prefs.js. Pure. Case-insensitive dedupe, keep first.
+fn parse_identity_emails(prefs: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in prefs.lines() {
+        let l = line.trim_start();
+        if !l.starts_with("user_pref(") { continue; }
+        let Some((key_raw, val_raw)) = two_quoted(l) else { continue; };
+        if !(key_raw.starts_with("mail.identity.") && key_raw.ends_with(".useremail")) { continue; }
+        let mid = &key_raw["mail.identity.".len()..key_raw.len() - ".useremail".len()];
+        if mid.is_empty() || mid.contains('.') { continue; }
+        let Some(v) = prefs_unescape(&val_raw) else { continue; };
+        let v = v.trim().to_string();
+        if v.is_empty() { continue; }
+        if seen.insert(v.to_lowercase()) { out.push(v); }
+    }
+    out
+}
+
+/// Raw contents (escapes intact) of the first two double-quoted strings on a line, or None.
+fn two_quoted(s: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut found: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() && found.len() < 2 {
+        if chars[i] != '"' { i += 1; continue; }
+        i += 1;
+        let mut buf = String::new();
+        loop {
+            if i >= chars.len() { return None; }
+            let c = chars[i];
+            if c == '\\' {
+                if i + 1 >= chars.len() { return None; }
+                buf.push(c); buf.push(chars[i + 1]); i += 2; continue;
+            }
+            if c == '"' { i += 1; break; }
+            buf.push(c); i += 1;
+        }
+        found.push(buf);
+    }
+    if found.len() == 2 { Some((found.remove(0), found.remove(0))) } else { None }
+}
+
+/// Unescape a prefs.js double-quoted value. None on dangling/unknown escape.
+fn prefs_unescape(raw: &str) -> Option<String> {
+    let mut s = String::with_capacity(raw.len());
+    let mut it = raw.chars().peekable();
+    while let Some(ch) = it.next() {
+        if ch != '\\' { s.push(ch); continue; }
+        match it.next()? {
+            '\\' => s.push('\\'), '"' => s.push('"'),
+            'n' => s.push('\n'), 'r' => s.push('\r'), 't' => s.push('\t'),
+            'u' => {
+                let hex: String = (0..4).map(|_| it.next()).collect::<Option<String>>()?;
+                let cp = u32::from_str_radix(&hex, 16).ok()?;
+                s.push(char::from_u32(cp)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(s)
+}
+
+fn is_convertible(email_count: usize, has_mail_store: bool) -> bool { email_count > 0 || has_mail_store }
+
+/// True if Mail/ or ImapMail/ recursively contains a non-dir, non-.msf file.
+fn has_mail_store(profile_dir: &std::path::Path) -> bool {
+    ["Mail", "ImapMail"].iter().any(|s| dir_has_mailbox_file(&profile_dir.join(s)))
+}
+
+fn dir_has_mailbox_file(dir: &std::path::Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else { return false; };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() { if dir_has_mailbox_file(&p) { return true; } }
+        else if p.extension().and_then(|e| e.to_str()) != Some("msf") { return true; }
+    }
+    false
 }
 
 #[tauri::command]
@@ -456,10 +538,20 @@ fn list_thunderbird_profiles() -> Result<Vec<ProfileEntry>, String> {
     };
     let tb = appdata.join("Thunderbird");
     let ini = tb.join("profiles.ini");
-    match std::fs::read_to_string(&ini) {
-        Ok(content) => Ok(parse_profiles_ini(&content, &tb)),
-        Err(_) => Ok(vec![]),
+    let content = match std::fs::read_to_string(&ini) {
+        Ok(c) => c,
+        Err(_) => return Ok(vec![]),
+    };
+    let mut out = Vec::new();
+    for e in parse_profiles_ini(&content, &tb) {
+        let dir = std::path::Path::new(&e.path);
+        let accounts = std::fs::read_to_string(dir.join("prefs.js"))
+            .map(|p| parse_identity_emails(&p))
+            .unwrap_or_default();
+        let convertible = is_convertible(accounts.len(), has_mail_store(dir));
+        out.push(ProfileEntry { name: e.name, path: e.path, is_default: e.is_default, accounts, convertible });
     }
+    Ok(out)
 }
 
 /// Returns %APPDATA%\Thunderbird\Profiles when it exists, else None. Windows-only app.
@@ -500,6 +592,59 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod profile_scan_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn parse_emails_dedupes_case_insensitively_keeping_first() {
+        let p = "\
+user_pref(\"mail.identity.id1.useremail\", \"Alice@GMAIL.com\");\n\
+user_pref(\"mail.identity.id2.useremail\", \"alice@gmail.com\");\n\
+user_pref(\"mail.identity.id3.useremail\", \"bob@work.com\");\n\
+user_pref(\"mail.identity.id4.fullName\", \"Not An Email\");\n";
+        assert_eq!(parse_identity_emails(p), vec!["Alice@GMAIL.com", "bob@work.com"]);
+    }
+
+    #[test]
+    fn parse_emails_unescapes_and_skips_malformed() {
+        let p = "\
+user_pref(\"mail.identity.id1.useremail\", \"al\\u00e6ce@example.com\");\n\
+user_pref(\"mail.identity.id2.useremail\", \"bad\\xZZ@example.com\");\n\
+user_pref(\"mail.identity.id3.useremail\", \"   \");\n";
+        assert_eq!(parse_identity_emails(p), vec!["alæce@example.com"]); // id2 skipped (bad escape), id3 empty
+    }
+
+    #[test]
+    fn convertible_truth_table() {
+        assert!(is_convertible(1, false));
+        assert!(is_convertible(0, true));
+        assert!(!is_convertible(0, false));
+    }
+
+    #[test]
+    fn mail_store_detection() {
+        let root = std::env::temp_dir().join(format!("cm-mailstore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let a = root.join("a"); fs::create_dir_all(a.join("Mail/Local Folders")).unwrap();
+        fs::write(a.join("Mail/Local Folders/Inbox"), b"x").unwrap();
+        assert!(has_mail_store(&a));
+        let b = root.join("b"); fs::create_dir_all(b.join("Mail/Local Folders")).unwrap();
+        fs::write(b.join("Mail/Local Folders/Inbox.msf"), b"x").unwrap();
+        assert!(!has_mail_store(&b));
+        let c = root.join("c"); fs::create_dir_all(c.join("Mail/Local Folders/Archives.sbd")).unwrap();
+        fs::write(c.join("Mail/Local Folders/Archives.sbd/2024"), b"x").unwrap();
+        assert!(has_mail_store(&c));
+        let d = root.join("d"); fs::create_dir_all(d.join("ImapMail/acct")).unwrap();
+        fs::write(d.join("ImapMail/acct/INBOX"), b"x").unwrap();
+        assert!(has_mail_store(&d));
+        let e = root.join("e"); fs::create_dir_all(e.join("Mail")).unwrap(); fs::create_dir_all(e.join("ImapMail")).unwrap();
+        assert!(!has_mail_store(&e));
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 #[cfg(test)]
