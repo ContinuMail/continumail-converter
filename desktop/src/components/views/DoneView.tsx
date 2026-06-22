@@ -58,14 +58,16 @@ export function DoneView({ state, profileRoot, onConvertAnother }: { state: Conv
       </div>
 
       {state.enrichment && shouldShowEnrichment(state.enrichment) && (
-        <div className="mt-4 rounded-[10px] border border-border bg-card px-3.5 py-3 text-xs text-muted-foreground">
-          <div>{formatEnrichmentLine(state.enrichment)}</div>
+        <div className="mt-4 rounded-[10px] border border-border bg-card px-3.5 py-3 text-xs">
+          <div className="flex items-center gap-2 text-foreground">
+            <span className="text-data-present font-bold">✓</span>
+            {formatEnrichmentLine(state.enrichment)}
+          </div>
           {state.enrichment.sourcesDegraded > 0 && (
-            <div className="mt-1.5 flex items-start gap-2">
+            <div className="mt-1.5 flex items-start gap-2 text-muted-foreground">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-primary" />
               <span>
-                {state.enrichment.sourcesDegraded} folder{state.enrichment.sourcesDegraded === 1 ? "" : "s"}{" "}
-                couldn't read their .msf — flags/tags not applied there.
+                {state.enrichment.sourcesDegraded} folder{state.enrichment.sourcesDegraded === 1 ? "" : "s"} couldn't read their .msf — flags/tags not applied there.
               </span>
             </div>
           )}

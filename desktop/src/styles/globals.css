@@ -33,9 +33,11 @@
   --dark-cream: #d1c9bf;
   --error: #db0000;
   --error-light: #fef0f0;
+  --data-present: #2f6f5e; /* sage-teal: ".msf present" / confirmed (NOT terracotta, NOT success-green) */
 }
 
 .dark {
+  --data-present: #2f6f5e;
   --background: #2a2b2f;
   --foreground: #fef9ef;
   --card: #3a3b3f;
@@ -94,6 +96,7 @@
   --color-dark-cream: var(--dark-cream);
   --color-error: var(--error);
   --color-error-light: var(--error-light);
+  --color-data-present: var(--data-present);
 }
 
 @layer base {

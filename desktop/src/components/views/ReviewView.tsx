@@ -116,7 +116,7 @@ export function ReviewView({
                     )}
                     {pairedIds && (
                       pairedIds.has(s.id)
-                        ? <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] uppercase text-primary">.msf</span>
+                        ? <span className="ml-2 rounded bg-data-present/15 px-1.5 py-0.5 text-[10px] uppercase text-data-present">✓ .msf</span>
                         : <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">no .msf</span>
                     )}
                   </td>
