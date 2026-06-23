@@ -130,4 +130,46 @@ public class PstWriterErrorTaxonomyTests
         }
         finally { Directory.Delete(outputDir, true); }
     }
+
+    [Fact]
+    public void WritePlan_SplitCreationFails_KeepsCompletedPartsAndLeavesNoOrphan()
+    {
+        long templateSize = new FileInfo(TemplatePath).Length;
+        string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(outputDir);
+        try
+        {
+            // Plant a DIRECTORY where the THIRD part (Archive-3.pst) would be written, so the
+            // SECOND split fails while creating it — AFTER part 2 is already complete on disk.
+            // A failed split must surface as fatal but must NOT delete a completed part, and
+            // must not leave a stray part behind. (Regression: the pre-fix code left _currentPath
+            // pointing at the completed part 2, so the fatal cleanup deleted it.)
+            Directory.CreateDirectory(Path.Combine(outputDir, "Archive-3.pst"));
+
+            var plan = new PstOutputPlan { Name = "Archive", MaxSizeBytes = templateSize + 20_000 };
+            string bigBody = new string('x', 5000);
+            var messages = new List<PlannedMessage>();
+            for (int i = 0; i < 20; i++)
+            {
+                PlannedMessage m = SmallMessage(i);
+                m.Message.TextBody = bigBody;
+                messages.Add(m);
+            }
+
+            var writer = new PstWriter(TemplatePath);
+            Assert.ThrowsAny<Exception>(() => writer.WritePlan(plan, messages, outputDir, new ConversionReport()));
+
+            string part1 = Path.Combine(outputDir, "Archive-1.pst");
+            string part2 = Path.Combine(outputDir, "Archive-2.pst");
+            Assert.True(File.Exists(part1), "completed part 1 must remain on disk");
+            Assert.True(File.Exists(part2), "a failed split must NOT delete the completed part 2");
+
+            // The only surviving part FILES are the two completed parts — no stray/orphan part.
+            var pstFiles = Directory.GetFiles(outputDir, "*.pst").Select(Path.GetFileName).ToList();
+            Assert.Equal(2, pstFiles.Count);
+            Assert.Contains("Archive-1.pst", pstFiles);
+            Assert.Contains("Archive-2.pst", pstFiles);
+        }
+        finally { Directory.Delete(outputDir, true); }
+    }
 }

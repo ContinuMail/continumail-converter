@@ -150,36 +150,49 @@ internal sealed class PstPartManager
     public void DeleteCurrentPart() => TryDeletePart(_currentPath);
 
     // Closes the current (already-flushed) part and opens the next. PRECONDITION: the
-    // caller has just flushed (EndSavingChanges). Builds the next part fully into LOCALS
-    // before mutating shared state, so a StartNewFile/PSTFile failure leaves the last-good
-    // part intact rather than half-initialised.
+    // caller has just flushed (EndSavingChanges). Once the old part is closed it is COMPLETE,
+    // so _currentPath is cleared until the next part opens: if creating the next part throws,
+    // the fatal-cleanup DeleteCurrentPart() must delete neither the completed part nor a
+    // half-made next part (the orphan template copy is removed here). Builds the next part
+    // fully into LOCALS before mutating shared state, so a StartNewFile/PSTFile failure leaves
+    // the last-good part intact rather than half-initialised.
     private void StartNextPartAfterFlush()
     {
         _file!.CloseFile();
+        _file = null;
+
+        // The just-closed part is complete. There is no in-progress part until the next one
+        // opens; clear _currentPath so an abort mid-split targets nothing (see DeleteCurrentPart).
+        string completedPath = _currentPath;
+        _currentPath = "";
+
         if (_partNumber == 1)
         {
             // First split: the initial "Name.pst" becomes part 1.
             string part1 = ResolveOutputPath(_groupName, 1, _outputDirectory);
             try
             {
-                TransientFileRetry.Run(() => File.Move(_currentPath, part1, overwrite: true));
+                TransientFileRetry.Run(() => File.Move(completedPath, part1, overwrite: true));
             }
             catch (IOException ex)
             {
                 // Any IOException that escapes the retry helper — a transient violation whose
                 // retries were exhausted, or a non-transient one surfaced immediately — gets a
-                // clear, attributable message instead of a bare File.Move failure.
+                // clear, attributable message instead of a bare File.Move failure. The initial
+                // part still exists under its original name (the move failed) and is kept.
                 throw new IOException(
-                    $"Failed to rename '{_currentPath}' to '{part1}' while starting split part 2.", ex);
+                    $"Failed to rename '{completedPath}' to '{part1}' while starting split part 2.", ex);
             }
             _outputFiles[0] = part1;
         }
 
         int nextPartNumber = _partNumber + 1;
-        string nextPath = StartNewFile(_groupName, nextPartNumber, _outputDirectory);
+        string nextPath = "";
         PSTFile? nextFile = null;
+        bool opened = false;
         try
         {
+            nextPath = StartNewFile(_groupName, nextPartNumber, _outputDirectory);
             nextFile = new PSTFile(nextPath, FileAccess.ReadWrite);
             nextFile.BeginSavingChanges();
 
@@ -188,19 +201,24 @@ internal sealed class PstPartManager
             _currentPath = nextPath;
             _outputFiles.Add(nextPath);
             _file = nextFile;
-            nextFile = null;   // ownership transferred to _file
             _folders.Clear();
             _dirtyFolders.Clear();
             _estimatedContentBytes = 0;
             _messagesSinceCheck = 0;
             _messagesInCurrentPart = 0;
+            opened = true;
         }
         finally
         {
-            // If open/BeginSavingChanges threw before ownership transfer, close the orphan
-            // handle so a failed split can't leak the newly opened file. (The pre-refactor
-            // code had this latent leak; tightened here per review 2026-06-17.)
-            nextFile?.CloseFile();
+            if (!opened)
+            {
+                // The split failed after the previous part was completed. Close the orphan
+                // handle and delete the orphan template copy (if StartNewFile got that far) so
+                // a failed split leaves no stray blank part. _currentPath stays "" so the
+                // completed parts already on disk are preserved by the caller's fatal cleanup.
+                nextFile?.CloseFile();
+                if (nextPath.Length > 0) TryDeletePart(nextPath);
+            }
         }
     }
 
