@@ -366,14 +366,31 @@ public class PstWriter
     // write, the message has parsed successfully, so a write failure is almost certainly
     // a bug, a vendored PST-library failure, invalid internal state, or a filesystem/temp
     // problem — all of which must surface as fatal (mirroring the parse-side taxonomy in
-    // MboxParser). This allowlist is intentionally EMPTY: add a specific exception type
+    // MboxParser). The allowlist is kept DELIBERATELY MINIMAL: add a specific exception type
     // ONLY after a real data-driven write failure is observed and proven safely skippable.
-    // Keeping the predicate + catch-filter makes that a one-line change. This is a
-    // deliberate, documented extension seam — NOT dead code to "clean up".
-    internal static bool IsRecoverableWriteError(Exception ex) => false;
+    // Its one member is AttachmentTooLargeException — a property of one bad message, detected
+    // up front before any node is written, so that message is recorded as a skip and the rest
+    // of the conversion proceeds. Everything else stays fatal.
+    internal static bool IsRecoverableWriteError(Exception ex) => ex is AttachmentTooLargeException;
+
+    // PidTagAttachSize is a PT_LONG (signed 32-bit), so an attachment can store at most
+    // int.MaxValue content bytes; larger content cannot be represented and would also force
+    // a >2 GB single allocation in AttachmentContent.ReadAllBytes.
+    internal const long MaxAttachmentBytes = int.MaxValue;
+
+    internal static bool AttachmentTooLarge(long contentLength) => contentLength > MaxAttachmentBytes;
 
     private static void WriteMessage(PSTFile file, PSTFolder folder, MailMessage message)
     {
+        // Pre-flight: reject a message carrying an unrepresentable attachment BEFORE creating
+        // any node, so an oversized attachment becomes a clean per-message skip rather than a
+        // wrapped PidTagAttachSize cast, a >2 GB ReadAllBytes allocation, or an orphan note.
+        foreach (MailAttachment preflight in message.Attachments)
+        {
+            if (AttachmentTooLarge(preflight.Content.Length))
+                throw new AttachmentTooLargeException(preflight.FileName, preflight.Content.Length);
+        }
+
         Note note = Note.CreateNewNote(file, folder.NodeID);
         note.Subject = message.Subject ?? string.Empty;
 
