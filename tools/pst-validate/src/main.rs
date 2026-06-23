@@ -207,6 +207,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn json_shape_is_stable_on_success_and_failure() {
+        for opened in [true, false] {
+            let report = Report {
+                schema_version: 1, opened, file: "x.pst".into(),
+                folders: vec![FolderEntry { path: vec!["A".into()], display_path: "A".into(), message_count: 1 }],
+                total_messages: 1,
+                errors: if opened { vec![] } else { vec![ErrorEntry { stage: "open".into(), message: "e".into() }] },
+            };
+            let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
+            for key in ["schemaVersion", "opened", "file", "folders", "totalMessages", "errors"] {
+                assert!(v.get(key).is_some(), "missing key {key} when opened={opened}");
+            }
+            assert_eq!(v["schemaVersion"], 1);
+            assert_eq!(v["folders"][0]["messageCount"], 1);
+            assert_eq!(v["folders"][0]["displayPath"], "A");
+        }
+    }
+
     fn repo_root() -> std::path::PathBuf {
         // tools/pst-validate -> repo root is two parents up from CARGO_MANIFEST_DIR.
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
