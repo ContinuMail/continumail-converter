@@ -1,6 +1,13 @@
-use outlook_pst::{messaging::store::UnicodeStore, UnicodePstFile};
+use outlook_pst::{
+    messaging::{
+        folder::Folder,
+        store::{EntryId, Store, UnicodeStore},
+    },
+    ndb::node_id::NodeId,
+    UnicodePstFile,
+};
 use serde::Serialize;
-use std::{process::ExitCode, rc::Rc};
+use std::{io, process::ExitCode, rc::Rc};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,32 +49,111 @@ fn main() -> ExitCode {
 
 fn open_and_report(path: &str) -> Report {
     let file = file_name(path);
-    match open_store_at(path) {
-        Ok(_store) => Report {
-            schema_version: 1,
-            opened: true,
-            file,
-            folders: Vec::new(),
-            total_messages: 0,
-            errors: Vec::new(),
-        },
-        Err(e) => Report {
-            schema_version: 1,
-            opened: false,
-            file,
-            folders: Vec::new(),
-            total_messages: 0,
-            errors: vec![ErrorEntry {
-                stage: "open".into(),
-                message: format!("{e}"),
-            }],
-        },
+    let store = match open_store_at(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return Report {
+                schema_version: 1,
+                opened: false,
+                file,
+                folders: Vec::new(),
+                total_messages: 0,
+                errors: vec![ErrorEntry {
+                    stage: "open".into(),
+                    message: format!("{e}"),
+                }],
+            }
+        }
+    };
+
+    let mut folders = Vec::new();
+    let mut errors = Vec::new();
+
+    // Get the IPM subtree entry ID (the "root" visible folder tree in an Outlook PST).
+    // Descendants of this node are the visible folders; the IPM subtree node itself is not emitted.
+    match store.properties().ipm_sub_tree_entry_id() {
+        Err(e) => {
+            errors.push(ErrorEntry {
+                stage: "walk".into(),
+                message: format!("ipm_sub_tree_entry_id: {e}"),
+            });
+        }
+        Ok(root_entry_id) => {
+            match store.open_folder(&root_entry_id) {
+                Err(e) => {
+                    errors.push(ErrorEntry {
+                        stage: "walk".into(),
+                        message: format!("open root folder: {e}"),
+                    });
+                }
+                Ok(root_folder) => {
+                    if let Err(e) = walk_folders(&store, &root_folder, &mut Vec::new(), &mut folders) {
+                        errors.push(ErrorEntry {
+                            stage: "walk".into(),
+                            message: format!("{e}"),
+                        });
+                    }
+                }
+            }
+        }
     }
+
+    let total_messages: u64 = folders.iter().map(|f| f.message_count).sum();
+    let opened = errors.is_empty();
+    Report {
+        schema_version: 1,
+        opened,
+        file,
+        folders,
+        total_messages,
+        errors,
+    }
+}
+
+/// Recursively walk all child folders of `parent_folder`.
+/// The root/IPM subtree folder itself is NOT emitted — only its descendants.
+/// `prefix` accumulates the path segments relative to the IPM subtree root.
+fn walk_folders(
+    store: &Rc<UnicodeStore>,
+    parent_folder: &Rc<dyn Folder>,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<FolderEntry>,
+) -> io::Result<()> {
+    let hierarchy_table = match parent_folder.hierarchy_table() {
+        None => return Ok(()), // no subfolders
+        Some(t) => t.clone(),
+    };
+
+    for row in hierarchy_table.rows_matrix() {
+        // Convert the row ID to a NodeId, build an EntryId, and open the child folder.
+        let node = NodeId::from(u32::from(row.id()));
+        let entry_id: EntryId = store.properties().make_entry_id(node)?;
+        let child_folder = store.open_folder(&entry_id)?;
+
+        let name = child_folder.properties().display_name()?;
+        let count = child_folder
+            .properties()
+            .content_count()
+            .unwrap_or(0)
+            .max(0) as u64;
+
+        prefix.push(name.clone());
+        out.push(FolderEntry {
+            path: prefix.clone(),
+            display_path: prefix.join(" / "),
+            message_count: count,
+        });
+
+        walk_folders(store, &child_folder, prefix, out)?;
+        prefix.pop();
+    }
+
+    Ok(())
 }
 
 /// Open a Unicode PST file and return its store.
 /// Returns `io::Error` on any parse/IO failure.
-fn open_store_at(path: &str) -> std::io::Result<Rc<UnicodeStore>> {
+fn open_store_at(path: &str) -> io::Result<Rc<UnicodeStore>> {
     let pst = UnicodePstFile::open(path)?;
     UnicodeStore::read(Rc::new(pst))
 }
@@ -104,6 +190,21 @@ mod tests {
         let report = open_and_report(template.to_str().unwrap());
         assert!(report.opened, "template must open: {:?}", report.errors);
         assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn template_walk_totals_are_consistent() {
+        let template = repo_root().join("assets").join("template.pst");
+        let report = open_and_report(template.to_str().unwrap());
+        assert!(report.opened, "template must open: {:?}", report.errors);
+        // total_messages must equal the sum of per-folder counts, whatever the template contains.
+        let sum: u64 = report.folders.iter().map(|f| f.message_count).sum();
+        assert_eq!(report.total_messages, sum);
+        // No emitted folder path may be empty, and displayPath must join the segments.
+        for f in &report.folders {
+            assert!(!f.path.is_empty(), "root folder must not be emitted");
+            assert_eq!(f.display_path, f.path.join(" / "));
+        }
     }
 
     fn repo_root() -> std::path::PathBuf {
