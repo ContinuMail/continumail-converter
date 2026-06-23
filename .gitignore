@@ -7,6 +7,9 @@ bench-output/
 takeout-bench.json
 testdata/
 
+# Rust validator (tools/pst-validate) build output — dev tool, never shipped or committed
+/tools/pst-validate/target/
+
 # Local test configs with machine-specific paths — never commit
 fixtures/full-mail-config.json
 fixtures/takeout-test-config.json
