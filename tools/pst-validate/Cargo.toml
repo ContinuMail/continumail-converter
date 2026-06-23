@@ -1,0 +1,12 @@
+[package]
+name = "pst-validate"
+version = "0.1.0"
+edition = "2021"
+description = "Developer/test-only independent PST validator for ContinuMail Converter. Not shipped in releases."
+license = "GPL-3.0-or-later"      # the tool's OWN code is GPL (our project); it depends on the MIT outlook-pst crate
+publish = false
+
+[dependencies]
+outlook-pst = "=1.2.0"           # exact pin (current latest 2026-06-23); reproducibility also enforced by --locked
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
