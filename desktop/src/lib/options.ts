@@ -158,8 +158,9 @@ export function buildPstPreview(
 }
 
 /** Build the final ConversionConfig from the selection + options. Validates the
- * final folder names + uniqueness itself (the engine does not validate
- * TargetFolder), reusing buildPstPreview so it checks exactly what's shown. */
+ * final folder names + uniqueness up front (fast feedback before invoking the CLI;
+ * the engine's ConfigValidator re-validates as a backstop), reusing buildPstPreview
+ * so it checks exactly what's shown. */
 export function buildConfigFromOptions(
   sources: SourceRow[],
   checkedIds: Set<string>,

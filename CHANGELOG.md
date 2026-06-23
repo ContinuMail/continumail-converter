@@ -4,6 +4,16 @@ All notable changes to ContinuMail Converter are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Writer: a failed split (e.g. the next part can't be created mid-conversion) no longer
+  deletes the already-completed previous part or leaves a stray blank part behind; the
+  failure still surfaces as fatal, but completed output is preserved.
+- Writer: a message carrying an attachment larger than a PST attachment can store
+  (PidTagAttachSize is a 32-bit value) is now skipped and reported instead of writing a
+  wrapped size or risking an out-of-memory load of the whole attachment.
+
 ## [0.2.0] — 2026-06-23
 
 **Major feature enrichments — and a hard-won grudge against Mozilla Mork — ship with 0.2.0. The
