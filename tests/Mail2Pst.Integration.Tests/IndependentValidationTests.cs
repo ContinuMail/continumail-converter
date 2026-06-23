@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
+using PSTFileFormat;
 using Xunit;
 
 namespace Mail2Pst.Integration.Tests;
@@ -17,7 +18,10 @@ public class IndependentValidationTests
     // allowlisted here with a comment explaining why it exists.
     private static readonly HashSet<string> ZeroCountAllowlist = new(StringComparer.Ordinal)
     {
-        FolderPathKey.Join(new[] { "Slettet post" }), // template's pre-existing Deleted Items folder (0 msgs)
+        // The from-scratch store (PSTFile.CreateEmptyStore) seeds a default "Deleted Items"
+        // folder under the IPM subtree, which the independent reader surfaces with 0 messages.
+        // (Replaces the retired Outlook template's Danish "Slettet post".)
+        FolderPathKey.Join(new[] { "Deleted Items" }),
     };
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
@@ -71,6 +75,28 @@ public class IndependentValidationTests
             }
         }
         finally { Directory.Delete(outDir, true); }
+    }
+
+    // A from-scratch empty store (no messages written) must itself validate clean with the
+    // INDEPENDENT MS-PST reader. This isolates CreateEmptyStore's scaffold/blueprint validity from
+    // the message-write path that ConverterOutput_ValidatesWithIndependentReader exercises.
+    [SkippableFact]
+    public void CreateEmptyStore_BareStore_ValidatesWithIndependentReader()
+    {
+        Skip.If(PstValidatorRunner.ValidatorPath is null,
+            "Set MAIL2PST_PST_VALIDATOR to the built pst-validate exe to run the independent-reader gate.");
+
+        string path = Path.Combine(Path.GetTempPath(), $"m2p-empty-{Guid.NewGuid():N}.pst");
+        try
+        {
+            PSTFileFormat.PSTFile.CreateEmptyStore(path);
+            ValidatorResult r = PstValidatorRunner.Run(path, Timeout);
+            Assert.True(r.Opened,
+                "validator could not open bare empty store: " +
+                string.Join("; ", r.Errors.Select(e => $"{e.Stage}:{e.Message}")));
+            Assert.Empty(r.Errors);
+        }
+        finally { File.Delete(path); }
     }
 
     private static ConversionConfig SampleConfig(out string outDir)

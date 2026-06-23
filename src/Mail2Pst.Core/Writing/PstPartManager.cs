@@ -50,7 +50,9 @@ internal sealed class PstPartManager
         _maxSizeBytes = maxSizeBytes;
         _checkIntervalMessages = checkIntervalMessages;
         _writeMessage = writeMessage;
-        _templateSize = new FileInfo(templatePath).Length;
+        // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
+        // copy is retired. The initial on-disk size is the constant empty-store size.
+        _templateSize = PSTFile.EmptyStoreSizeBytes;
     }
 
     public IReadOnlyList<string> OutputFiles => _outputFiles;
@@ -65,7 +67,10 @@ internal sealed class PstPartManager
     {
         _currentPath = StartNewFile(_groupName, null, _outputDirectory);
         _outputFiles.Add(_currentPath);
-        _file = new PSTFile(_currentPath, FileAccess.ReadWrite);
+        // Outlook2007RTM is load-bearing: it matches the compatibility mode CreateEmptyStore writes
+        // (fAMapValid=VALID_AMAP2) and that the independent reader + Outlook validate against. A
+        // mismatch here corrupts the AMap marker; the IndependentValidationTests gate would catch it.
+        _file = new PSTFile(_currentPath, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
         _file.BeginSavingChanges();
         foreach (IReadOnlyList<string> path in foldersToPrecreate)
             GetOrCreateFolder(path);
@@ -193,7 +198,8 @@ internal sealed class PstPartManager
         try
         {
             nextPath = StartNewFile(_groupName, nextPartNumber, _outputDirectory);
-            nextFile = new PSTFile(nextPath, FileAccess.ReadWrite);
+            // same Outlook2007RTM contract as Begin()
+            nextFile = new PSTFile(nextPath, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
             nextFile.BeginSavingChanges();
 
             // New part open and ready — only now mutate shared state.
@@ -225,7 +231,7 @@ internal sealed class PstPartManager
     private string StartNewFile(string groupName, int? partNumber, string outputDirectory)
     {
         string fullPath = ResolveOutputPath(groupName, partNumber, outputDirectory);
-        TransientFileRetry.Run(() => File.Copy(_templatePath, fullPath, overwrite: true));
+        TransientFileRetry.Run(() => PSTFile.CreateEmptyStore(fullPath));
         return fullPath;
     }
 

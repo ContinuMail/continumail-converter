@@ -31,6 +31,7 @@ namespace Mail2Pst.Core.Writing;
 /// </summary>
 public class PstWriter
 {
+    // Retained for backward compatibility; no longer used (output is created from scratch).
     private readonly string _templatePath;
 
     // Number of successfully-written messages between on-disk size checks.
@@ -46,7 +47,7 @@ public class PstWriter
     // memory simultaneously.
     private const int ParseQueueCapacity = 32;
 
-    public PstWriter(string templatePath, int checkIntervalMessages = 500, int progressIntervalMessages = 25)
+    public PstWriter(string templatePath = null, int checkIntervalMessages = 500, int progressIntervalMessages = 25)
     {
         if (checkIntervalMessages < 1)
         {

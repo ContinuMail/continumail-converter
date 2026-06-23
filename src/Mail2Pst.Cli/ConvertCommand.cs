@@ -46,11 +46,9 @@ internal static class ConvertCommand
 
         CliArgs.WriteJsonLine(new { type = "started", input = resolved.InputLabel, outputDirectory = outputDir });
 
-        // The blank PST seed lives embedded in the engine assembly; extract it to a
-        // temp file (cleaned up in the finally below). The single-file sidecar is run
-        // from a relocated dir with no loose assets/ folder beside it.
-        string templatePath = TemplateProvider.ExtractToTempFile();
-        var runner = new ConversionRunner(templatePath);
+        // Output PSTs are built from scratch by PSTFile.CreateEmptyStore — no template seed
+        // is copied or read, so nothing needs to be extracted here.
+        var runner = new ConversionRunner();
 
         using var cts = new CancellationTokenSource();
 
@@ -168,7 +166,7 @@ internal static class ConvertCommand
         }
         finally
         {
-            try { File.Delete(templatePath); } catch { /* best-effort temp cleanup */ }
+            // No temp template to clean up — output is created from scratch.
         }
     }
 
