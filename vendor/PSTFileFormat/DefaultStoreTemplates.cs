@@ -10,6 +10,7 @@
  * empty default folders. So we reproduce every node of the template (43 of them), byte-for-byte
  * in content, into a from-scratch file. The node blueprint lives in the generated partial
  * DefaultStoreTemplates.Blueprint.g.cs (produced by tools/pst-genblueprint). See tools/pst-genblueprint/README.md.
+ * That blueprint is the frozen source of truth and is not routinely regenerated.
  *
  * Per-store customization on top of the verbatim copy:
  *   - a fresh store GUID (so every output PST is unique), replacing the template's GUID

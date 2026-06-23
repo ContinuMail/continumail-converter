@@ -86,7 +86,7 @@ namespace PSTFileFormat
             // Mapped offsets are relative to the AMap's own file offset (0x4400):
             //   PMap @0x4600 -> 512, NBT @0x4800 -> 1024, BBT @0x4A00 -> 1536.
             AllocationMapPage amap = new AllocationMapPage();
-            amap.AllocateSpace(pageLength * 1, pageLength); // PMap
+            amap.AllocateSpace(pageLength, pageLength); // PMap
             amap.AllocateSpace(pageLength * 2, pageLength); // NBT root
             amap.AllocateSpace(pageLength * 3, pageLength); // BBT root
 

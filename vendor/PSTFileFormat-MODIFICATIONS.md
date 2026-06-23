@@ -24,4 +24,25 @@ authoritative description of the local PSTFileFormat modifications.
   (register/read/round-trip; corrected string-id hash-bucket index `(wGuid<<1)|N`) + MV-Unicode
   multi-string setter on `PropertyContext` (ContinuMail, 2026).
 
+- From-scratch empty-store creation: new file `PSTFile.Create.cs` adds `PSTFile.CreateEmptyStore` /
+  `WriteRawScaffold` — builds a valid empty Unicode store (header + first AMap/PMap + empty NBT/BBT
+  root leaves + Density List page) so the converter no longer needs to copy the retired blank-PST
+  seed asset at startup (ContinuMail, 2026).
+- `DefaultStoreTemplates` (new file `DefaultStoreTemplates.cs` + generated partial
+  `DefaultStoreTemplates.Blueprint.g.cs`): replays a 1:1 node blueprint of a real Outlook empty
+  store (43 nodes, byte-for-byte) into the raw scaffold, with per-store fresh-GUID substitution and
+  English default-folder names, so Outlook accepts the from-scratch store without re-provisioning
+  (ContinuMail, 2026).
+- `PSTHeader.cs`: added `CreateNew` factory (allocates a zeroed header with correct magic/version
+  fields), `EnsureNodeIndexAtLeast` (advances per-type NID high-water marks), and initialises
+  `rgbFM`/`rgbFP` bytes to the post-scanpst pattern expected by the runtime allocator (ContinuMail, 2026).
+- `RootStructure.cs`: added parameterless create-time constructor for use during from-scratch scaffold
+  initialisation (ContinuMail, 2026).
+- `AllocationHelper.cs` (`GrowPST`): marks the AMap page for each newly grown span as used in
+  `rgbFM`, keeping the free-map consistent with the scanner's expectations (ContinuMail, 2026).
+- `BTree/NodeBTreeLeafPage.cs`, `BTree/BlockBTreeLeafPage.cs`: added `CreateEmptyRoot` factory on
+  each, producing a zeroed BTree leaf page with a valid page trailer (ContinuMail, 2026).
+- `Pages/DensityListPage.cs`: added `CreateEmpty` factory, producing the empty Density List page
+  that Outlook expects at offset 0x4200 in every store (ContinuMail, 2026).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
