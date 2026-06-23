@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace Mail2Pst.Integration.Tests;
 
@@ -36,21 +37,29 @@ public static class PstValidatorRunner
             StartInfo = new ProcessStartInfo
             {
                 FileName = exe,
-                Arguments = $"\"{pstPath}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             },
         };
+        proc.StartInfo.ArgumentList.Add(pstPath);
         proc.Start();
-        string stdout = proc.StandardOutput.ReadToEnd();
-        string stderr = proc.StandardError.ReadToEnd();
+
+        // Read both streams concurrently BEFORE waiting: a full stderr pipe can't deadlock a
+        // blocking stdout read, and the timeout actually bounds a hung/looping validator (a
+        // synchronous ReadToEnd would block past the timeout if the child never exits).
+        Task<string> stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = proc.StandardError.ReadToEndAsync();
+
         if (!proc.WaitForExit((int)timeout.TotalMilliseconds))
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
             throw new PstValidatorException($"pst-validate timed out after {timeout.TotalSeconds:0}s on '{pstPath}'.");
         }
+
+        string stdout = stdoutTask.GetAwaiter().GetResult();
+        string stderr = stderrTask.GetAwaiter().GetResult();
         return Interpret(stdout, stderr, proc.ExitCode);
     }
 
