@@ -44,6 +44,22 @@ gitignored; it contains private mail). For each corpus the following is checked:
 - **End-to-end:** the output PST is opened in Outlook and imported into a test
   Microsoft 365 profile.
 
+## Manual PST validation (release checklist only)
+
+`scanpst.exe` (the Outlook Inbox Repair Tool) is the authority on PST validity but is GUI-only,
+so it is a manual release step, not a per-commit gate:
+
+1. Generate representative PSTs (a single-part output and a split output).
+2. Open each in Outlook.
+3. Run `scanpst.exe` against each PST.
+4. **Pass:** scanpst reports no errors / no repair required. **Fail:** scanpst recommends or performs
+   any repair.
+5. Record the exact scanpst wording in the private release checklist.
+
+For automated, independent (non-Outlook) validation, see the `MAIL2PST_PST_VALIDATOR` gate in
+`tests/Mail2Pst.Integration.Tests` and the `tools/pst-validate` crate (a dev/test-only tool, not
+shipped in release artifacts).
+
 ## Validating your own conversion
 
 You can build the same confidence with your own mail:
