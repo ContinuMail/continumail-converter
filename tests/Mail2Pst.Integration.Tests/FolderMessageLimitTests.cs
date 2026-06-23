@@ -67,7 +67,7 @@ public class FolderMessageLimitTests
         }
         finally
         {
-            if (File.Exists(mbox)) File.Delete(mbox);
+            // mbox lives inside outDir, so the recursive delete removes it too.
             Directory.Delete(outDir, true);
         }
     }

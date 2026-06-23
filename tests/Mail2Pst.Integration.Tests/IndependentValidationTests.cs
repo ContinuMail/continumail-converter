@@ -33,6 +33,7 @@ public class IndependentValidationTests
         try
         {
             var (outputs, _) = RoundTripHarness.Convert(config, outDir);
+            Assert.NotEmpty(outputs); // a conversion that produced no PST parts would otherwise pass vacuously
 
             // Expected path-keyed counts from the converter's own truth model.
             Dictionary<string, int> expected = RoundTripHarness.BuildTruth(config)
