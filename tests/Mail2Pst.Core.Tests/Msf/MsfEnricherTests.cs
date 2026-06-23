@@ -61,6 +61,42 @@ public class MsfEnricherTests
         Assert.Equal(0, result.ExpungedDropped);
     }
 
+    [Theory]
+    [InlineData("6", MailImportance.High)]    // highest
+    [InlineData("5", MailImportance.High)]    // high
+    [InlineData("4", MailImportance.Normal)]  // normal
+    [InlineData("3", MailImportance.Low)]     // low
+    [InlineData("2", MailImportance.Low)]     // lowest
+    public void Priority_ExplicitlySet_OverridesHeaderImportance(string raw, MailImportance expected)
+    {
+        // Header said Normal; the .msf priority is authoritative (.msf-wins, like the flags).
+        var mail = new MailMessage { MessageId = "<x@h>", Importance = MailImportance.Normal };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("priority", raw)));
+        ApplyOne(mail, msf, Opts());
+        Assert.Equal(expected, mail.Importance);
+    }
+
+    [Theory]
+    [InlineData("0")] // notSet
+    [InlineData("1")] // none
+    public void Priority_NotSetOrNone_KeepsHeaderImportance(string raw)
+    {
+        // .msf carries no real priority → never clobber the header-derived value with a blank.
+        var mail = new MailMessage { MessageId = "<x@h>", Importance = MailImportance.High };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("priority", raw)));
+        ApplyOne(mail, msf, Opts());
+        Assert.Equal(MailImportance.High, mail.Importance);
+    }
+
+    [Fact]
+    public void Priority_AbsentColumn_KeepsHeaderImportance()
+    {
+        var mail = new MailMessage { MessageId = "<x@h>", Importance = MailImportance.Low };
+        MsfReadResult msf = Msf(Row("1", ("message-id", "x@h"), ("flags", "1"))); // no priority cell
+        ApplyOne(mail, msf, Opts());
+        Assert.Equal(MailImportance.Low, mail.Importance);
+    }
+
     [Fact]
     public void DropExpunged_True_NonExpungedMatch_Kept()
     {

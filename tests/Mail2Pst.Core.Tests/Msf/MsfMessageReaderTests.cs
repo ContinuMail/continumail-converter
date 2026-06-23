@@ -67,6 +67,7 @@ public class MsfMessageReaderTests
         Assert.Empty(m.Keywords);
         Assert.Equal(0, m.Label);
         Assert.Null(m.MsgOffset);
+        Assert.Null(m.Priority);
         Assert.Null(m.MessageId);
         Assert.Empty(result.Diagnostics);
     }
@@ -250,6 +251,36 @@ public class MsfMessageReaderTests
         var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("msgOffset", ""))));
         Assert.Null(Assert.Single(r.Messages).MsgOffset);
         Assert.Empty(r.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData("0", 0)]   // notSet
+    [InlineData("4", 4)]   // normal
+    [InlineData("6", 6)]   // highest
+    public void Read_Priority_Parsed(string raw, int expected)
+    {
+        MsfMessage m = Assert.Single(MsfMessageReader.Read(MsgsDoc(Row("1", ("priority", raw)))).Messages);
+        Assert.Equal(expected, m.Priority);
+    }
+
+    [Fact]
+    public void Read_Priority_EmptyOrAbsent_Null_NoDiagnostic()
+    {
+        var r = MsfMessageReader.Read(MsgsDoc(Row("1", ("priority", ""))));
+        Assert.Null(Assert.Single(r.Messages).Priority);
+        Assert.Empty(r.Diagnostics);
+    }
+
+    [Theory]
+    [InlineData("high")]          // non-numeric
+    [InlineData("99999999999")]   // overflow int
+    public void Read_Priority_Invalid_NullPlusDiagnostic(string raw)
+    {
+        MsfReadResult r = MsfMessageReader.Read(MsgsDoc(Row("R1", ("priority", raw))));
+        Assert.Null(Assert.Single(r.Messages).Priority);
+        MsfDiagnostic d = Assert.Single(r.Diagnostics);
+        Assert.Equal("priority", d.Column);
+        Assert.Equal(raw, d.RawValue);
     }
 
     [Fact]

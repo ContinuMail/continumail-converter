@@ -70,6 +70,10 @@ public static class MsfEnricher
         mail.IsForwarded = row.IsForwarded;
         mail.IsFlagged = row.IsFlagged;
         mail.IsJunk = row.IsJunk;
+        // .msf wins for priority too, but ONLY when it carries an explicit one (a user/filter can set
+        // priority in Thunderbird without touching the mbox headers). notSet/none leaves the
+        // header-derived importance intact — never clobber a header value with a .msf blank.
+        if (MapMsfPriority(row.Priority) is { } importance) mail.Importance = importance;
 
         var resolved = new List<string>(options.TagResolver.Resolve(row.Keywords));
         if (options.JunkHandling == JunkHandlingMode.Category && row.IsJunk) resolved.Add("Junk");
@@ -87,6 +91,16 @@ public static class MsfEnricher
         }
         return true;
     }
+
+    // Thunderbird nsMsgPriority -> our importance. Only an EXPLICITLY set priority (lowest..highest)
+    // maps; notSet(0)/none(1)/out-of-range -> null so the caller keeps the header-derived importance.
+    private static MailImportance? MapMsfPriority(int? priority) => priority switch
+    {
+        2 or 3 => MailImportance.Low,    // lowest, low
+        4      => MailImportance.Normal, // normal
+        5 or 6 => MailImportance.High,   // high, highest
+        _      => null,                  // notSet / none / unknown
+    };
 
     // Append new categories to existing, dedupe ordinal, preserve first occurrence; never remove.
     private static void MergeCategories(List<string> existing, IReadOnlyList<string> additions)

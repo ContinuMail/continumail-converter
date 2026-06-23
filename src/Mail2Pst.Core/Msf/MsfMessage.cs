@@ -17,6 +17,8 @@ public sealed class MsfMessage
     public IReadOnlyList<string> Keywords { get; }
     public int Label { get; }
     public long? MsgOffset { get; }
+    /// <summary>Raw Thunderbird nsMsgPriority (0=notSet,1=none,2=lowest,3=low,4=normal,5=high,6=highest); null if absent. Faithful mirror — mapping to importance is the enricher's job.</summary>
+    public int? Priority { get; }
     public string? MessageId { get; }
 
     public MsfMessage(
@@ -26,6 +28,7 @@ public sealed class MsfMessage
         IReadOnlyList<string> keywords,
         int label,
         long? msgOffset,
+        int? priority,
         string? messageId)
     {
         RowId = rowId ?? throw new ArgumentNullException(nameof(rowId));
@@ -35,6 +38,7 @@ public sealed class MsfMessage
         Keywords = new ReadOnlyCollection<string>(keywords.ToList()); // defensive copy
         Label = label;
         MsgOffset = msgOffset;
+        Priority = priority;
         MessageId = messageId;
     }
 

@@ -43,7 +43,7 @@ public static class MsfMessageReader
         return new MsfReadResult(messages, diagnostics);
     }
 
-    // Diagnostic order is contractual: flags, junkscore, label, msgOffset.
+    // Diagnostic order is contractual: flags, junkscore, label, msgOffset, priority.
     private static MsfMessage ReadRow(MorkRow row, List<MsfDiagnostic> diagnostics)
     {
         MsfMessageFlags flags = ParseFlags(row, diagnostics);
@@ -51,9 +51,28 @@ public static class MsfMessageReader
         IReadOnlyList<string> keywords = ParseKeywords(row);
         int label = ParseLabel(row, diagnostics);
         long? msgOffset = ParseMsgOffset(row, diagnostics);
+        int? priority = ParsePriority(row, diagnostics);
         string? messageId = ParseMessageId(row);
 
-        return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, messageId);
+        return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, priority, messageId);
+    }
+
+    // Thunderbird nsMsgPriority (decimal, like junkscore/label — not the hex `flags`). Kept verbatim
+    // as a raw int; the enricher maps it to importance. Values 0-6 parse identically in hex/decimal.
+    private static int? ParsePriority(MorkRow row, List<MsfDiagnostic> diagnostics)
+    {
+        if (!row.TryGetCell("priority", out string raw) || raw.Length == 0)
+        {
+            return null;
+        }
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            return value;
+        }
+
+        diagnostics.Add(new MsfDiagnostic(row.Id, "priority", raw, "not a number"));
+        return null;
     }
 
     private static string? ParseMessageId(MorkRow row)

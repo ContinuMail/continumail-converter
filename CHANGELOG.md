@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Thunderbird `.msf` enrichment now preserves **message priority** set inside Thunderbird. A
+  priority a user or filter applied in Thunderbird is stored only in the `.msf` (not in the mbox
+  headers), so it was previously lost; it is now read and written to Outlook's importance. Priority
+  that arrived on the message's own `X-Priority`/`Importance` header was already preserved.
+
 ### Fixed
 - Writer: a failed split (e.g. the next part can't be created mid-conversion) no longer
   deletes the already-completed previous part or leaves a stray blank part behind; the
