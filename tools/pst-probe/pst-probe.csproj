@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Dev-only diagnostic. Opens a .pst via the vendored PSTFileFormat reader and dumps the
+    structures that matter for from-scratch store creation (see tools/pst-probe/README.md):
+    header fields, the Message Store node (0x21) properties, the folder tree, and the
+    template Table-Context column sets. Use a real Outlook-made empty PST as the golden oracle to
+    byte-/field-diff against a CreateEmptyStore() result. See tools/pst-probe/README.md.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mail2Pst.Core\Mail2Pst.Core.csproj" />
+  </ItemGroup>
+</Project>
