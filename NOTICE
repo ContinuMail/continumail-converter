@@ -51,3 +51,8 @@ Mork reader (src/Mail2Pst.Core/Mork/)
   This is project-native GPL-3.0-or-later code; the public-domain origin imposes
   no obligation, but the provenance is recorded for hygiene.
 -------------------------------------------------------------------------------
+
+The developer/test-only tool tools/pst-validate depends on the "outlook-pst" crate by Microsoft,
+licensed MIT. The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used
+solely to independently validate converter output during testing, is not linked into the engine,
+CLI, or desktop app, and is NOT shipped in ContinuMail Converter release artifacts.
