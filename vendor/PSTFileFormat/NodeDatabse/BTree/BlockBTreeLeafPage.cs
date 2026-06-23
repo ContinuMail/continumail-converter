@@ -26,6 +26,20 @@ namespace PSTFileFormat
         {
         }
 
+        // ContinuMail addition: build an EMPTY BBT root leaf for a from-scratch store.
+        // cLevel=0 (leaf), cbEnt=24 (BBTENTRY size), cEntMax=20 (488/24). Empty entry list;
+        // GetBytes() writes cEnt=0 and the trailer computes signature+CRC from the page BID.
+        public static BlockBTreeLeafPage CreateEmptyRoot(BlockID pageBlockID)
+        {
+            BlockBTreeLeafPage page = new BlockBTreeLeafPage();
+            page.cLevel = 0;
+            page.cbEnt = 24;
+            page.cEntMax = MaximumNumberOfEntries; // 20
+            page.pageTrailer.ptype = PageTypeName.ptypeBBT;
+            page.pageTrailer.bid = pageBlockID;
+            return page;
+        }
+
         public override void PopulateEntries(byte[] buffer, byte numberOfEntries)
         {
             for (int index = 0; index < numberOfEntries; index++)

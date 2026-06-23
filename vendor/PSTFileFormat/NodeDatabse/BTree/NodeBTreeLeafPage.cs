@@ -27,6 +27,22 @@ namespace PSTFileFormat
         {
         }
 
+        // ContinuMail addition: build an EMPTY NBT root leaf for a from-scratch store.
+        // cLevel=0 (leaf), cbEnt=32 (NBTENTRY size), cEntMax=15 (488/32). The page carries
+        // zero entries; GetBytes() writes cEnt=0 and the trailer computes signature+CRC from
+        // the given page BID. PageKey is never read while the page is empty (only inserts
+        // touch entry[0]).
+        public static NodeBTreeLeafPage CreateEmptyRoot(BlockID pageBlockID)
+        {
+            NodeBTreeLeafPage page = new NodeBTreeLeafPage();
+            page.cLevel = 0;
+            page.cbEnt = 32;
+            page.cEntMax = MaximumNumberOfEntries; // 15
+            page.pageTrailer.ptype = PageTypeName.ptypeNBT;
+            page.pageTrailer.bid = pageBlockID;
+            return page;
+        }
+
         public override void PopulateEntries(byte[] buffer, byte numberOfEntries)
         {
             int offset = 0;

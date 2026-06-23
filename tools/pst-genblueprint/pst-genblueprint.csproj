@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Dev-only generator. Reads a real Outlook-made empty PST (an external reference PST) and emits
+    vendor/PSTFileFormat/DefaultStoreTemplates.Blueprint.g.cs: the complete set of store
+    nodes (NID, parent NID, verbatim data-tree bytes as base64) plus the header NID
+    high-water marks (rgnid). From-scratch store creation reconstructs this 1:1 so Outlook
+    accepts the store. Run only if the empty-store skeleton must change. See tools/pst-genblueprint/README.md.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mail2Pst.Core\Mail2Pst.Core.csproj" />
+  </ItemGroup>
+</Project>

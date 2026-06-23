@@ -114,6 +114,48 @@ namespace PSTFileFormat
             }
         }
 
+        // ContinuMail addition: build a header for a brand-new empty Unicode (.pst) store.
+        // Lives here because bidNextP/bidNextB/dwUnique/rgnid are private. The caller
+        // (PSTFile.CreateEmptyStore) fills in root.BREFNBT/BREFBBT/EOF/AMap fields and rgbFM,
+        // then writes the header via WriteToStream. Seed values mirror what AllocateNext*
+        // expect: small, non-zero BID counters so page/block IDs don't collide with the
+        // AMap/PMap convention (whose bid == file offset). rgnid is left at zero here; the
+        // store/folder phase seeds it past the reserved special NIDs before auto-allocating.
+        public static PSTHeader CreateNew()
+        {
+            PSTHeader header = new PSTHeader();
+            header.dwMagic = "!BDN";
+            header.wMagicClient = "SM";                          // PST (vs "SO" for OST)
+            header.wVer = (ushort)PSTVersion.Unicode;            // 23
+            header.wVerClient = (ushort)ClientVersion.PersonalFolders; // 19
+            header.bPlatformCreate = 0x01;
+            header.bPlatformAccess = 0x01;
+            header.bidUnused = new BlockID(0);
+            header.bidNextP = new BlockID(4);                    // first page BID handed out
+            header.bidNextB = new BlockID(4);                    // first block BID handed out
+            header.dwUnique = 1;
+            header.bSentinel = 0x80;
+            header.bCryptMethod = bCryptMethodName.NDB_CRYPT_PERMUTE;
+            // Free Map (rgbFM) and Free Page Map (rgbFP): one byte per AMap for the first 128
+            // AMaps. Matching a scanpst-perfected Outlook store exactly:
+            //   - rgbFM[i] = 0xFF only for AMaps that EXIST (index 0 at scaffold time; GrowPST
+            //     marks each new one), 0x00 beyond. An over-broad all-0xFF rgbFM is the
+            //     "minor inconsistency" scanpst repairs.
+            //   - rgbFP = all 0xFF (the "no PMap here / free" marker; a 0 there is read as a
+            //     real PMap and flagged "PMap past EOF").
+            header.rgbFM[0] = 0xFF;
+            for (int i = 0; i < 128; i++) { header.rgbFP[i] = 0xFF; }
+            header.root = new RootStructure();
+            header.root.fAMapValid = RootStructure.VALID_AMAP2;
+            return header;
+        }
+
+        // Parameterless ctor for the create path only (no buffer to parse). Marked private so
+        // the only supported way to mint a header from nothing is CreateNew().
+        private PSTHeader()
+        {
+        }
+
         public byte[] GetBytes(WriterCompatibilityMode writerCompatibilityMode)
         { 
             byte[] buffer = new byte[HeaderLength];
@@ -235,6 +277,18 @@ namespace PSTFileFormat
         {
             uint nodeIndex = AllocateNextNodeIndex(nodeType);
             return new NodeID(nodeType, nodeIndex);
+        }
+
+        // ContinuMail addition: after a from-scratch store places folders/tables at fixed
+        // reserved NIDs, advance the per-type allocation counter so later auto-allocated
+        // NIDs (AllocateNextFolderNodeID etc.) never collide with the reserved specials.
+        public void EnsureNodeIndexAtLeast(NodeTypeName nodeType, uint minNodeIndex)
+        {
+            int typeIndex = (byte)nodeType;
+            if (rgnid[typeIndex] < minNodeIndex)
+            {
+                rgnid[typeIndex] = minNodeIndex;
+            }
         }
 
         public static PSTHeader ReadFromStream(Stream stream, WriterCompatibilityMode writerCompatibilityMode)

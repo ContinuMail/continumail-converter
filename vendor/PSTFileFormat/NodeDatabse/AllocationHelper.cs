@@ -226,6 +226,10 @@ namespace PSTFileFormat
             file.Header.root.ibFileEOF = newLength;
             file.Header.root.ibAMapLast = oldLength;
             file.Header.root.cbAMapFree += (ulong)freeSpaceInAMap;
+            // ContinuMail: mark the newly-grown AMap's header free-map entry as present/free
+            // (rgbFM[i]=0xFF for every AMap that exists), matching a scanpst-perfected store.
+            // UpdateFMap refines it on first allocation; FMap pages cover indices >= 128.
+            if (newPageIndex < 128) { file.Header.rgbFM[newPageIndex] = 0xFF; }
             file.Header.WriteToStream(file.BaseStream, file.WriterCompatibilityMode);
 
             file.AMapCache[newPageIndex] = amap;

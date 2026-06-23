@@ -33,6 +33,17 @@ namespace PSTFileFormat
         public byte bReserved;
         public ushort wReserved;
 
+        // ContinuMail addition: create-time ctor for a brand-new empty store. All numeric
+        // fields default to zero; BREFs are empty (caller sets bid/ib). Used by
+        // PSTHeader.CreateNew() / PSTFile.CreateEmptyStore().
+        public RootStructure()
+        {
+            BREFNBT = new BlockRef();
+            BREFNBT.bid = new BlockID(0);
+            BREFBBT = new BlockRef();
+            BREFBBT.bid = new BlockID(0);
+        }
+
         public RootStructure(byte[] buffer, int offset)
         {
             ibFileEOF = LittleEndianConverter.ToUInt64(buffer, offset + 4);

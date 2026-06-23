@@ -30,6 +30,23 @@ namespace PSTFileFormat
         uint ulCurrentPage;
         List<DensityListPageEntry> rgDListPageEnt = new List<DensityListPageEntry>();
 
+        // ContinuMail addition: create an EMPTY Density List page (0 entries) for a from-scratch
+        // store. Outlook always writes a DList page at offset 0x4200; scanpst flags and re-adds
+        // it if missing (a repeated-repair trigger). GetBytes() computes the page CRC + signature.
+        public static DensityListPage CreateEmpty(BlockID pageBlockID)
+        {
+            DensityListPage page = new DensityListPage();
+            page.bFlags = 0;
+            page.ulCurrentPage = 0;
+            page.pageTrailer.ptype = PageTypeName.ptypeDL;
+            page.pageTrailer.bid = pageBlockID;
+            return page;
+        }
+
+        private DensityListPage() : base()
+        {
+        }
+
         public DensityListPage(byte[] buffer) : base(buffer)
         {
             bFlags = buffer[0];
