@@ -27,3 +27,14 @@ dist-ssr
 src-tauri/binaries/
 src-tauri/resources/
 src-tauri/.sidecar-publish/
+
+# generated marketing/app screenshots (produced by the screenshot tool)
+screenshots/
+
+# local-only screenshot tool — dev capture harness + scripts, not part of the
+# public release. Decoupled from the app (standalone Vite entry shot.html), so
+# removing it never affects the shipped app or the build.
+shot.html
+src/dev/
+scripts/screenshot-web.ps1
+scripts/screenshot-mode.ps1
