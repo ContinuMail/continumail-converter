@@ -55,25 +55,20 @@ public class ExpungedDropTests
     private static (IReadOnlyList<ReadBackMessage> read, ConversionReport report) Convert(
         string mboxPath, string? msfPath, string outDir, bool dropExpunged)
     {
-        string template = TemplateProvider.ExtractToTempFile();
-        try
+        var config = new ConversionConfig
         {
-            var config = new ConversionConfig
+            DropExpunged = dropExpunged,
+            Outputs =
             {
-                DropExpunged = dropExpunged,
-                Outputs =
+                new OutputGroupConfig
                 {
-                    new OutputGroupConfig
-                    {
-                        Name = "Out",
-                        Sources = { new SourceConfig { Path = mboxPath, Type = "mbox", MsfPath = msfPath } },
-                    },
+                    Name = "Out",
+                    Sources = { new SourceConfig { Path = mboxPath, Type = "mbox", MsfPath = msfPath } },
                 },
-            };
-            ConversionReport report = new ConversionRunner(template).Run(config, outDir);
-            return (PstReader.Read(report.OutputFiles).SelectMany(f => f.Messages).ToList(), report);
-        }
-        finally { File.Delete(template); }
+            },
+        };
+        ConversionReport report = new ConversionRunner().Run(config, outDir);
+        return (PstReader.Read(report.OutputFiles).SelectMany(f => f.Messages).ToList(), report);
     }
 
     [Fact]

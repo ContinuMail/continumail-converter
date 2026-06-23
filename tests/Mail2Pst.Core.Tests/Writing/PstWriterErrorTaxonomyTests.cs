@@ -31,8 +31,6 @@ public class PstWriterErrorTaxonomyTests
         Assert.False(PstWriter.IsRecoverableWriteError(ex));
     }
 
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
-
     private static PlannedMessage SmallMessage(int i) => new()
     {
         TargetFolderPath = new[] { "Imported Mail" },
@@ -53,8 +51,8 @@ public class PstWriterErrorTaxonomyTests
         private readonly Exception _toThrow;
         private int _calls;
 
-        public ThrowingPstWriter(string templatePath, Func<int, bool> shouldThrow, Exception toThrow, int checkIntervalMessages = 500)
-            : base(templatePath, checkIntervalMessages)
+        public ThrowingPstWriter(Func<int, bool> shouldThrow, Exception toThrow, int checkIntervalMessages = 500)
+            : base(checkIntervalMessages)
         {
             _shouldThrow = shouldThrow;
             _toThrow = toThrow;
@@ -77,7 +75,7 @@ public class PstWriterErrorTaxonomyTests
             var plan = new PstOutputPlan { Name = "Personal", MaxSizeBytes = 100L * 1024 * 1024 };
             var messages = Enumerable.Range(0, 5).Select(SmallMessage).ToList();
             var report = new ConversionReport();
-            var writer = new ThrowingPstWriter(TemplatePath, i => i == 2, new InvalidOperationException("boom"));
+            var writer = new ThrowingPstWriter(i => i == 2, new InvalidOperationException("boom"));
 
             Assert.Throws<InvalidOperationException>(() =>
                 writer.WritePlan(plan, messages, outputDir, report));
@@ -91,7 +89,7 @@ public class PstWriterErrorTaxonomyTests
     [Fact]
     public void WritePlan_FatalAfterSplit_KeepsCompletedPartDeletesCurrent()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -112,7 +110,7 @@ public class PstWriterErrorTaxonomyTests
             // This also exercises the "new part created, no message yet written to it" edge
             // case: the fatal fires BEFORE base.WriteMessageCore, so part 2 exists but is
             // empty (BeginSavingChanges only) when the abort happens.
-            var writer = new ThrowingPstWriter(TemplatePath, _ => File.Exists(part2),
+            var writer = new ThrowingPstWriter(_ => File.Exists(part2),
                 new InvalidOperationException("boom"), checkIntervalMessages: 2);
 
             Assert.Throws<InvalidOperationException>(() =>
@@ -134,7 +132,7 @@ public class PstWriterErrorTaxonomyTests
     [Fact]
     public void WritePlan_SplitCreationFails_KeepsCompletedPartsAndLeavesNoOrphan()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -156,7 +154,7 @@ public class PstWriterErrorTaxonomyTests
                 messages.Add(m);
             }
 
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             Assert.ThrowsAny<Exception>(() => writer.WritePlan(plan, messages, outputDir, new ConversionReport()));
 
             string part1 = Path.Combine(outputDir, "Archive-1.pst");

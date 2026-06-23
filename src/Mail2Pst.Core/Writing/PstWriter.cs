@@ -24,16 +24,12 @@ using PSTFileFormat;
 namespace Mail2Pst.Core.Writing;
 
 /// <summary>
-/// Writes planned messages into one or more PST files, seeded from a copy of
-/// the blank PST template. A single <see cref="PstOutputPlan"/> may produce
-/// multiple physical files if it exceeds <see cref="PstOutputPlan.MaxSizeBytes"/>
-/// (see Task 9).
+/// Writes planned messages into one or more PST files, built from scratch via
+/// <see cref="PSTFileFormat.PSTFile.CreateEmptyStore"/>. A single <see cref="PstOutputPlan"/>
+/// may produce multiple physical files if it exceeds <see cref="PstOutputPlan.MaxSizeBytes"/>.
 /// </summary>
 public class PstWriter
 {
-    // Retained for backward compatibility; no longer used (output is created from scratch).
-    private readonly string _templatePath;
-
     // Number of successfully-written messages between on-disk size checks.
     private readonly int _checkIntervalMessages;
 
@@ -47,7 +43,7 @@ public class PstWriter
     // memory simultaneously.
     private const int ParseQueueCapacity = 32;
 
-    public PstWriter(string templatePath = null, int checkIntervalMessages = 500, int progressIntervalMessages = 25)
+    public PstWriter(int checkIntervalMessages = 500, int progressIntervalMessages = 25)
     {
         if (checkIntervalMessages < 1)
         {
@@ -59,7 +55,6 @@ public class PstWriter
             throw new ArgumentOutOfRangeException(nameof(progressIntervalMessages));
         }
 
-        _templatePath = templatePath;
         _checkIntervalMessages = checkIntervalMessages;
         _progressIntervalMessages = progressIntervalMessages;
     }
@@ -70,7 +65,7 @@ public class PstWriter
         cancellationToken.ThrowIfCancellationRequested();
 
         var partManager = new PstPartManager(
-            _templatePath, plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages, WriteMessageCore);
+            plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages, WriteMessageCore);
         var throttler = new ProgressThrottler(onProgress, totalMessages);
 
         // Producer thread parses MIME (CPU-bound); this consumer writes PST (I/O-bound).

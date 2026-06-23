@@ -18,12 +18,11 @@ namespace Mail2Pst.Integration.Tests;
 /// <summary>Shared helpers for round-trip tests. Single output group assumed (all fixtures/corpora use one).</summary>
 public static class RoundTripHarness
 {
-    public static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
     public static string FixturesDir => Path.Combine(AppContext.BaseDirectory, "fixtures");
 
     public static (IReadOnlyList<string> outputs, ConversionReport report) Convert(ConversionConfig config, string outDir)
     {
-        var report = new ConversionRunner(TemplatePath).Run(config, outDir);
+        var report = new ConversionRunner().Run(config, outDir);
         return (report.OutputFiles, report);
     }
 
@@ -41,7 +40,7 @@ public static class RoundTripHarness
             TargetFolderPath = new[] { "Inbox" },
         });
         var report = new ConversionReport();
-        return new PstWriter(TemplatePath).WritePlan(plan, planned, outDir, report);
+        return new PstWriter().WritePlan(plan, planned, outDir, report);
     }
 
     /// <summary>

@@ -16,7 +16,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterAttachmentTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     // Writes a message carrying EXACTLY ONE attachment into a temp PST, reopens it
     // read-only, asserts the note has exactly one attachment, and returns that
@@ -36,7 +35,7 @@ public class PstWriterAttachmentTests
             };
             var planned = new List<PlannedMessage> { new() { TargetFolderPath = new[] { "Inbox" }, Message = message } };
 
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, planned, tempDir, new ConversionReport());
             Assert.Single(outputFiles);                                   // no unexpected split
             Assert.True(File.Exists(outputFiles[0]), "WritePlan must produce the PST");

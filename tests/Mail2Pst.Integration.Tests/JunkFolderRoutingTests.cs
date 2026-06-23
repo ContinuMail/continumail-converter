@@ -39,27 +39,22 @@ public class JunkFolderRoutingTests
     private static (IReadOnlyList<ReadFolder> folders, ConversionReport report) Convert(
         string mboxPath, string? msfPath, string outDir, JunkHandlingMode junk)
     {
-        string template = TemplateProvider.ExtractToTempFile();
-        try
+        var config = new ConversionConfig
         {
-            var config = new ConversionConfig
+            JunkHandling = junk,
+            Outputs =
             {
-                JunkHandling = junk,
-                Outputs =
+                new OutputGroupConfig
                 {
-                    new OutputGroupConfig
-                    {
-                        Name = "Out",
-                        Sources = { new SourceConfig
-                            { Path = mboxPath, Type = "mbox", MsfPath = msfPath, TargetFolder = "Inbox" } },
-                    },
+                    Name = "Out",
+                    Sources = { new SourceConfig
+                        { Path = mboxPath, Type = "mbox", MsfPath = msfPath, TargetFolder = "Inbox" } },
                 },
-            };
-            var runner = new ConversionRunner(template);
-            ConversionReport report = runner.Run(config, outDir);
-            return (PstReader.Read(report.OutputFiles), report);
-        }
-        finally { File.Delete(template); }
+            },
+        };
+        var runner = new ConversionRunner();
+        ConversionReport report = runner.Run(config, outDir);
+        return (PstReader.Read(report.OutputFiles), report);
     }
 
     [Fact]

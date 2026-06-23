@@ -20,7 +20,7 @@ cd desktop && npm test
 
 These cover mbox boundary/parse behaviour (including a worked-around MimeKit mbox EOF bug),
 PST writing and metadata fidelity, size-based splitting, output-name validation, the
-CLI JSON-Lines contract, and the template-provenance guard — plus the v0.2.0 surface:
+CLI JSON-Lines contract — plus the v0.2.0 surface:
 Thunderbird `.msf`/Mork parsing and flag/junk/tag enrichment, tag → Outlook-category mapping
 and colour-plan building, profile discovery and multi-account routing, and junk/expunged
 handling.

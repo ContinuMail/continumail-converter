@@ -72,7 +72,7 @@ public class CategoryRoundTripTests
         try
         {
             var report = new ConversionReport();
-            var outputs = new PstWriter(RoundTripHarness.TemplatePath) // default checkInterval=500
+            var outputs = new PstWriter() // default checkInterval=500
                 .WritePlan(plan, planned, outDir, report);
             var read = PstReader.Read(outputs).SelectMany(f => f.Messages).ToList();
 

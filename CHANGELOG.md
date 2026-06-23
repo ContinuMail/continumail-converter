@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   headers), so it was previously lost; it is now read and written to Outlook's importance. Priority
   that arrived on the message's own `X-Priority`/`Importance` header was already preserved.
 
+### Changed
+- Writer: PST files are now built from scratch via `PSTFile.CreateEmptyStore()` instead of
+  copying a pre-seeded blank seed file. The blank-seed asset, the seed-extraction helper,
+  and the dev-only seed-regeneration tool have been retired; `PstWriter`, `PstPartManager`,
+  and `ConversionRunner` no longer accept or require a seed file path.
+
 ### Fixed
 - Writer: a failed split (e.g. the next part can't be created mid-conversion) no longer
   deletes the already-completed previous part or leaves a stray blank part behind; the

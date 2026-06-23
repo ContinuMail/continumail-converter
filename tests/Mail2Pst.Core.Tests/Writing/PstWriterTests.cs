@@ -15,12 +15,9 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
-
     [Fact]
     public void WritePlan_CreatesFolderAndWritesMessage()
     {
-        string templatePath = TemplatePath;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -50,7 +47,7 @@ public class PstWriterTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath);
+            var writer = new PstWriter();
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
@@ -114,7 +111,7 @@ public class PstWriterTests
                 },
             };
 
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, new ConversionReport());
 
             var pst = new PSTFile(outputFiles[0], FileAccess.Read);
@@ -168,7 +165,7 @@ public class PstWriterTests
                 },
             };
 
-            List<string> outputFiles = new PstWriter(TemplatePath).WritePlan(plan, messages, outputDir, new ConversionReport());
+            List<string> outputFiles = new PstWriter().WritePlan(plan, messages, outputDir, new ConversionReport());
 
             var pst = new PSTFile(outputFiles[0], FileAccess.Read);
             try
@@ -193,7 +190,7 @@ public class PstWriterTests
         {
             // A traversal name must be rejected, not silently written outside outputDir.
             var plan = new PstOutputPlan { Name = "../escape", MaxSizeBytes = 100L * 1024 * 1024 };
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
 
             Assert.ThrowsAny<Exception>(() =>
                 writer.WritePlan(plan, new List<PlannedMessage>(), outputDir, new ConversionReport()));
@@ -210,8 +207,7 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_AutoSplitsWhenExceedingMaxSize()
     {
-        string templatePath = TemplatePath;
-        long templateSize = new FileInfo(templatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -243,7 +239,7 @@ public class PstWriterTests
             }
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath, checkIntervalMessages: 2);
+            var writer = new PstWriter(checkIntervalMessages: 2);
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
@@ -287,7 +283,7 @@ public class PstWriterTests
                 },
             };
 
-            List<string> outputFiles = new PstWriter(TemplatePath).WritePlan(plan, messages, outputDir, new ConversionReport());
+            List<string> outputFiles = new PstWriter().WritePlan(plan, messages, outputDir, new ConversionReport());
 
             Assert.Single(outputFiles);
             Assert.Equal("Personal.pst", Path.GetFileName(outputFiles[0]));
@@ -298,7 +294,7 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_MultipleParts_NamedWithPartSuffixes()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -320,7 +316,7 @@ public class PstWriterTests
                 });
             }
 
-            var writer = new PstWriter(TemplatePath, checkIntervalMessages: 2);
+            var writer = new PstWriter(checkIntervalMessages: 2);
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, new ConversionReport());
 
             Assert.True(outputFiles.Count >= 2, $"expected a split, got {outputFiles.Count}");
@@ -334,7 +330,6 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_HtmlOnlyMessage_PopulatesPlainTextAndHtmlBodies()
     {
-        string templatePath = TemplatePath;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -367,7 +362,7 @@ public class PstWriterTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath);
+            var writer = new PstWriter();
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
@@ -403,7 +398,6 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_MessageWithAttachment_WritesAttachmentData()
     {
-        string templatePath = TemplatePath;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -444,7 +438,7 @@ public class PstWriterTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath);
+            var writer = new PstWriter();
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
@@ -475,7 +469,6 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_AttachmentWithContentLocation_WritesContentLocation()
     {
-        string templatePath = TemplatePath;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -518,7 +511,7 @@ public class PstWriterTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath);
+            var writer = new PstWriter();
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
@@ -544,7 +537,6 @@ public class PstWriterTests
     [Fact]
     public void WritePlan_InlineAttachment_SetsContentIdAndFlags()
     {
-        string templatePath = TemplatePath;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -587,7 +579,7 @@ public class PstWriterTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(templatePath);
+            var writer = new PstWriter();
 
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 

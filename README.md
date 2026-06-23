@@ -238,7 +238,7 @@ The **ContinuMail** name, logos, icons, and brand assets are **not** covered by 
 
 ## 🧑‍💻 How it works (for contributors)
 
-Writing PST files is the hard part: `libpst`/`java-libpst` are read-only, and most "mbox to PST" tools drive Outlook via COM. PSTFileFormat is a real from-scratch writer, but it can only *open* an existing PST — so the tool ships a small blank Unicode PST template (`assets/template.pst`) and writes into a copy of it. (See [`TEMPLATE-PROVENANCE.md`](TEMPLATE-PROVENANCE.md) for how that template was generated and how to verify it.)
+Writing PST files is the hard part: `libpst`/`java-libpst` are read-only, and most "mbox to PST" tools drive Outlook via COM. PSTFileFormat is a real from-scratch writer. ContinuMail calls `PSTFile.CreateEmptyStore()` to create each output PST from scratch — no pre-seeded template is needed or shipped.
 
 Key things to know when working on the code:
 
@@ -246,4 +246,4 @@ Key things to know when working on the code:
 - Use `parentFolder.CreateChildFolder(name, type)` (not `CreateNewFolder()`), and call `folder.SaveChanges()` before `file.EndSavingChanges()`.
 - The vendored allocation scan was made O(1) (AMap cache + free-space index) to keep large PST writes fast.
 
-**Layout:** `src/Mail2Pst.Core/` (engine), `src/Mail2Pst.Cli/` (CLI), `desktop/` (Tauri + React app), `tests/Mail2Pst.Core.Tests/` (xUnit), `vendor/PSTFileFormat/` (vendored, LGPLv3), `assets/template.pst` (write seed), `tools/template-gen/` (dev-only template regenerator).
+**Layout:** `src/Mail2Pst.Core/` (engine), `src/Mail2Pst.Cli/` (CLI), `desktop/` (Tauri + React app), `tests/Mail2Pst.Core.Tests/` (xUnit), `vendor/PSTFileFormat/` (vendored, LGPLv3).

@@ -29,8 +29,7 @@ public class StringNamedPropertyTests
         string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mail2pst-sp3-" + System.Guid.NewGuid());
         System.IO.Directory.CreateDirectory(dir);
         string path = System.IO.Path.Combine(dir, "t.pst");
-        string template = System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "template.pst");
-        System.IO.File.Copy(template, path);
+        PSTFile.CreateEmptyStore(path);
         ushort writtenId;
         var categories = new System.Collections.Generic.List<string> { "Thunderbird", "Important", "Ældre" };
         try

@@ -16,7 +16,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterSplitCapTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     // A message with a large text body so the byte estimate (≈ body length) tracks the
     // on-disk content closely (the case the split-cap fix targets).
@@ -68,7 +67,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void PredictiveSplit_HappensBeforeDefaultCheckpoint()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -82,7 +81,7 @@ public class PstWriterSplitCapTests
             var messages = Enumerable.Range(0, 40).Select(i => BigMessage(i, 5000)).ToList();
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath); // DEFAULT checkIntervalMessages (500)
+            var writer = new PstWriter(); // DEFAULT checkIntervalMessages (500)
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
             Assert.True(outputFiles.Count > 1,
@@ -95,7 +94,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void CompletedParts_StayWithinCapPlusBoundedMargin()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -105,7 +104,7 @@ public class PstWriterSplitCapTests
             var plan = new PstOutputPlan { Name = "Archive", MaxSizeBytes = cap };
             var messages = Enumerable.Range(0, 40).Select(i => BigMessage(i, bodyBytes)).ToList();
 
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, new ConversionReport());
 
             // BEST-EFFORT, NOT a hard cap: the byte estimate is a lower bound, so allow a
@@ -128,7 +127,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void AllMessagesPreserved_NoDropsOrDuplicates()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -137,7 +136,7 @@ public class PstWriterSplitCapTests
             var messages = Enumerable.Range(0, 40).Select(i => BigMessage(i, 5000)).ToList();
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
             int total = outputFiles.Sum(CountMessagesInPart);
@@ -150,7 +149,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void NoEmptyPartsProduced()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -158,7 +157,7 @@ public class PstWriterSplitCapTests
             var plan = new PstOutputPlan { Name = "Archive", MaxSizeBytes = templateSize + 30_000 };
             var messages = Enumerable.Range(0, 40).Select(i => BigMessage(i, 5000)).ToList();
 
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, new ConversionReport());
 
             Assert.True(outputFiles.Count > 1);
@@ -171,7 +170,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void SingleMessageLargerThanCap_StillConvertsIntoItsOwnPart()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -189,7 +188,7 @@ public class PstWriterSplitCapTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
             Assert.Equal(3, report.ConvertedCount);              // all converted, none dropped
@@ -205,7 +204,7 @@ public class PstWriterSplitCapTests
     [Fact]
     public void LargeAttachmentMessages_SplitAndStayWithinCapPlusMargin()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-splitcap-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -216,7 +215,7 @@ public class PstWriterSplitCapTests
             var messages = Enumerable.Range(0, 8).Select(i => BigAttachmentMessage(i, attachmentBytes)).ToList();
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath); // DEFAULT checkIntervalMessages (500) — far > 8
+            var writer = new PstWriter(); // DEFAULT checkIntervalMessages (500) — far > 8
             List<string> outputFiles = writer.WritePlan(plan, messages, outputDir, report);
 
             // Predictive split (driven by the per-message estimate, which counts attachment bytes)

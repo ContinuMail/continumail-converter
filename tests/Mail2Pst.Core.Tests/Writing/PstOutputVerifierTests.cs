@@ -14,7 +14,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstOutputVerifierTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     // Writes `count` messages (across two folders) into a fresh PST in `outputDir` and
     // returns the output file list plus the report's converted count.
@@ -39,7 +38,7 @@ public class PstOutputVerifierTests
             });
         }
         var report = new ConversionReport();
-        var writer = new PstWriter(TemplatePath);
+        var writer = new PstWriter();
         List<string> outputs = writer.WritePlan(plan, messages, outputDir, report);
         return (outputs, report.ConvertedCount);
     }

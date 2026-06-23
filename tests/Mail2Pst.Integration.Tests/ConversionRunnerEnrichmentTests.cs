@@ -32,27 +32,22 @@ public class ConversionRunnerEnrichmentTests
     private static (IReadOnlyList<ReadBackMessage> read, ConversionReport report) Convert(
         string mboxPath, string? msfPath, string outDir, JunkHandlingMode junk = JunkHandlingMode.Off)
     {
-        string template = TemplateProvider.ExtractToTempFile();
-        try
+        var config = new ConversionConfig
         {
-            var config = new ConversionConfig
+            JunkHandling = junk,
+            Outputs =
             {
-                JunkHandling = junk,
-                Outputs =
+                new OutputGroupConfig
                 {
-                    new OutputGroupConfig
-                    {
-                        Name = "Out",
-                        Sources = { new SourceConfig { Path = mboxPath, Type = "mbox", MsfPath = msfPath } },
-                    },
+                    Name = "Out",
+                    Sources = { new SourceConfig { Path = mboxPath, Type = "mbox", MsfPath = msfPath } },
                 },
-            };
-            var runner = new ConversionRunner(template);
-            ConversionReport report = runner.Run(config, outDir);
-            var read = PstReader.Read(report.OutputFiles).SelectMany(f => f.Messages).ToList();
-            return (read, report);
-        }
-        finally { File.Delete(template); }
+            },
+        };
+        var runner = new ConversionRunner();
+        ConversionReport report = runner.Run(config, outDir);
+        var read = PstReader.Read(report.OutputFiles).SelectMany(f => f.Messages).ToList();
+        return (read, report);
     }
 
     private static string NewOutDir()

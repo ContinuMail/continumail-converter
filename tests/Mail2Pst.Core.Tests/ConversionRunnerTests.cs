@@ -19,7 +19,7 @@ public class ConversionRunnerTests
     public void Run_ConvertsMboxFixtureIntoPst()
     {
         string fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample.mbox");
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -42,7 +42,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             Assert.Equal(2, report.ConvertedCount);
@@ -66,7 +66,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_AttachmentFreeFixture_HasNoWarnings()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -91,7 +91,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             Assert.Equal(2, report.ConvertedCount);
@@ -106,7 +106,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_MessageWithAttachments_ConvertsWithoutWarnings()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -131,7 +131,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             Assert.Equal(6, report.ConvertedCount);
@@ -147,7 +147,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_MessageWithAttachmentWarning_WarningAppearsInReport()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -177,7 +177,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             // The message itself still converts successfully; only the broken
@@ -195,7 +195,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_MissingSourceFile_RecordsSkipInsteadOfThrowing()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -218,7 +218,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             Assert.Equal(0, report.ConvertedCount);
@@ -233,7 +233,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_UnreadableSourceFile_RecordsSkipInsteadOfThrowing()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -263,7 +263,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir);
 
             Assert.Equal(0, report.ConvertedCount);
@@ -278,7 +278,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_PopulatesOutputFilesOnReport()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -296,7 +296,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            ConversionReport report = new ConversionRunner(templatePath).Run(config, outputDir);
+            ConversionReport report = new ConversionRunner().Run(config, outputDir);
 
             Assert.Single(report.OutputFiles);
             Assert.EndsWith("Personal.pst", report.OutputFiles[0]);
@@ -308,7 +308,7 @@ public class ConversionRunnerTests
     [Fact]
     public void Run_UnsupportedSourceType_ThrowsBeforeWritingAnyOutput()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -331,7 +331,7 @@ public class ConversionRunnerTests
                 },
             };
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
 
             Assert.Throws<NotSupportedException>(() => runner.Run(config, outputDir));
             Assert.False(File.Exists(Path.Combine(outputDir, "Personal.pst")));
@@ -346,7 +346,7 @@ public class ConversionRunnerTests
     public void Run_PreCancelledToken_ReturnsCancelledReportWithNoOutput()
     {
         string fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample.mbox");
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
+
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
 
@@ -367,7 +367,7 @@ public class ConversionRunnerTests
             using var cts = new CancellationTokenSource();
             cts.Cancel();
 
-            var runner = new ConversionRunner(templatePath);
+            var runner = new ConversionRunner();
             ConversionReport report = runner.Run(config, outputDir, onProgress: null, cancellationToken: cts.Token);
 
             Assert.True(report.Cancelled);

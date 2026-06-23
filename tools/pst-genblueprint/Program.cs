@@ -6,7 +6,7 @@ using System.Text;
 using PSTFileFormat;
 
 // Emits DefaultStoreTemplates.Blueprint.g.cs — the full node set of a real empty Outlook store.
-// Usage: pst-genblueprint [templatePath] [outPath]
+// Usage: pst-genblueprint <reference-empty.pst> [outPath]
 class GenBlueprint
 {
     static object F(object o, string name) =>

@@ -17,9 +17,6 @@ public class ConversionRunnerProgressTests
     private static string Fixture(string name) =>
         Path.Combine(AppContext.BaseDirectory, "fixtures", name);
 
-    private static string TemplatePath =>
-        Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
-
     private static ConversionConfig MakeConfig(string mboxPath) => new()
     {
         Outputs = new List<OutputGroupConfig>
@@ -45,7 +42,7 @@ public class ConversionRunnerProgressTests
         try
         {
             var events = new List<ConversionProgressEvent>();
-            var runner = new ConversionRunner(TemplatePath);
+            var runner = new ConversionRunner();
 
             runner.Run(MakeConfig(Fixture("sample.mbox")), outputDir, events.Add);
 
@@ -64,7 +61,7 @@ public class ConversionRunnerProgressTests
         {
             var events = new List<ConversionProgressEvent>();
             // checkIntervalMessages=1 so every message triggers a checkpoint
-            var runner = new ConversionRunner(TemplatePath, checkIntervalMessages: 1);
+            var runner = new ConversionRunner(checkIntervalMessages: 1);
 
             runner.Run(MakeConfig(Fixture("sample.mbox")), outputDir, events.Add);
 
@@ -86,7 +83,7 @@ public class ConversionRunnerProgressTests
         try
         {
             var events = new List<ConversionProgressEvent>();
-            var runner = new ConversionRunner(TemplatePath);
+            var runner = new ConversionRunner();
 
             runner.Run(MakeConfig(Fixture("mbox-with-broken-attachment.mbox")), outputDir, events.Add);
 
@@ -104,7 +101,7 @@ public class ConversionRunnerProgressTests
         Directory.CreateDirectory(outputDir);
         try
         {
-            var runner = new ConversionRunner(TemplatePath);
+            var runner = new ConversionRunner();
             var report = runner.Run(MakeConfig(Fixture("sample.mbox")), outputDir);
             Assert.Equal(2, report.ConvertedCount);
         }

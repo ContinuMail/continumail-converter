@@ -10,13 +10,13 @@ using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 using Mail2Pst.Core.Writing;
+using PSTFileFormat;
 using Xunit;
 
 namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterProgressTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     [Fact]
     public void WritePlan_ProgressEvent_ReportsCurrentSourceAndFolder()
@@ -40,7 +40,7 @@ public class PstWriterProgressTests
             };
 
             var events = new List<ProgressEvent>();
-            new PstWriter(TemplatePath, checkIntervalMessages: 1).WritePlan(
+            new PstWriter(checkIntervalMessages: 1).WritePlan(
                 plan, messages, outputDir, new ConversionReport(), totalMessages: 1,
                 onProgress: e => { if (e is ProgressEvent p) events.Add(p); });
 
@@ -72,7 +72,7 @@ public class PstWriterProgressTests
             }
 
             var events = new List<ProgressEvent>();
-            new PstWriter(TemplatePath, checkIntervalMessages: 100, progressIntervalMessages: 2).WritePlan(
+            new PstWriter(checkIntervalMessages: 100, progressIntervalMessages: 2).WritePlan(
                 plan, messages, outputDir, new ConversionReport(), totalMessages: 10,
                 onProgress: e => { if (e is ProgressEvent p) events.Add(p); });
 
@@ -110,7 +110,7 @@ public class PstWriterProgressTests
             }
 
             var events = new List<ProgressEvent>();
-            new PstWriter(TemplatePath, checkIntervalMessages: 2, progressIntervalMessages: 1).WritePlan(
+            new PstWriter(checkIntervalMessages: 2, progressIntervalMessages: 1).WritePlan(
                 plan, messages, outputDir, new ConversionReport(), totalMessages: 6,
                 onProgress: e => { if (e is ProgressEvent p) events.Add(p); });
 
@@ -128,7 +128,7 @@ public class PstWriterProgressTests
     [Fact]
     public void WritePlan_ProgressBytes_KeepIncreasingAcrossSplit()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -153,7 +153,7 @@ public class PstWriterProgressTests
 
             var report = new ConversionReport();
             var events = new List<ProgressEvent>();
-            List<string> outputFiles = new PstWriter(TemplatePath, checkIntervalMessages: 2, progressIntervalMessages: 1)
+            List<string> outputFiles = new PstWriter(checkIntervalMessages: 2, progressIntervalMessages: 1)
                 .WritePlan(plan, messages, outputDir, report, totalMessages: 10,
                     onProgress: e => { if (e is ProgressEvent p) events.Add(p); });
 

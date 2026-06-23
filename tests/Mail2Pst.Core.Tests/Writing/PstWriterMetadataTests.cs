@@ -15,7 +15,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterMetadataTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     private const int MsgFlagRead = 0x0001;
     private const int FollowupFlagged = 2;
@@ -37,7 +36,7 @@ public class PstWriterMetadataTests
             new() { TargetFolderPath = new[] { "Inbox" }, Message = message }
         };
 
-        var writer = new PstWriter(TemplatePath);
+        var writer = new PstWriter();
         List<string> outputFiles = writer.WritePlan(plan, planned, tempDir, new ConversionReport());
 
         var pst = new PSTFile(outputFiles[0], FileAccess.Read);

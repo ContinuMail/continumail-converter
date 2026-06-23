@@ -11,13 +11,6 @@
     <Compile Remove="../../vendor/PSTFileFormat/Properties/**/*.cs" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The blank PST seed travels inside the assembly so the single-file CLI
-         sidecar finds it after the Tauri shell relocates the lone exe. -->
-    <EmbeddedResource Include="../../assets/template.pst">
-      <LogicalName>Mail2Pst.Core.assets.template.pst</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
     <PackageReference Include="MimeKit" Version="4.17.0" />

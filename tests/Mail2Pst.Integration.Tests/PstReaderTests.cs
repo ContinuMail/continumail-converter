@@ -16,7 +16,6 @@ public class PstReaderTests
     private static (IReadOnlyList<string> outputs, string outDir) ConvertSample()
     {
         string fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures");
-        string template = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
         string outDir = Path.Combine(Path.GetTempPath(), "mail2pst-reader-" + Guid.NewGuid());
         Directory.CreateDirectory(outDir);
         var config = new ConversionConfig
@@ -30,7 +29,7 @@ public class PstReaderTests
                 },
             },
         };
-        var report = new ConversionRunner(template).Run(config, outDir);
+        var report = new ConversionRunner().Run(config, outDir);
         return (report.OutputFiles, outDir);
     }
 
@@ -81,7 +80,6 @@ public class PstReaderTests
     public void Read_AttachmentsMbox_ListsVisibleAndExcludesInline()
     {
         string fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures");
-        string template = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
         string outDir = Path.Combine(Path.GetTempPath(), "mail2pst-reader-att-" + Guid.NewGuid());
         Directory.CreateDirectory(outDir);
         try
@@ -97,7 +95,7 @@ public class PstReaderTests
                     },
                 },
             };
-            var report = new ConversionRunner(template).Run(config, outDir);
+            var report = new ConversionRunner().Run(config, outDir);
 
             var allNames = PstReader.Read(report.OutputFiles)
                 .SelectMany(f => f.Messages).SelectMany(m => m.AttachmentNames).ToList();

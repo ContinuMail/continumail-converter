@@ -25,11 +25,9 @@ public class ConversionRunner
 {
     private readonly PstWriter _writer;
 
-    // templatePath is retained (optional) for backward compatibility but is no longer used:
-    // output PSTs are built from scratch by PSTFile.CreateEmptyStore.
-    public ConversionRunner(string templatePath = null, int checkIntervalMessages = 500, int progressIntervalMessages = 25)
+    public ConversionRunner(int checkIntervalMessages = 500, int progressIntervalMessages = 25)
     {
-        _writer = new PstWriter(templatePath, checkIntervalMessages, progressIntervalMessages);
+        _writer = new PstWriter(checkIntervalMessages, progressIntervalMessages);
     }
 
     public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default)

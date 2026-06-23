@@ -15,7 +15,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterDisposalTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     [Fact]
     public void WritePlan_DisposesAttachmentContentAfterWrite()
@@ -50,7 +49,7 @@ public class PstWriterDisposalTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             writer.WritePlan(plan, messages, outputDir, report);
 
             Assert.False(File.Exists(tempAttachPath),
@@ -109,7 +108,7 @@ public class PstWriterDisposalTests
             };
 
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
 
             // The write failure now propagates as fatal (no silent skip)...
             Assert.ThrowsAny<Exception>(() => writer.WritePlan(plan, messages, outputDir, report));
@@ -164,7 +163,7 @@ public class PstWriterDisposalTests
             // checkInterval=1 so the first message hits a checkpoint and fires the
             // progress callback, which throws (a fatal error) while the remaining
             // messages are still queued. The sleep lets the producer enqueue them all.
-            var writer = new PstWriter(TemplatePath, checkIntervalMessages: 1);
+            var writer = new PstWriter(checkIntervalMessages: 1);
 
             Assert.ThrowsAny<Exception>(() => writer.WritePlan(
                 plan, messages, outputDir, new ConversionReport(), totalMessages: 5,

@@ -14,9 +14,8 @@ public class AllocationHelperTests
 {
     private static string CreateTempPstCopy()
     {
-        string templatePath = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
-        string tempPath = Path.Combine(Path.GetTempPath(), "mail2pst-amap-tests-" + Guid.NewGuid() + ".pst");
-        File.Copy(templatePath, tempPath);
+        string tempPath = Path.Combine(Path.GetTempPath(), $"m2p-amap-{Guid.NewGuid():N}.pst");
+        PSTFile.CreateEmptyStore(tempPath);
         return tempPath;
     }
 

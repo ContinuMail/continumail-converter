@@ -11,13 +11,13 @@ using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 using Mail2Pst.Core.Writing;
+using PSTFileFormat;
 using Xunit;
 
 namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterCancellationTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     private static PlannedMessage SmallMessage(int i, AttachmentContent? attachment = null) => new()
     {
@@ -46,7 +46,7 @@ public class PstWriterCancellationTests
             cts.Cancel();
 
             Assert.Throws<OperationCanceledException>(() =>
-                new PstWriter(TemplatePath).WritePlan(
+                new PstWriter().WritePlan(
                     plan, new List<PlannedMessage> { SmallMessage(0) }, outputDir, report,
                     cancellationToken: cts.Token));
 
@@ -69,7 +69,7 @@ public class PstWriterCancellationTests
             using var cts = new CancellationTokenSource();
 
             // Cancel at the first checkpoint (after 2 messages). No split happens.
-            var writer = new PstWriter(TemplatePath, checkIntervalMessages: 2);
+            var writer = new PstWriter(checkIntervalMessages: 2);
             Assert.Throws<OperationCanceledException>(() =>
                 writer.WritePlan(plan, messages, outputDir, report, onProgress: _ => cts.Cancel(),
                     cancellationToken: cts.Token));
@@ -84,7 +84,7 @@ public class PstWriterCancellationTests
     [Fact]
     public void WritePlan_CancelledDuringSplit_KeepsCompletedPartDeletesCurrent()
     {
-        long templateSize = new FileInfo(TemplatePath).Length;
+        long templateSize = PSTFile.EmptyStoreSizeBytes;
         string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
         Directory.CreateDirectory(outputDir);
         try
@@ -107,7 +107,7 @@ public class PstWriterCancellationTests
             // makes a progress event fire after EVERY write so the cancel triggers the moment part 2
             // appears — robust to split cadence (the per-message predictive split keeps resetting the
             // checkpoint counter, so the every-N-checkpoint progress can't be relied on here).
-            var writer = new PstWriter(TemplatePath, checkIntervalMessages: 2, progressIntervalMessages: 1);
+            var writer = new PstWriter(checkIntervalMessages: 2, progressIntervalMessages: 1);
             Assert.Throws<OperationCanceledException>(() =>
                 writer.WritePlan(plan, messages, outputDir, report,
                     onProgress: _ => { if (File.Exists(part2)) cts.Cancel(); },
@@ -144,7 +144,7 @@ public class PstWriterCancellationTests
             var report = new ConversionReport();
             using var cts = new CancellationTokenSource();
 
-            var writer = new PstWriter(TemplatePath, checkIntervalMessages: 2);
+            var writer = new PstWriter(checkIntervalMessages: 2);
             Assert.Throws<OperationCanceledException>(() =>
                 writer.WritePlan(plan, messages, outputDir, report, onProgress: _ => cts.Cancel(),
                     cancellationToken: cts.Token));

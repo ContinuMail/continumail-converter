@@ -36,7 +36,6 @@ public class PrefsTagNameRoundTripTests
         File.WriteAllText(mbox, Msg("<a@h>"));
         File.WriteAllText(Path.Combine(profileDir, "Inbox.msf"), MsfText);
         string outDir = NewDir("out");
-        string template = TemplateProvider.ExtractToTempFile();
         try
         {
             var config = new ConversionConfig
@@ -53,13 +52,12 @@ public class PrefsTagNameRoundTripTests
                     },
                 },
             };
-            ConversionReport report = new ConversionRunner(template).Run(config, outDir);
+            ConversionReport report = new ConversionRunner().Run(config, outDir);
             ReadBackMessage m = PstReader.Read(report.OutputFiles).SelectMany(f => f.Messages).Single();
             return m.Categories;
         }
         finally
         {
-            File.Delete(template);
             Directory.Delete(outDir, true);
             if (profilePath is null) Directory.Delete(profileDir, true);
         }

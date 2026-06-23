@@ -15,7 +15,6 @@ namespace Mail2Pst.Core.Tests.Writing;
 
 public class PstWriterAttachmentLimitTests
 {
-    private static string TemplatePath => Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
 
     // PidTagAttachSize is a PT_LONG (signed 32-bit), so content up to int.MaxValue bytes
     // is representable and anything above it is not (and would also force a >2 GB single
@@ -79,7 +78,7 @@ public class PstWriterAttachmentLimitTests
 
             var plan = new PstOutputPlan { Name = "Archive", MaxSizeBytes = 100L * 1024 * 1024 };
             var report = new ConversionReport();
-            var writer = new PstWriter(TemplatePath);
+            var writer = new PstWriter();
             List<string> outputs = writer.WritePlan(plan, new[] { oversized, normal }, outputDir, report);
 
             Assert.Equal(1, report.ConvertedCount);   // the normal message converted

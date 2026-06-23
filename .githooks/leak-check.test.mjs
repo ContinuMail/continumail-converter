@@ -63,7 +63,7 @@ test('.githooks own files are content-exempt (no self-flagging)', () => {
 });
 
 test('null content (binary) is skipped', () => {
-  assert.deepEqual(scanFiles([{ path: 'assets/template.pst', content: null }], NONE), []);
+  assert.deepEqual(scanFiles([{ path: 'assets/logo.ico', content: null }], NONE), []);
 });
 
 test('Danish characters (Æ Ø Å) in clean content do not trip the scanner', () => {

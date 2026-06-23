@@ -42,7 +42,6 @@ public class ReadBackSpikeTests
     public void Spike_AllReadBackAccessorsWorkAgainstEngineWrittenPst()
     {
         string fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures");
-        string template = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
         string outDir = Path.Combine(Path.GetTempPath(), "mail2pst-spike-" + Guid.NewGuid());
         Directory.CreateDirectory(outDir);
         try
@@ -59,7 +58,7 @@ public class ReadBackSpikeTests
                     },
                 },
             };
-            var report = new ConversionRunner(template).Run(config, outDir);
+            var report = new ConversionRunner().Run(config, outDir);
             Assert.NotEmpty(report.OutputFiles);
 
             bool sawRecipient = false, sawTo = false, sawCc = false, sawMessageId = false, sawDate = false, sawFrom = false, sawBody = false;
@@ -136,7 +135,6 @@ public class ReadBackSpikeTests
         // sample.mbox has no attachments, so attachment accessors are proven here against
         // mbox-with-attachments.mbox (which has both real attachments and hidden inline CID images).
         string fixtures = Path.Combine(AppContext.BaseDirectory, "fixtures");
-        string template = Path.Combine(AppContext.BaseDirectory, "assets", "template.pst");
         string outDir = Path.Combine(Path.GetTempPath(), "mail2pst-spike-att-" + Guid.NewGuid());
         Directory.CreateDirectory(outDir);
         try
@@ -152,7 +150,7 @@ public class ReadBackSpikeTests
                     },
                 },
             };
-            var report = new ConversionRunner(template).Run(config, outDir);
+            var report = new ConversionRunner().Run(config, outDir);
 
             bool sawVisibleName = false, sawHidden = false;
             var pst = new PSTFile(report.OutputFiles[0], FileAccess.Read);

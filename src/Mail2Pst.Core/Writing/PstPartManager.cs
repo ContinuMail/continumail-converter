@@ -22,7 +22,6 @@ namespace Mail2Pst.Core.Writing;
 /// </summary>
 internal sealed class PstPartManager
 {
-    private readonly string _templatePath;
     private readonly string _groupName;
     private readonly string _outputDirectory;
     private readonly long _maxSizeBytes;
@@ -40,11 +39,10 @@ internal sealed class PstPartManager
     private int _messagesInCurrentPart;
     private int _messagesSinceCheck;
 
-    public PstPartManager(string templatePath, string groupName, string outputDirectory,
+    public PstPartManager(string groupName, string outputDirectory,
         long maxSizeBytes, int checkIntervalMessages,
         Action<PSTFile, PSTFolder, MailMessage> writeMessage)
     {
-        _templatePath = templatePath;
         _groupName = groupName;
         _outputDirectory = outputDirectory;
         _maxSizeBytes = maxSizeBytes;

@@ -40,7 +40,7 @@ public class MultiFolderCheckpointTests
     {
         var plan = new PstOutputPlan { Name = "P", MaxSizeBytes = 1000L * 1024 * 1024, IncludeEmptyFolders = true };
         var report = new ConversionReport();
-        var outputs = new PstWriter(RoundTripHarness.TemplatePath, checkIntervalMessages)
+        var outputs = new PstWriter(checkIntervalMessages)
             .WritePlan(plan, planned, outDir, report);
         return PstReader.Read(outputs);
     }
