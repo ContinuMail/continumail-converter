@@ -288,13 +288,21 @@ async fn start_convert(
     std::fs::write(&config_path, config_text).map_err(|e| format!("cannot write config: {e}"))?;
     let config_path_str = config_path.to_string_lossy().to_string();
 
+    // On any failure to launch the sidecar, remove the temp config we just wrote — the
+    // async reader task (which owns cleanup on normal exit) never starts in that case.
     let (mut rx, child) = app
         .shell()
         .sidecar("mail2pst-cli")
-        .map_err(|e| format!("sidecar not found: {e}"))?
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&config_path);
+            format!("sidecar not found: {e}")
+        })?
         .args(["convert", "--config", &config_path_str, "--output", &output_dir])
         .spawn()
-        .map_err(|e| format!("failed to start engine: {e}"))?;
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&config_path);
+            format!("failed to start engine: {e}")
+        })?;
 
     // Store the child BEFORE the reader task starts.
     *state.0.lock().unwrap() = Some(child);

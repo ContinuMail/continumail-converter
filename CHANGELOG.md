@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Writer: a message carrying an attachment larger than a PST attachment can store
   (PidTagAttachSize is a 32-bit value) is now skipped and reported instead of writing a
   wrapped size or risking an out-of-memory load of the whole attachment.
+- Desktop: the per-run temp config file is now removed if the conversion engine fails to
+  launch (sidecar missing or spawn error), instead of being left behind in the temp directory.
 
 ## [0.2.0] — 2026-06-23
 
