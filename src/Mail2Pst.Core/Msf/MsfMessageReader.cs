@@ -44,6 +44,7 @@ public static class MsfMessageReader
     }
 
     // Diagnostic order is contractual: flags, junkscore, label, msgOffset, priority.
+    // (storeToken is parsed here too but is intentionally diagnostic-free — see ParseStoreToken.)
     private static MsfMessage ReadRow(MorkRow row, List<MsfDiagnostic> diagnostics)
     {
         MsfMessageFlags flags = ParseFlags(row, diagnostics);
