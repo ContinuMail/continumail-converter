@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copying a pre-seeded blank seed file. The blank-seed asset, the seed-extraction helper,
   and the dev-only seed-regeneration tool have been retired; `PstWriter`, `PstPartManager`,
   and `ConversionRunner` no longer accept or require a seed file path.
+- Writer: large folders convert dramatically faster. Adding a message was effectively
+  O(n²) in the folder's message count — the vendored heap allocator located free space with
+  a linear block scan that grew as a folder filled — so very large single folders slowed down
+  progressively. The allocator now uses a maintained best-fit free-space index, keeping
+  per-message cost flat. A ~16,000-message folder that took ~70 s now takes ~40 s; output
+  validity is unchanged (verified against an independent MS-PST reader).
 
 ### Fixed
 - Writer: a failed split (e.g. the next part can't be created mid-conversion) no longer
