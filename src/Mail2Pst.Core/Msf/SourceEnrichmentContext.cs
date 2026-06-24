@@ -6,7 +6,6 @@ using System.IO;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Mork;
-using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 
@@ -22,19 +21,17 @@ namespace Mail2Pst.Core.Msf;
 internal sealed class SourceEnrichmentContext
 {
     private readonly MsfJoinIndex _index;
-    private readonly MboxDuplicateIdSet _mboxDuplicates;
     private readonly MsfEnrichmentOptions _options;
 
     public MsfEnrichmentResult Result { get; } = new();
 
-    private SourceEnrichmentContext(MsfJoinIndex index, MboxDuplicateIdSet mboxDuplicates, MsfEnrichmentOptions options)
+    private SourceEnrichmentContext(MsfJoinIndex index, MsfEnrichmentOptions options)
     {
         _index = index;
-        _mboxDuplicates = mboxDuplicates;
         _options = options;
     }
 
-    public bool Apply(MailMessage message) => MsfEnricher.TryApply(message, _index, _mboxDuplicates, _options, Result);
+    public bool Apply(MailMessage message) => MsfEnricher.TryApply(message, _index, _options, Result);
 
     public static SourceEnrichmentContext? TryCreate(
         SourceConfig source, MsfEnrichmentOptions options, ConversionReport report,
@@ -68,10 +65,12 @@ internal sealed class SourceEnrichmentContext
             return null;
         }
 
-        MboxDuplicateIdSet mboxDuplicates;
         try
         {
-            mboxDuplicates = MboxMessageIdScanner.ScanDuplicateIds(source.Path);
+            // Confirm the mbox is readable before committing to enrichment. A cheap open-probe, not a
+            // full scan: mbox-side duplicate Message-IDs no longer block enrichment (a unique .msf row
+            // applies to every copy), so the former headers-only duplicate pre-pass is gone.
+            using FileStream probe = File.OpenRead(source.Path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -82,7 +81,7 @@ internal sealed class SourceEnrichmentContext
         }
 
         report.RecordEnrichmentSource(attempted: true, enriched: true, degraded: false);
-        return new SourceEnrichmentContext(index, mboxDuplicates, options);
+        return new SourceEnrichmentContext(index, options);
     }
 
     // An .msf-specific degradation: record on the report AND emit the live WarningEvent so streaming

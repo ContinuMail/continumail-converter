@@ -41,11 +41,10 @@ public static class MsfEnricher
 
         var result = new MsfEnrichmentResult();
         MsfJoinIndex index = MsfJoinIndex.Build(msf);
-        MboxDuplicateIdSet mboxDuplicates = MboxDuplicateIdSet.FromMessages(messages);
         // Batch mode keeps every message: the per-message keep return (used by the streaming
         // path to drop expunged messages) is intentionally discarded here.
         foreach (MailMessage mail in messages)
-            _ = TryApply(mail, index, mboxDuplicates, options, result);
+            _ = TryApply(mail, index, options, result);
         return result;
     }
 
@@ -56,8 +55,7 @@ public static class MsfEnricher
     /// (the message should be dropped, not written); true in every other case.
     /// </summary>
     internal static bool TryApply(
-        MailMessage mail, MsfJoinIndex index, MboxDuplicateIdSet mboxDuplicates,
-        MsfEnrichmentOptions options, MsfEnrichmentResult result)
+        MailMessage mail, MsfJoinIndex index, MsfEnrichmentOptions options, MsfEnrichmentResult result)
     {
         string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
         if (key is null) { result.SkippedMissingId++; return true; }

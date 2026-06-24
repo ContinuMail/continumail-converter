@@ -33,8 +33,7 @@ public class MsfEnricherTests
         MailMessage mail, MsfReadResult msf, MsfEnrichmentOptions opts)
     {
         var result = new MsfEnrichmentResult();
-        bool keep = MsfEnricher.TryApply(
-            mail, MsfJoinIndex.Build(msf), MboxDuplicateIdSet.FromMessages(new[] { mail }), opts, result);
+        bool keep = MsfEnricher.TryApply(mail, MsfJoinIndex.Build(msf), opts, result);
         return (keep, result);
     }
 

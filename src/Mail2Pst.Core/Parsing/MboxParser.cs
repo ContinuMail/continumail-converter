@@ -103,14 +103,6 @@ public class MboxParser : IMailSourceParser
         EnumerateMessageChunks(rawStream, materialize: true, onBytesRead).Select(b => b!);
 
     /// <summary>
-    /// Exposes the raw per-message byte chunks using the EXACT same boundary engine as
-    /// <see cref="Parse"/>/<see cref="CountMessages"/>, so the ID pre-pass
-    /// (<see cref="MboxMessageIdScanner"/>) can never split differently from the real parse.
-    /// </summary>
-    internal static IEnumerable<byte[]> EnumerateRawMessages(Stream rawStream) =>
-        EnumerateMessageChunks(rawStream, materialize: true, onBytesRead: null).Select(b => b!);
-
-    /// <summary>
     /// THE single source of truth for "where do messages begin and end" in an mbox stream.
     /// Walks the stream once, line by line, using the shared <see cref="IsMessageBoundary"/>
     /// rule (a "From " line that is the first line, follows a blank line, or matches the

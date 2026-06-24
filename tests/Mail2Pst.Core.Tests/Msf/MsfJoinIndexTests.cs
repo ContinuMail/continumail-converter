@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Mork;
 using Mail2Pst.Core.Msf;
 using Xunit;
@@ -46,25 +44,5 @@ public class MsfJoinIndexTests
     {
         MsfJoinIndex idx = MsfJoinIndex.Build(Msf(Row("1", ("flags", "1")))); // no message-id cell
         Assert.False(idx.TryGetUnique("<x@h>", out _));
-    }
-
-    [Fact]
-    public void MboxDuplicateIdSet_FromMessages_FlagsRepeats()
-    {
-        var set = MboxDuplicateIdSet.FromMessages(new List<MailMessage>
-        {
-            new() { MessageId = "<a@h>" }, new() { MessageId = "<a@h>" }, new() { MessageId = "<b@h>" },
-        });
-        Assert.True(set.Contains("<a@h>"));
-        Assert.False(set.Contains("<b@h>"));
-    }
-
-    [Fact]
-    public void MboxDuplicateIdSet_FromCounts_FlagsGreaterThanOne()
-    {
-        var set = MboxDuplicateIdSet.FromCounts(new Dictionary<string, int>(StringComparer.Ordinal)
-            { ["<a@h>"] = 2, ["<b@h>"] = 1 });
-        Assert.True(set.Contains("<a@h>"));
-        Assert.False(set.Contains("<b@h>"));
     }
 }
