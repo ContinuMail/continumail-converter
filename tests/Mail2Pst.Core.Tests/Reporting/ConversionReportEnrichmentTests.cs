@@ -35,4 +35,23 @@ public class ConversionReportEnrichmentTests
         Assert.Contains("\"matched\": 5", report.ToJson());
         Assert.Contains("Enrichment", report.ToSummary());
     }
+
+    [Fact]
+    public void RecordEnrichmentCounts_AggregatesLiveOffsetCounters_AcrossSources()
+    {
+        var report = new Mail2Pst.Core.Reporting.ConversionReport();
+        report.RecordEnrichmentCounts(new Mail2Pst.Core.Msf.MsfEnrichmentResult
+        {
+            OrphanedCopiesDropped = 4, LiveOffsetFilterEnabledSources = 1, DuplicateLiveOffsets = 1,
+        });
+        report.RecordEnrichmentCounts(new Mail2Pst.Core.Msf.MsfEnrichmentResult
+        {
+            LiveOffsetFilterDisabledSources = 2,
+        });
+        Mail2Pst.Core.Reporting.MsfEnrichmentSummary s = report.EnrichmentSummary;
+        Assert.Equal(4, s.OrphanedCopiesDropped);
+        Assert.Equal(1, s.LiveOffsetFilterEnabledSources);
+        Assert.Equal(2, s.LiveOffsetFilterDisabledSources);
+        Assert.Equal(1, s.DuplicateLiveOffsets);
+    }
 }

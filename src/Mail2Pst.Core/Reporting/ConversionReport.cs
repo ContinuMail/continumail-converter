@@ -24,6 +24,7 @@ public class ConversionReport
 
     private int _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged, _enrDropped;
     private int _srcAttempted, _srcEnriched, _srcDegraded;
+    private int _enrOrphanDropped, _lofEnabled, _lofDisabled, _lofDuplicates;
 
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
 
@@ -89,6 +90,10 @@ public class ConversionReport
             _enrNoMatch += result.NoMsfMatch;
             _enrExpunged += result.ExpungedMatched;
             _enrDropped += result.ExpungedDropped;
+            _enrOrphanDropped += result.OrphanedCopiesDropped;
+            _lofEnabled += result.LiveOffsetFilterEnabledSources;
+            _lofDisabled += result.LiveOffsetFilterDisabledSources;
+            _lofDuplicates += result.DuplicateLiveOffsets;
         }
     }
 
@@ -100,7 +105,8 @@ public class ConversionReport
                 return new MsfEnrichmentSummary(
                     _enrMatched, _enrMissing, _enrDup, _enrNoMatch, _enrExpunged,
                     _enrDropped,
-                    _srcAttempted, _srcEnriched, _srcDegraded);
+                    _srcAttempted, _srcEnriched, _srcDegraded,
+                    _enrOrphanDropped, _lofEnabled, _lofDisabled, _lofDuplicates);
         }
     }
 
@@ -158,7 +164,9 @@ public class ConversionReport
             $"Enrichment: matched={enr.Matched} missingId={enr.SkippedMissingId} " +
             $"duplicateId={enr.SkippedDuplicateId} noMsfMatch={enr.NoMsfMatch} expunged={enr.ExpungedMatched} " +
             $"dropped={enr.ExpungedDropped} " +
-            $"(sources attempted={enr.SourcesAttempted} enriched={enr.SourcesEnriched} degraded={enr.SourcesDegraded})");
+            $"(sources attempted={enr.SourcesAttempted} enriched={enr.SourcesEnriched} degraded={enr.SourcesDegraded}) " +
+            $"orphansDropped={enr.OrphanedCopiesDropped} lofEnabled={enr.LiveOffsetFilterEnabledSources} " +
+            $"lofDisabled={enr.LiveOffsetFilterDisabledSources} dupLiveOffsets={enr.DuplicateLiveOffsets}");
 
         return builder.ToString();
     }

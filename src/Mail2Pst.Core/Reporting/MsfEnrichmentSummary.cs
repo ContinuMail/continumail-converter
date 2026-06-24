@@ -11,4 +11,6 @@ namespace Mail2Pst.Core.Reporting;
 public sealed record MsfEnrichmentSummary(
     int Matched, int SkippedMissingId, int SkippedDuplicateId, int NoMsfMatch, int ExpungedMatched,
     int ExpungedDropped,
-    int SourcesAttempted, int SourcesEnriched, int SourcesDegraded);
+    int SourcesAttempted, int SourcesEnriched, int SourcesDegraded,
+    int OrphanedCopiesDropped, int LiveOffsetFilterEnabledSources,
+    int LiveOffsetFilterDisabledSources, int DuplicateLiveOffsets);

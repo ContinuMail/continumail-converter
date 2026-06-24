@@ -24,6 +24,10 @@ public sealed class MsfEnrichmentResult
     public int NoMsfMatch { get; set; }
     public int ExpungedMatched { get; set; }
     public int ExpungedDropped { get; set; }
+    public int OrphanedCopiesDropped { get; set; }
+    public int LiveOffsetFilterEnabledSources { get; set; }
+    public int LiveOffsetFilterDisabledSources { get; set; }
+    public int DuplicateLiveOffsets { get; set; }
 }
 
 /// <summary>
