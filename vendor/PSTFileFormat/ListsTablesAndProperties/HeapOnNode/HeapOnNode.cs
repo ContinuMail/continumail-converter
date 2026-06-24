@@ -8,7 +8,6 @@
  */
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text;
 using Utilities;
 
@@ -23,22 +22,48 @@ namespace PSTFileFormat
         private Dictionary<int, HeapOnNodeBlockData> m_buffer = new Dictionary<int,HeapOnNodeBlockData>();
         private List<int> m_blocksToUpdate = new List<int>();
 
-        // Rolling free-space hint: the lowest block index not provably full. Allocation scans from here
-        // instead of 0, turning AddItemToHeap from O(blocks) into O(1) amortized. It only ever advances
-        // past blocks that can fit NO item, so first-fit placement is identical to a scan from 0.
-        private int m_firstBlockWithPossibleSpace = 0;
+        // Test-only: number of candidate-block evaluations during allocation (must stay ~O(items)).
+        internal long ScanIterationsForTest { get; private set; }
+
+        // Free-space index for O(log n) best-fit allocation regardless of item-size mix.
+        // m_freeSpaceIndex holds (availableSpace, blockIndex) for every NOT-provably-full block;
+        // m_blockAvail maps blockIndex -> its recorded availableSpace so the exact tuple can be removed;
+        // m_indexedBlockCount = number of data-tree blocks already passed through ReindexBlock.
+        private readonly SortedSet<(int availableSpace, int blockIndex)> m_freeSpaceIndex = new();
+        private readonly Dictionary<int, int> m_blockAvail = new();
+        private int m_indexedBlockCount = 0;
 
         // EXACT copy of the AddItemToHeap fit predicate (do not change > to >=, do not drop the count cap).
         private bool BlockCanFit(HeapOnNodeBlockData blockData, int itemLength) =>
             blockData.AvailableSpace > itemLength + 2 && blockData.HeapItems.Count < HeapID.MaximumHidIndex;
 
-        // "Provably full" = cannot fit even a 1-byte item. Advancing past such blocks is always safe.
-        private void AdvanceCursorPastProvablyFullBlocks()
+        // Maintain the free-space index for one block after any change to its heap items. A block is in
+        // the index iff it can fit >= a 1-byte item (BlockCanFit(_, 1)); count-full blocks fall out via
+        // the count cap. Bitmap blocks are treated uniformly (their AvailableSpace accounts for the
+        // bitmap header). MUST be called after every UpdateBuffer that changed heap items.
+        private void ReindexBlock(int blockIndex, HeapOnNodeBlockData blockData)
         {
-            while (m_firstBlockWithPossibleSpace < m_dataTree.DataBlockCount &&
-                   !BlockCanFit(GetBlockData(m_firstBlockWithPossibleSpace), 1))
+            if (m_blockAvail.TryGetValue(blockIndex, out int oldAvail))
             {
-                m_firstBlockWithPossibleSpace++;
+                m_freeSpaceIndex.Remove((oldAvail, blockIndex));
+                m_blockAvail.Remove(blockIndex);
+            }
+            if (BlockCanFit(blockData, 1))
+            {
+                int avail = blockData.AvailableSpace;
+                m_freeSpaceIndex.Add((avail, blockIndex));
+                m_blockAvail[blockIndex] = avail;
+            }
+        }
+
+        // Lazily index all existing data-tree blocks before an allocation query. Fresh heap: indexes
+        // block 0 on first allocation. Reopened heap: indexes existing blocks once. Read-only opens
+        // never call AddItemToHeap, so they never pay this and stay lazy.
+        private void EnsureBlocksIndexed()
+        {
+            for (; m_indexedBlockCount < m_dataTree.DataBlockCount; m_indexedBlockCount++)
+            {
+                ReindexBlock(m_indexedBlockCount, GetBlockData(m_indexedBlockCount));
             }
         }
 
@@ -124,33 +149,47 @@ namespace PSTFileFormat
             {
                 return HeapID.EmptyHeapID;
             }
-            
-            // We can use the Header / BitmapHeader to locate available space,
-            // but the final authority is HNPAGEMAP located at the end of each block
-            // Note: we are only required to maintain HNPAGEMAP
-            // Skip the provably-full prefix (amortized O(1) total), then first-fit from the cursor.
-            AdvanceCursorPastProvablyFullBlocks();
-            for (int blockIndex = m_firstBlockWithPossibleSpace; blockIndex < m_dataTree.DataBlockCount; blockIndex ++)
+
+            EnsureBlocksIndexed();
+
+            // Best-fit: smallest availableSpace satisfying BlockCanFit (> len+2  ==>  >= len+3).
+            // Take the view's first element via foreach+break (smallest in range) and only mutate
+            // (ReindexBlock) AFTER the enumerator is disposed — never mutate the set mid-enumeration,
+            // and never read view.Count (it can be O(n)). The loop repeats only on a stale entry.
+            int lowerAvail = itemBytes.Length + 3;
+            while (true)
             {
-                HeapOnNodeBlockData blockData = GetBlockData(blockIndex);
-                // We need space for the item itself and for a place for it in the page map (2 bytes)
-                // We also have to make sure we do not allocate more items then can be represented by hidIndex
+                (int availableSpace, int blockIndex) candidate = default;
+                bool found = false;
+                foreach (var entry in m_freeSpaceIndex.GetViewBetween((lowerAvail, int.MinValue), (int.MaxValue, int.MaxValue)))
+                {
+                    candidate = entry;
+                    found = true;
+                    break;
+                }
+                if (!found)
+                {
+                    break;
+                }
+
+                ScanIterationsForTest++;
+                HeapOnNodeBlockData blockData = GetBlockData(candidate.blockIndex);
                 if (BlockCanFit(blockData, itemBytes.Length))
                 {
                     blockData.HeapItems.Add(itemBytes);
-                    UpdateBuffer(blockIndex, blockData);
-
+                    UpdateBuffer(candidate.blockIndex, blockData);
+                    ReindexBlock(candidate.blockIndex, blockData);
                     // hidIndex is one-based
-                    ushort hidIndex = (ushort)(blockData.HeapItems.Count);
-                    return new HeapID((ushort)blockIndex, hidIndex);
+                    return new HeapID((ushort)candidate.blockIndex, (ushort)blockData.HeapItems.Count);
                 }
+                ReindexBlock(candidate.blockIndex, blockData); // stale entry: correct it, then re-query
             }
 
-            // no space found in existing blocks, we need to allocate new data block
+            // No existing block fits: allocate a new data block. PRESERVE the existing construction
+            // exactly (the % 128 == 8 branch creates a bitmap block; the item is added to whichever
+            // block is created — this implementation places items in bitmap blocks). Then index it.
+            ScanIterationsForTest++; // the "no indexed block fits" decision
             int newBlockIndex = m_dataTree.DataBlockCount;
-            // The leading AdvanceCursor... guarantees every block below the cursor is provably full,
-            // so a new block is only appended after a fully-full prefix.
-            Debug.Assert(m_firstBlockWithPossibleSpace <= newBlockIndex);
             HeapOnNodeBlockData newBlockData;
             if (newBlockIndex % 128 == 8)
             {
@@ -162,6 +201,8 @@ namespace PSTFileFormat
             }
             newBlockData.HeapItems.Add(itemBytes);
             this.DataTree.AddDataBlock(newBlockData.GetBytes());
+            ReindexBlock(newBlockIndex, newBlockData);
+            m_indexedBlockCount = m_dataTree.DataBlockCount; // account for the just-appended block
             // hidIndex is one-based
             return new HeapID((ushort)newBlockIndex, 1);
         }
@@ -169,13 +210,6 @@ namespace PSTFileFormat
         public void RemoveItemFromHeap(HeapID heapID)
         {
             int blockIndex = heapID.hidBlockIndex;
-            // Removal frees space in an earlier block; lower the cursor so it stays discoverable.
-            // Defensive bounds check so the cursor never becomes a second failure mode for a bad id
-            // (the GetBlockData below validates the index for real).
-            if (blockIndex >= 0 && blockIndex < m_dataTree.DataBlockCount)
-            {
-                m_firstBlockWithPossibleSpace = Math.Min(m_firstBlockWithPossibleSpace, blockIndex);
-            }
             HeapOnNodeBlockData blockData = GetBlockData(blockIndex);
             // We can't remove the HeapItem, because then the HeapID of the subsequent items will be incorrect
             // So instead we put an empty item instead of the item we wish to remove.
@@ -185,6 +219,7 @@ namespace PSTFileFormat
             blockData.HeapItems[heapID.hidIndex - 1] = new byte[0];
             CompactBlockData(blockData);
             UpdateBuffer(blockIndex, blockData);
+            ReindexBlock(blockIndex, blockData);
         }
 
         /// <summary>
@@ -202,6 +237,7 @@ namespace PSTFileFormat
             {
                 blockData.HeapItems[heapID.hidIndex - 1] = itemBytes;
                 UpdateBuffer(blockIndex, blockData);
+                ReindexBlock(blockIndex, blockData);
                 return true;
             }
             else

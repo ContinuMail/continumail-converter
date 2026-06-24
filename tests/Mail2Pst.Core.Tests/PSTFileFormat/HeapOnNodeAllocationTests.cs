@@ -88,4 +88,17 @@ public class HeapOnNodeAllocationTests : IDisposable
         Assert.Equal(0, first.hidBlockIndex);
         Assert.NotEqual(first.hidBlockIndex, overflow.hidBlockIndex);
     }
+
+    // The regression guard the cursor lacked: allocation scan cost must stay ~O(items) under the
+    // real mixed-size workload (alternating search-key ~22 B and message-id ~80 B), not O(items^2).
+    [Fact]
+    public void Allocation_ScanCost_IsLinear_UnderMixedSizes()
+    {
+        HeapOnNode heap = NewHeap();
+        const int N = 5000;
+        for (int i = 0; i < N; i++)
+            heap.AddItemToHeap(new byte[(i % 2 == 0) ? 22 : 80]);
+        Assert.True(heap.ScanIterationsForTest <= 4L * N,
+            $"scan cost not linear: {heap.ScanIterationsForTest} iters for {N} items (limit {4L * N})");
+    }
 }
