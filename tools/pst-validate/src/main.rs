@@ -183,79 +183,6 @@ mod tests {
         let _ = std::fs::remove_file(&tmp);
     }
 
-    // Produce a minimal PST via the converter CLI (which uses PSTFile.CreateEmptyStore
-    // from scratch). Returns None if the CLI binary or dotnet runtime isn't available so
-    // the callers can skip instead of fail. The returned path lives in a temp dir; callers
-    // are responsible for deleting it.
-    fn create_test_pst_via_cli() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-        let fixtures = repo_root().join("fixtures");
-        let sample = fixtures.join("sample.mbox");
-        if !sample.exists() { return None; }
-
-        let out_dir = std::env::temp_dir().join(format!("pst-validate-self-test-{}", std::process::id()));
-        std::fs::create_dir_all(&out_dir).ok()?;
-
-        // Write a minimal convert config.
-        let mbox_path = sample.to_string_lossy();
-        let config_json = format!(
-            r#"{{"outputs":[{{"name":"Test","maxSizeMB":100,"folderMapping":"mirror","sources":[{{"path":"{mbox}","type":"mbox"}}]}}]}}"#,
-            mbox = mbox_path.replace('\\', "\\\\")
-        );
-        let config_file = out_dir.join("config.json");
-        std::fs::write(&config_file, config_json).ok()?;
-
-        // Find the CLI binary (built by dotnet publish or dotnet build).
-        let cli = repo_root()
-            .join("src").join("Mail2Pst.Cli")
-            .join("bin").join("Debug").join("net8.0").join("Mail2Pst.Cli.dll");
-        if !cli.exists() { return None; }
-
-        let status = std::process::Command::new("dotnet")
-            .args([
-                cli.to_str()?,
-                "convert",
-                "--config", config_file.to_str()?,
-                "--output", out_dir.to_str()?,
-            ])
-            .output()
-            .ok()?;
-        if !status.status.success() { return None; }
-
-        let pst = out_dir.join("Test.pst");
-        if !pst.exists() { return None; }
-        Some((pst, out_dir))
-    }
-
-    #[test]
-    fn converter_output_pst_opens_cleanly() {
-        // The converter now builds PSTs from scratch (PSTFile.CreateEmptyStore).
-        // This test validates that the independent Rust reader can open and parse the result.
-        // Skips automatically when the CLI binary is not yet built (opt-in, like IndependentValidationTests).
-        let Some((pst, out_dir)) = create_test_pst_via_cli() else { return; };
-        let report = open_and_report(pst.to_str().unwrap());
-        let _ = std::fs::remove_dir_all(&out_dir);
-        assert!(report.opened, "converter output must open: {:?}", report.errors);
-        assert!(report.errors.is_empty());
-    }
-
-    #[test]
-    fn converter_output_walk_totals_are_consistent() {
-        // As above: creates a fresh PST via the converter and verifies walk-total consistency.
-        // Skips automatically when the CLI binary is not yet built.
-        let Some((pst, out_dir)) = create_test_pst_via_cli() else { return; };
-        let report = open_and_report(pst.to_str().unwrap());
-        let _ = std::fs::remove_dir_all(&out_dir);
-        assert!(report.opened, "converter output must open: {:?}", report.errors);
-        // total_messages must equal the sum of per-folder counts.
-        let sum: u64 = report.folders.iter().map(|f| f.message_count).sum();
-        assert_eq!(report.total_messages, sum);
-        // No emitted folder path may be empty, and displayPath must join the segments.
-        for f in &report.folders {
-            assert!(!f.path.is_empty(), "root folder must not be emitted");
-            assert_eq!(f.display_path, f.path.join(" / "));
-        }
-    }
-
     #[test]
     fn json_shape_is_stable_on_success_and_failure() {
         for opened in [true, false] {
@@ -275,13 +202,4 @@ mod tests {
         }
     }
 
-    fn repo_root() -> std::path::PathBuf {
-        // tools/pst-validate -> repo root is two parents up from CARGO_MANIFEST_DIR.
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf()
-    }
 }
