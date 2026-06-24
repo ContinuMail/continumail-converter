@@ -44,11 +44,12 @@ authoritative description of the local PSTFileFormat modifications.
   each, producing a zeroed BTree leaf page with a valid page trailer (ContinuMail, 2026).
 - `Pages/DensityListPage.cs`: added `CreateEmpty` factory, producing the empty Density List page
   that Outlook expects at offset 0x4200 in every store (ContinuMail, 2026).
-- `HeapOnNode.cs`: added a rolling free-space cursor (`m_firstBlockWithPossibleSpace`) so
-  `AddItemToHeap` scans for free space starting from the lowest not-provably-full block instead of
-  block 0, turning per-allocation O(blocks) into O(1) amortized for append-heavy use (fixes the
-  O(n²) growth in `PSTFolder.AddMessage`'s contents-table row index). First-fit placement is
-  unchanged; the cursor advances only past blocks that can fit no item and resets on removal
-  (ContinuMail, 2026).
+- `HeapOnNode.cs`: replaced the linear free-space scan in `AddItemToHeap` with a maintained best-fit
+  free-space index — a `SortedSet<(availableSpace, blockIndex)>` over not-provably-full blocks plus a
+  per-block available-space map, queried in O(log n) and verified against the real block before use,
+  maintained on every heap-item mutation and populated lazily at first allocation. This makes
+  allocation cost independent of block count and item-size mix (fixes the O(n²) growth in
+  `PSTFolder.AddMessage`'s per-row external columns). Allocation placement changes from first-fit to
+  best-fit (valid PSTs; not byte-identical to prior output) (ContinuMail, 2026).
 
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
