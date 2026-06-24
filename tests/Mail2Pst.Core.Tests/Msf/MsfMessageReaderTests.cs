@@ -347,6 +347,42 @@ public class MsfMessageReaderTests
         Assert.True(m.IsJunk);
     }
 
+    // Convenience shorthand: run the full reader pipeline on the given rows.
+    private static MsfReadResult Msf(params MorkRow[] rows) =>
+        MsfMessageReader.Read(MsgsDoc(rows));
+
+    [Fact]
+    public void StoreToken_NumericOnly_BecomesLiveOffset()
+    {
+        MsfReadResult r = Msf(Row("1", ("message-id", "a@h"), ("storeToken", "542614")));
+        MsfMessage m = r.Messages.Single();
+        Assert.Equal(542614L, m.StoreToken);
+        Assert.Equal(542614L, m.LiveOffset);   // storeToken present -> live offset
+    }
+
+    [Fact]
+    public void StoreToken_PreferredOverMsgOffset_ForLiveOffset()
+    {
+        MsfReadResult r = Msf(Row("1", ("storeToken", "900"), ("msgOffset", "100")));
+        Assert.Equal(900L, r.Messages.Single().LiveOffset);  // storeToken wins
+    }
+
+    [Fact]
+    public void StoreToken_NonNumeric_FallsBackToMsgOffset()
+    {
+        MsfReadResult r = Msf(Row("1", ("storeToken", "abc123"), ("msgOffset", "100")));
+        MsfMessage m = r.Messages.Single();
+        Assert.Null(m.StoreToken);            // maildir-style token -> not numeric
+        Assert.Equal(100L, m.LiveOffset);     // legacy fallback
+    }
+
+    [Fact]
+    public void NoOffsetColumns_LiveOffsetNull()
+    {
+        MsfReadResult r = Msf(Row("1", ("message-id", "a@h")));
+        Assert.Null(r.Messages.Single().LiveOffset);
+    }
+
     [Fact]
     public void Read_ParseStringSmoke_InterpretsMsgsTableCells()
     {

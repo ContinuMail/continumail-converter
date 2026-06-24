@@ -51,10 +51,11 @@ public static class MsfMessageReader
         IReadOnlyList<string> keywords = ParseKeywords(row);
         int label = ParseLabel(row, diagnostics);
         long? msgOffset = ParseMsgOffset(row, diagnostics);
+        long? storeToken = ParseStoreToken(row);
         int? priority = ParsePriority(row, diagnostics);
         string? messageId = ParseMessageId(row);
 
-        return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, priority, messageId);
+        return new MsfMessage(row.Id, flags, junkScore, keywords, label, msgOffset, storeToken, priority, messageId);
     }
 
     // Thunderbird nsMsgPriority (decimal, like junkscore/label — not the hex `flags`). Kept verbatim
@@ -98,6 +99,19 @@ public static class MsfMessageReader
 
         diagnostics.Add(new MsfDiagnostic(row.Id, "msgOffset", raw, "not a non-negative integer"));
         return null;
+    }
+
+    private static long? ParseStoreToken(MorkRow row)
+    {
+        if (!row.TryGetCell("storeToken", out string raw) || raw.Length == 0)
+            return null;
+        // A non-numeric storeToken (e.g. the maildir store, where it is a filename) is NORMAL, not a parse
+        // error: yield no offset, emit NO diagnostic, and NEVER mark the .msf degraded. Per the spec
+        // (must-fix 6), the live-offset filter's activation rules handle "no usable offset" safely by
+        // keeping all messages. Degradation remains reserved for the .msf-structure failures
+        // (MorkFormatException / the KB-003 two-tables case) the reader already raises.
+        return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) && value >= 0
+            ? value : null;
     }
 
     private static int ParseLabel(MorkRow row, List<MsfDiagnostic> diagnostics)

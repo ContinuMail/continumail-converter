@@ -17,6 +17,10 @@ public sealed class MsfMessage
     public IReadOnlyList<string> Keywords { get; }
     public int Label { get; }
     public long? MsgOffset { get; }
+    public long? StoreToken { get; }
+    /// <summary>The message's mbox byte offset Thunderbird records: storeToken (modern mbox store)
+    /// preferred, msgOffset (legacy Berkeley) as fallback. Null if neither is a usable number.</summary>
+    public long? LiveOffset => StoreToken ?? MsgOffset;
     /// <summary>Raw Thunderbird nsMsgPriority (0=notSet,1=none,2=lowest,3=low,4=normal,5=high,6=highest); null if absent. Faithful mirror — mapping to importance is the enricher's job.</summary>
     public int? Priority { get; }
     public string? MessageId { get; }
@@ -28,6 +32,7 @@ public sealed class MsfMessage
         IReadOnlyList<string> keywords,
         int label,
         long? msgOffset,
+        long? storeToken,
         int? priority,
         string? messageId)
     {
@@ -38,6 +43,7 @@ public sealed class MsfMessage
         Keywords = new ReadOnlyCollection<string>(keywords.ToList()); // defensive copy
         Label = label;
         MsgOffset = msgOffset;
+        StoreToken = storeToken;
         Priority = priority;
         MessageId = messageId;
     }
