@@ -10,17 +10,17 @@ using Xunit;
 
 namespace Mail2Pst.Core.Tests.PSTFileFormat;
 
-// Characterization + regression guards for HeapOnNode allocation. They pin behavior so the
-// rolling-cursor change (m_firstBlockWithPossibleSpace) stays behavior-preserving: identical
-// block placement, never skipping reusable space. The throughput win itself is proven by the
-// MAIL2PST_PROFILE re-run, not here.
+// Placement-agnostic characterization + regression guards for HeapOnNode allocation. They assert
+// correctness, space reuse, and the count cap — NOT exact block placement (the free-space-index
+// allocator uses best-fit, so placement differs from the old first-fit scan; placement is internal
+// and items resolve by HeapID regardless). A standalone heap is created via CreateNewHeap (a bare
+// `new HeapOnNode(new DataTree(file))` cannot bootstrap a heap). HN blocks ~8176 B => ~2 max-size
+// (3580 B) items per block; block index 8 is the first bitmap block.
 public class HeapOnNodeAllocationTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"m2p-hon-{Guid.NewGuid():N}.pst");
     private global::PSTFileFormat.PSTFile? _file;
 
-    // A bare HeapOnNode cannot bootstrap itself (no HN header on block 0); CreateNewHeap is the
-    // legitimate factory. HN blocks hold ~8176 bytes => ~2 max-size (3580) items per block.
     private HeapOnNode NewHeap()
     {
         global::PSTFileFormat.PSTFile.CreateEmptyStore(_path);
@@ -29,11 +29,7 @@ public class HeapOnNodeAllocationTests : IDisposable
         return HeapOnNode.CreateNewHeap(_file);
     }
 
-    public void Dispose()
-    {
-        try { _file?.CloseFile(); } catch { }
-        File.Delete(_path);
-    }
+    public void Dispose() { try { _file?.CloseFile(); } catch { } File.Delete(_path); }
 
     [Fact]
     public void Heap_RoundTrips_ItemsSpanningManyBlocks()
@@ -50,37 +46,6 @@ public class HeapOnNodeAllocationTests : IDisposable
             Assert.Equal(data, heap.GetHeapItem(id));
     }
 
-    // The core safety rule: a large item that cannot fit an earlier block must NOT cause the
-    // cursor to skip that block — a later small item must still reuse the earlier block's space.
-    [Fact]
-    public void LargeItem_DoesNotAdvanceCursorPast_BlockWithSmallSpace()
-    {
-        HeapOnNode heap = NewHeap();
-        heap.AddItemToHeap(new byte[3580]);                 // block 0
-        HeapID b = heap.AddItemToHeap(new byte[3580]);      // block 0 (2 max items per ~8176 block)
-        Assert.Equal(0, b.hidBlockIndex);                   // block 0 now ~1 KB free
-        HeapID large = heap.AddItemToHeap(new byte[2000]);  // does NOT fit block 0 -> later block
-        HeapID tiny = heap.AddItemToHeap(new byte[100]);    // must reuse block 0's small space
-        Assert.True(large.hidBlockIndex > 0, $"large.blk={large.hidBlockIndex}");
-        Assert.Equal(0, tiny.hidBlockIndex);
-    }
-
-    [Fact]
-    public void AddAfterRemove_ReusesFreedSpaceInEarlierBlock()
-    {
-        HeapOnNode heap = NewHeap();
-        HeapID first = heap.AddItemToHeap(new byte[3580]);  // block 0
-        heap.AddItemToHeap(new byte[3580]);                 // block 0
-        heap.AddItemToHeap(new byte[3580]);                 // block 1
-        heap.AddItemToHeap(new byte[3580]);                 // block 1
-        heap.RemoveItemFromHeap(first);                     // frees ~3.5 KB in block 0
-        HeapID reused = heap.AddItemToHeap(new byte[3000]); // fits the freed block-0 space
-        Assert.Equal(0, reused.hidBlockIndex);
-    }
-
-    // Bitmap blocks (index 8, then every 128) hold no items; allocation must cross them cleanly.
-    // The cursor does not special-case them — they are governed by the existing AvailableSpace /
-    // block-kind checks (BlockCanFit treats a bitmap block as not-fitting and the cursor skips it).
     [Fact]
     public void Allocation_CrossesBitmapBlock_AndRoundTrips()
     {
@@ -97,5 +62,30 @@ public class HeapOnNodeAllocationTests : IDisposable
         Assert.True(maxBlk >= 8, $"did not cross bitmap block 8; maxBlk={maxBlk}");
         foreach (var (id, d) in ids)
             Assert.Equal(d, heap.GetHeapItem(id));
+    }
+
+    // Freed space in an existing block must be reused rather than always growing the heap.
+    [Fact]
+    public void Reuse_AfterRemove_DoesNotGrowHeap()
+    {
+        HeapOnNode heap = NewHeap();
+        HeapID a = heap.AddItemToHeap(new byte[3580]);   // block 0
+        heap.AddItemToHeap(new byte[3580]);              // block 0
+        heap.AddItemToHeap(new byte[3580]);              // block 1 (max existing index = 1)
+        heap.RemoveItemFromHeap(a);                      // frees ~3.5 KB in block 0
+        HeapID reused = heap.AddItemToHeap(new byte[3000]);
+        Assert.True(reused.hidBlockIndex <= 1, $"expected reuse of an existing block, got blk={reused.hidBlockIndex}");
+    }
+
+    // A block at the HID-index cap (MaximumHidIndex) must not be reused even though it has free space.
+    [Fact]
+    public void CountCap_FullBlock_NotReused_DespiteSpace()
+    {
+        HeapOnNode heap = NewHeap();
+        HeapID first = heap.AddItemToHeap(new byte[1]);
+        for (int i = 1; i < 2047; i++) heap.AddItemToHeap(new byte[1]);   // block 0 now at HID cap, space remains
+        HeapID overflow = heap.AddItemToHeap(new byte[1]);
+        Assert.Equal(0, first.hidBlockIndex);
+        Assert.NotEqual(first.hidBlockIndex, overflow.hidBlockIndex);
     }
 }
