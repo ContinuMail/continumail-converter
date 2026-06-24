@@ -127,6 +127,74 @@ public class SourceEnrichmentContextTests
     }
 
     [Fact]
+    public void TryCreate_AlignedMsf_FiltersOrphans_ByIndex()
+    {
+        // Two physical messages; .msf lists only the SECOND as live (storeToken = its byte offset).
+        string m1 = "From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n\n";
+        string m2 = "From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n";
+        long secondOffset = System.Text.Encoding.ASCII.GetByteCount(m1);
+        string mbox = Write(m1 + m2, ".mbox");
+        string msf = Write(
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(CE=storeToken) >\n" +
+            "{1:^80 {(k^96:c)} [1(^88=1)(^CE=" + secondOffset + ")] }", ".msf");
+        var report = new ConversionReport();
+        try
+        {
+            var ctx = SourceEnrichmentContext.TryCreate(
+                new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report);
+            Assert.NotNull(ctx);
+            Assert.True(ctx!.ShouldDropOrphan(0));    // index 0 = dead copy
+            Assert.False(ctx.ShouldDropOrphan(1));    // index 1 = live
+            Assert.Equal(0, ctx.Result.OrphanedCopiesDropped); // PURE predicate: no mutation (counted in runner)
+            Assert.Equal(1, ctx.Result.LiveOffsetFilterEnabledSources); // set on Result in TryCreate
+        }
+        finally { File.Delete(mbox); File.Delete(msf); }
+    }
+
+    [Fact]
+    public void TryCreate_MisalignedMsf_DisablesFilter_KeepsAll_Warns()
+    {
+        string mbox = Write("From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n", ".mbox");
+        string msf = Write(
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(CE=storeToken) >\n" +
+            "{1:^80 {(k^96:c)} [1(^88=1)(^CE=999999)] }", ".msf"); // offset matches no boundary
+        var report = new ConversionReport();
+        try
+        {
+            var ctx = SourceEnrichmentContext.TryCreate(
+                new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report);
+            Assert.NotNull(ctx);
+            Assert.False(ctx!.ShouldDropOrphan(0));   // disabled -> never drops
+            Assert.Equal(1, ctx.Result.LiveOffsetFilterDisabledSources);
+            Assert.Equal(1, report.WarningCount);     // disabled warning recorded immediately in TryCreate
+        }
+        finally { File.Delete(mbox); File.Delete(msf); }
+    }
+
+    [Fact]
+    public void TryCreate_OneRowWithoutUsableOffset_DisablesFilter_KeepsAll_Warns()
+    {
+        // Two physical messages; .msf has the first row's storeToken numeric but the second row has NO
+        // usable offset -> activation condition 3 fails -> keep all + warn (must-fix 2).
+        string m1 = "From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n\n";
+        string mbox = Write(m1 + "From c@d\nMessage-ID: <c@h>\nSubject: t\n\nbody\n", ".mbox");
+        string msf = Write(
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(CE=storeToken) >\n" +
+            "{1:^80 {(k^96:c)} [1(^88=1)(^CE=0)] [2(^88=1)] }", ".msf"); // row 2 has no storeToken
+        var report = new ConversionReport();
+        try
+        {
+            var ctx = SourceEnrichmentContext.TryCreate(
+                new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report);
+            Assert.NotNull(ctx);
+            Assert.False(ctx!.ShouldDropOrphan(0));   // disabled -> nothing dropped, even index 0
+            Assert.Equal(1, ctx.Result.LiveOffsetFilterDisabledSources);
+            Assert.Equal(1, report.WarningCount);
+        }
+        finally { File.Delete(mbox); File.Delete(msf); }
+    }
+
+    [Fact]
     public void TryCreate_LockedMsf_Degrades()
     {
         // FileShare.None deterministically blocks the open on Windows (the product's target OS); Unix

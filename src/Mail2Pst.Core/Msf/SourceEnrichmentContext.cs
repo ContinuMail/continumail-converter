@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Mork;
+using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 
@@ -22,16 +25,23 @@ internal sealed class SourceEnrichmentContext
 {
     private readonly MsfJoinIndex _index;
     private readonly MsfEnrichmentOptions _options;
+    private readonly LiveOffsetFilterResult _filter;
 
     public MsfEnrichmentResult Result { get; } = new();
 
-    private SourceEnrichmentContext(MsfJoinIndex index, MsfEnrichmentOptions options)
+    private SourceEnrichmentContext(MsfJoinIndex index, MsfEnrichmentOptions options, LiveOffsetFilterResult filter)
     {
         _index = index;
         _options = options;
+        _filter = filter;
     }
 
     public bool Apply(MailMessage message) => MsfEnricher.TryApply(message, _index, _options, Result);
+
+    /// <summary>Pure predicate (no mutation). True iff filtering is active and this index is not live.
+    /// The caller increments OrphanedCopiesDropped at the actual drop site.</summary>
+    public bool ShouldDropOrphan(int messageIndex) =>
+        _filter.Active && !_filter.KeepIndices.Contains(messageIndex);
 
     public static SourceEnrichmentContext? TryCreate(
         SourceConfig source, MsfEnrichmentOptions options, ConversionReport report,
@@ -53,10 +63,11 @@ internal sealed class SourceEnrichmentContext
         }
 
         MsfJoinIndex index;
+        MsfReadResult msf;
         try
         {
             MorkDocument doc = MorkReader.ParseSharedReadWrite(msfPath);
-            MsfReadResult msf = MsfMessageReader.Read(doc);
+            msf = MsfMessageReader.Read(doc);
             index = MsfJoinIndex.Build(msf);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or MorkFormatException)
@@ -65,23 +76,45 @@ internal sealed class SourceEnrichmentContext
             return null;
         }
 
+        LiveOffsetFilterResult filter;
         try
         {
-            // Confirm the mbox is readable before committing to enrichment. A cheap open-probe, not a
-            // full scan: mbox-side duplicate Message-IDs no longer block enrichment (a unique .msf row
-            // applies to every copy), so the former headers-only duplicate pre-pass is gone.
-            using FileStream probe = File.OpenRead(source.Path);
+            IReadOnlyList<long> physical = new MboxParser().ScanMessageStartOffsets(source.Path);
+            long fileLength = new FileInfo(source.Path).Length;
+            var liveOffsets = msf.Messages.Select(m => m.LiveOffset).ToList();
+            filter = LiveOffsetFilter.Evaluate(liveOffsets, physical, fileLength);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The mbox itself is missing/unreadable — NOT an .msf degradation. The normal parse path
-            // records the single authoritative source skip; do not warn or count degraded here.
+            // mbox missing/unreadable — not an .msf degradation; the parse path reports the source skip once.
             report.RecordEnrichmentSource(attempted: true, enriched: false, degraded: false);
             return null;
         }
 
         report.RecordEnrichmentSource(attempted: true, enriched: true, degraded: false);
-        return new SourceEnrichmentContext(index, options);
+        var context = new SourceEnrichmentContext(index, options, filter);
+
+        // Per-source filter counters live on context.Result; they reach the summary via the EXISTING
+        // RecordEnrichmentCounts(context.Result) call in ConversionRunner's finally (NOT set on the summary
+        // here — EnrichmentSummary is a computed getter).
+        context.Result.DuplicateLiveOffsets = filter.DuplicateLiveOffsets;
+        if (filter.Active)
+        {
+            context.Result.LiveOffsetFilterEnabledSources = 1;
+        }
+        else if (filter.LiveRows > 0)   // HAD a live set but refused to filter -> report it (keep all)
+        {
+            context.Result.LiveOffsetFilterDisabledSources = 1;
+            string detail = $"live-offset-filter-disabled: {filter.DisabledReason}; msf={msfPath}; " +
+                $"liveRows={filter.LiveRows} usableOffsets={filter.UsableOffsets} matchedOffsets={filter.MatchedOffsets}" +
+                (filter.UnmatchedSample.Count > 0 ? $" unmatchedSample=[{string.Join(",", filter.UnmatchedSample)}]" : "");
+            // RecordWarning + WarningEvent, NOT Degrade: a disabled filter is a warning, but the .msf itself is
+            // NOT degraded and the source stays enriched:true.
+            report.RecordWarning(sourceRef, detail);
+            onProgress?.Invoke(new WarningEvent(sourceRef.SourcePath, sourceRef.Identifier, detail));
+        }
+        // filter.LiveRows == 0 (empty live set): keep all, NO warning, NOT counted disabled — nothing to filter.
+        return context;
     }
 
     // An .msf-specific degradation: record on the report AND emit the live WarningEvent so streaming
