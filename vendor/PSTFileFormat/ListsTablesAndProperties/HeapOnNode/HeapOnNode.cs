@@ -8,6 +8,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using Utilities;
 
@@ -21,6 +22,25 @@ namespace PSTFileFormat
 
         private Dictionary<int, HeapOnNodeBlockData> m_buffer = new Dictionary<int,HeapOnNodeBlockData>();
         private List<int> m_blocksToUpdate = new List<int>();
+
+        // Rolling free-space hint: the lowest block index not provably full. Allocation scans from here
+        // instead of 0, turning AddItemToHeap from O(blocks) into O(1) amortized. It only ever advances
+        // past blocks that can fit NO item, so first-fit placement is identical to a scan from 0.
+        private int m_firstBlockWithPossibleSpace = 0;
+
+        // EXACT copy of the AddItemToHeap fit predicate (do not change > to >=, do not drop the count cap).
+        private bool BlockCanFit(HeapOnNodeBlockData blockData, int itemLength) =>
+            blockData.AvailableSpace > itemLength + 2 && blockData.HeapItems.Count < HeapID.MaximumHidIndex;
+
+        // "Provably full" = cannot fit even a 1-byte item. Advancing past such blocks is always safe.
+        private void AdvanceCursorPastProvablyFullBlocks()
+        {
+            while (m_firstBlockWithPossibleSpace < m_dataTree.DataBlockCount &&
+                   !BlockCanFit(GetBlockData(m_firstBlockWithPossibleSpace), 1))
+            {
+                m_firstBlockWithPossibleSpace++;
+            }
+        }
 
         public HeapOnNode(DataTree dataTree)
         {
@@ -108,12 +128,14 @@ namespace PSTFileFormat
             // We can use the Header / BitmapHeader to locate available space,
             // but the final authority is HNPAGEMAP located at the end of each block
             // Note: we are only required to maintain HNPAGEMAP
-            for (int blockIndex = 0; blockIndex < m_dataTree.DataBlockCount; blockIndex ++)
+            // Skip the provably-full prefix (amortized O(1) total), then first-fit from the cursor.
+            AdvanceCursorPastProvablyFullBlocks();
+            for (int blockIndex = m_firstBlockWithPossibleSpace; blockIndex < m_dataTree.DataBlockCount; blockIndex ++)
             {
                 HeapOnNodeBlockData blockData = GetBlockData(blockIndex);
                 // We need space for the item itself and for a place for it in the page map (2 bytes)
                 // We also have to make sure we do not allocate more items then can be represented by hidIndex
-                if (blockData.AvailableSpace > itemBytes.Length + 2 && blockData.HeapItems.Count < HeapID.MaximumHidIndex)
+                if (BlockCanFit(blockData, itemBytes.Length))
                 {
                     blockData.HeapItems.Add(itemBytes);
                     UpdateBuffer(blockIndex, blockData);
@@ -126,6 +148,9 @@ namespace PSTFileFormat
 
             // no space found in existing blocks, we need to allocate new data block
             int newBlockIndex = m_dataTree.DataBlockCount;
+            // The leading AdvanceCursor... guarantees every block below the cursor is provably full,
+            // so a new block is only appended after a fully-full prefix.
+            Debug.Assert(m_firstBlockWithPossibleSpace <= newBlockIndex);
             HeapOnNodeBlockData newBlockData;
             if (newBlockIndex % 128 == 8)
             {
@@ -144,6 +169,13 @@ namespace PSTFileFormat
         public void RemoveItemFromHeap(HeapID heapID)
         {
             int blockIndex = heapID.hidBlockIndex;
+            // Removal frees space in an earlier block; lower the cursor so it stays discoverable.
+            // Defensive bounds check so the cursor never becomes a second failure mode for a bad id
+            // (the GetBlockData below validates the index for real).
+            if (blockIndex >= 0 && blockIndex < m_dataTree.DataBlockCount)
+            {
+                m_firstBlockWithPossibleSpace = Math.Min(m_firstBlockWithPossibleSpace, blockIndex);
+            }
             HeapOnNodeBlockData blockData = GetBlockData(blockIndex);
             // We can't remove the HeapItem, because then the HeapID of the subsequent items will be incorrect
             // So instead we put an empty item instead of the item we wish to remove.
