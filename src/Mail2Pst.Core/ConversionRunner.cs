@@ -121,6 +121,11 @@ public class ConversionRunner
                 IMailSourceParser parser = ParserRegistry.Get(mapping.Source.Type);
                 using IEnumerator<ParseResult> results = parser.Parse(mapping.Source.Path).GetEnumerator();
 
+                // 0-based per-ParseResult counter (success OR failure) so it stays aligned with
+                // the boundary engine's physical-message indices / LiveOffsetFilter.KeepIndices.
+                // Declared here so each source restarts at -1.
+                int messageIndex = -1;
+
                 while (true)
                 {
                     ParseResult result;
@@ -141,6 +146,10 @@ public class ConversionRunner
                         break;
                     }
 
+                    // Advance on EVERY ParseResult (success or failure) — must come before any
+                    // continue/break so the index stays aligned with keepIndices.
+                    messageIndex++;
+
                     if (!result.Success)
                     {
                         report.RecordSkipped(result.Source, result.Error!);
@@ -154,6 +163,19 @@ public class ConversionRunner
                     }
 
                     MailMessage message = result.Message!;
+
+                    // Drop uncompacted dead copies (live-offset filter) BEFORE enriching: dead copies
+                    // share an id with their live twin, so dropping them first leaves a clean unique-id
+                    // set for enrichment. ShouldDropOrphan is pure — increment the counter here at the
+                    // actual drop site (must-fix 1: not inside the predicate).
+                    if (enrichment?.ShouldDropOrphan(messageIndex) == true)
+                    {
+                        enrichment.Result.OrphanedCopiesDropped++;
+                        foreach (MailAttachment attachment in message.Attachments)
+                            attachment.Content.Dispose();
+                        continue;
+                    }
+
                     bool keep = enrichment?.Apply(message) ?? true;
                     if (!keep)
                     {
