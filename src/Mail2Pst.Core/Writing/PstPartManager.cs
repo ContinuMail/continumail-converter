@@ -27,7 +27,7 @@ internal sealed class PstPartManager
     private readonly long _maxSizeBytes;
     private readonly int _checkIntervalMessages;
     private readonly Action<PSTFile, PSTFolder, MailMessage> _writeMessage;
-    private readonly long _templateSize;
+    private readonly long _emptyStoreSize;
 
     private readonly List<string> _outputFiles = new();
     private readonly Dictionary<string, PSTFolder> _folders = new();
@@ -50,7 +50,7 @@ internal sealed class PstPartManager
         _writeMessage = writeMessage;
         // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
         // copy is retired. The initial on-disk size is the constant empty-store size.
-        _templateSize = PSTFile.EmptyStoreSizeBytes;
+        _emptyStoreSize = PSTFile.EmptyStoreSizeBytes;
     }
 
     public IReadOnlyList<string> OutputFiles => _outputFiles;
@@ -76,7 +76,7 @@ internal sealed class PstPartManager
 
     public bool ShouldSplitBefore(long messageSize) =>
         _messagesInCurrentPart > 0 &&
-        _templateSize + _estimatedContentBytes + messageSize >= _maxSizeBytes;
+        _emptyStoreSize + _estimatedContentBytes + messageSize >= _maxSizeBytes;
 
     /// <summary>Predictive split: flushes the current part, then starts the next.</summary>
     public void FlushAndSplit()
@@ -126,7 +126,7 @@ internal sealed class PstPartManager
     /// </summary>
     public bool TrySplitOrResumeAfterFlush()
     {
-        long size = Math.Max(_file!.BaseStream.Length, _templateSize + _estimatedContentBytes);
+        long size = Math.Max(_file!.BaseStream.Length, _emptyStoreSize + _estimatedContentBytes);
         if (size >= _maxSizeBytes)
         {
             StartNextPartAfterFlush();   // opens the next part with BeginSavingChanges active
