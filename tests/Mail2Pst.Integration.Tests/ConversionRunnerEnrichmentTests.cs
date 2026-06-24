@@ -126,9 +126,11 @@ public class ConversionRunnerEnrichmentTests
     }
 
     [Fact]
-    public void MboxSideDuplicateId_StreamingParity_NeitherEnriched()
+    public void MboxSideDuplicateId_StreamingParity_BothEnrichedFromUniqueMsfRow()
     {
-        // Two mbox messages share <a@h>; one .msf row -> neither enriched, both counted duplicate.
+        // Two mbox messages share <a@h> (uncompacted IMAP expunge copies); the .msf has ONE row for it.
+        // That row is unambiguous, so BOTH copies are enriched (marked + tag) — the streaming path
+        // mirrors batch Enrich. Regression: previously both copies were skipped, losing stars and tags.
         string mbox = WriteTemp(Msg("<a@h>", "one") + Msg("<a@h>", "two"), ".mbox");
         string msf = WriteTemp(MsfText, ".msf");
         string outDir = NewOutDir();
@@ -136,9 +138,13 @@ public class ConversionRunnerEnrichmentTests
         {
             var (read, report) = Convert(mbox, msf, outDir);
             Assert.Equal(2, read.Count);
-            Assert.Equal(0, report.EnrichmentSummary.Matched);
-            Assert.Equal(2, report.EnrichmentSummary.SkippedDuplicateId);
-            foreach (ReadBackMessage m in read) Assert.False(m.IsFlagged); // unchanged (mbox default)
+            Assert.Equal(2, report.EnrichmentSummary.Matched);
+            Assert.Equal(0, report.EnrichmentSummary.SkippedDuplicateId);
+            foreach (ReadBackMessage m in read)
+            {
+                Assert.True(m.IsFlagged);              // marked (star) from the single .msf row
+                Assert.Contains("work", m.Categories); // tag from the single .msf row
+            }
         }
         finally { File.Delete(mbox); File.Delete(msf); Directory.Delete(outDir, true); }
     }

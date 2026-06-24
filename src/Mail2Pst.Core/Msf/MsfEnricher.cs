@@ -61,7 +61,11 @@ public static class MsfEnricher
     {
         string? key = MessageIdNormalizer.NormalizeForJoin(mail.MessageId);
         if (key is null) { result.SkippedMissingId++; return true; }
-        if (mboxDuplicates.Contains(key) || index.IsDuplicateMsfId(key)) { result.SkippedDuplicateId++; return true; }
+        // Only an AMBIGUOUS match is skipped: when the .msf carries multiple rows for this id we can't
+        // tell which applies. A duplicated id on the MBOX side (uncompacted IMAP expunge copies) is NOT
+        // ambiguous when the .msf row is unique — that single authoritative row applies to every copy,
+        // so it is enriched normally rather than dropped.
+        if (index.IsDuplicateMsfId(key)) { result.SkippedDuplicateId++; return true; }
         if (!index.TryGetUnique(key, out MsfMessage row)) { result.NoMsfMatch++; return true; }
 
         // .msf wins for scalar flags.

@@ -164,16 +164,23 @@ public class MsfEnricherTests
     }
 
     [Fact]
-    public void DuplicateId_OnMboxSide_SkipsAll()
+    public void DuplicateId_OnMboxSide_UniqueMsfRow_EnrichesAllCopies()
     {
+        // An uncompacted mbox repeats a Message-ID (expunged IMAP copies not yet purged). When the
+        // .msf has exactly ONE row for that id, its flags/tags are unambiguous, so apply them to every
+        // copy. The old behavior skipped all copies, silently dropping the user's stars and tags.
         var mail1 = new MailMessage { MessageId = "<dup@h>", IsRead = false };
         var mail2 = new MailMessage { MessageId = "<dup@h>", IsRead = false };
-        MsfReadResult msf = Msf(Row("1", ("message-id", "dup@h"), ("flags", "1")));
+        MsfReadResult msf = Msf(Row("1", ("message-id", "dup@h"), ("flags", "5"), ("keywords", "work"))); // 0x5 = read|marked
         var result = MsfEnricher.Enrich(new[] { mail1, mail2 }, msf, Opts());
-        Assert.Equal(0, result.Matched);
-        Assert.Equal(2, result.SkippedDuplicateId);
-        Assert.False(mail1.IsRead); // both untouched
-        Assert.False(mail2.IsRead);
+        Assert.Equal(2, result.Matched);
+        Assert.Equal(0, result.SkippedDuplicateId);
+        foreach (MailMessage m in new[] { mail1, mail2 })
+        {
+            Assert.True(m.IsRead);
+            Assert.True(m.IsFlagged);
+            Assert.Equal(new[] { "work" }, m.Categories);
+        }
     }
 
     [Fact]
