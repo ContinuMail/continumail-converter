@@ -90,7 +90,21 @@ public class MboxParser : IMailSourceParser
         // drifts from the messages Parse yields. (ConversionRunner reads the file twice:
         // count here, then Parse during conversion; external mutation of the file between
         // the two passes can still diverge — an accepted, out-of-scope limitation.)
-        return EnumerateMessageChunks(stream, materialize: false, onBytesRead: null).Count();
+        return EnumerateMessageChunks(stream, materialize: false, onBytesRead: null, onMessageStart: null).Count();
+    }
+
+    /// <summary>
+    /// Byte offset of each message's "From " boundary line, in the SAME order/count as <see cref="Parse"/>
+    /// (shared boundary engine). Boundary-only: no MIME parsing. Used to align .msf live offsets to
+    /// physical messages for uncompacted-copy filtering.
+    /// </summary>
+    public IReadOnlyList<long> ScanMessageStartOffsets(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        var offsets = new List<long>();
+        foreach (var _ in EnumerateMessageChunks(stream, materialize: false, onBytesRead: null, onMessageStart: offsets.Add))
+        { /* enumerate to drive the callback */ }
+        return offsets;
     }
 
     /// <summary>
@@ -100,7 +114,7 @@ public class MboxParser : IMailSourceParser
     /// parser. The `!` is sound: materialize mode never yields a null chunk.
     /// </summary>
     private static IEnumerable<byte[]> SplitMessages(Stream rawStream, Action<long>? onBytesRead = null) =>
-        EnumerateMessageChunks(rawStream, materialize: true, onBytesRead).Select(b => b!);
+        EnumerateMessageChunks(rawStream, materialize: true, onBytesRead, onMessageStart: null).Select(b => b!);
 
     /// <summary>
     /// THE single source of truth for "where do messages begin and end" in an mbox stream.
@@ -118,13 +132,15 @@ public class MboxParser : IMailSourceParser
     /// (scan progress); pass null when counting.
     /// </summary>
     private static IEnumerable<byte[]?> EnumerateMessageChunks(
-        Stream rawStream, bool materialize, Action<long>? onBytesRead)
+        Stream rawStream, bool materialize, Action<long>? onBytesRead, Action<long>? onMessageStart = null)
     {
         var buffer = new byte[BufferSize];
         using var line = new MemoryStream(256);
         MemoryStream? current = materialize ? new MemoryStream() : null;
         bool previousLineWasBlank = true;
         bool currentHasContent = false;
+        long consumed = 0;      // total bytes of completed lines (independent of rawStream.Position)
+        long currentStart = 0;  // byte offset of the current message's From_ boundary line
 
         int bytesRead;
         while ((bytesRead = rawStream.Read(buffer, 0, buffer.Length)) > 0)
@@ -152,6 +168,10 @@ public class MboxParser : IMailSourceParser
                 bool isBlank    = IsBlankLine(line.GetBuffer().AsSpan(0, lineLen));
                 if (!isBoundary && materialize)
                     WriteUnescapedFromLine(line.GetBuffer().AsSpan(0, lineLen), current!);
+
+                long lineStart = consumed;  // byte offset of this line's first byte
+                consumed += lineLen;        // advance AFTER capturing lineStart
+
                 line.SetLength(0);
 
                 if (isBoundary)
@@ -159,10 +179,12 @@ public class MboxParser : IMailSourceParser
                     if (currentHasContent)
                     {
                         onBytesRead?.Invoke(rawStream.Position);
+                        onMessageStart?.Invoke(currentStart);
                         yield return materialize ? current!.ToArray() : null;
                         if (materialize) current = new MemoryStream();
                         currentHasContent = false;
                     }
+                    currentStart = lineStart;  // this boundary begins the next message
                     // The marker line is not written into the message.
                 }
                 else
@@ -189,6 +211,7 @@ public class MboxParser : IMailSourceParser
         if (currentHasContent)
         {
             onBytesRead?.Invoke(rawStream.Position);
+            onMessageStart?.Invoke(currentStart);
             yield return materialize ? current!.ToArray() : null;
         }
     }
