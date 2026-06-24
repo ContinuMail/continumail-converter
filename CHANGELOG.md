@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   priority a user or filter applied in Thunderbird is stored only in the `.msf` (not in the mbox
   headers), so it was previously lost; it is now read and written to Outlook's importance. Priority
   that arrived on the message's own `X-Priority`/`Importance` header was already preserved.
+- Thunderbird `.msf` enrichment now drops **uncompacted dead copies**. An un-compacted Thunderbird
+  folder can still hold old physical copies of messages it no longer shows; the converter now reads
+  each `.msf` row's live mbox byte offset (`storeToken`, falling back to `msgOffset`) and exports
+  only the messages Thunderbird still lists, so the PST matches the folder you see. Filtering
+  activates only when every live row maps to a real mbox message boundary — on any uncertainty it
+  keeps every message, so unique mail is never dropped.
 
 ### Changed
 - Writer: PST files are now built from scratch via `PSTFile.CreateEmptyStore()` instead of
