@@ -52,4 +52,16 @@ authoritative description of the local PSTFileFormat modifications.
   `PSTFolder.AddMessage`'s per-row external columns). Allocation placement changes from first-fit to
   best-fit (valid PSTs; not byte-identical to prior output) (ContinuMail, 2026).
 
+- Removed dead reader-only code with zero references from the converter: the appointment/calendar
+  message family (`Appointment`, `SingleAppointment`, `RecurringAppointment`,
+  `ModifiedAppointmentInstance`, `CalendarFolder`, `MeetingType`), the recurrence-pattern structures
+  (`Messaging/Messages/RecurrencePatternStructure/`), the time-zone structures and helpers
+  (`TimeZoneStructure/`, `TimeZoneDefinitionStructure/`, `Utils/TimeZoneInfoUtils*`,
+  `Utils/RegistryTimeZoneUtils.Win32`, `Utils/AdjustmentRuleUtils.Win32`), and
+  `InvalidRecurrencePatternException`. Also dropped the appointment-only members that referenced them
+  (`AttachmentObject.StoreModifiedInstance` / `CreateNewExceptionAttachmentObject`) and the
+  `CalendarFolder` branch in `PSTFolder.GetFolder` (an `IPF.Appointment` folder now returns a base
+  `PSTFolder`). The write path (search-update queue included) is untouched; output PSTs are byte-for-byte
+  unchanged and pass the round-trip + independent-reader gates (ContinuMail, 2026).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

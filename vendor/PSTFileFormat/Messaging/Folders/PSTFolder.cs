@@ -729,8 +729,6 @@ namespace PSTFileFormat
                     FolderItemTypeName itemType = GetItemType(containerClass);
                     switch (itemType)
                     {
-                        case FolderItemTypeName.Appointment:
-                            return new CalendarFolder(node);
                         case FolderItemTypeName.Note:
                             return new MailFolder(node);
                         default:
