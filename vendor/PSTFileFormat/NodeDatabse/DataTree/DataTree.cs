@@ -405,7 +405,8 @@ namespace PSTFileFormat
             // A data block could have been modified (heap item was removed) and a block that was 
             // supposed to be zero-filled may have become non-zero filled.
             // We must make sure that all blocks that are pending write (except the last block) are zero filled
-            for(int blockIndex = 0; blockIndex < DataBlockCount - 1; blockIndex++)
+            int lastIndexExclusive = DataBlockCount - 1;   // [R2:L2] DataBlockCount clones the last XBlock for XXBlock trees — read once
+            for (int blockIndex = 0; blockIndex < lastIndexExclusive; blockIndex++)
             {
                 if (IsDataBlockPendingWrite(blockIndex))
                 {
