@@ -391,6 +391,16 @@ namespace PSTFileFormat
             }
         }
 
+        /// <summary>Measurement-only [§7]. Decoded-heap-block cache residency (m_buffer — pinned, above
+        /// BufferedBlockStore, not reachable by §4 eviction) + #34 free-space index entry counts (O(1) at
+        /// write-heavy steady state). Read-only.</summary>
+        internal (int bufferCount, long decodedBytes, int freeIndexEntries, int blockAvailEntries) HeapResidencyForTest()
+        {
+            long decoded = 0;
+            foreach (var kv in m_buffer) decoded += kv.Value.DataLength;
+            return (m_buffer.Count, decoded, m_freeSpaceIndex.Count, m_blockAvail.Count);
+        }
+
         public DataTree DataTree
         {
             get
