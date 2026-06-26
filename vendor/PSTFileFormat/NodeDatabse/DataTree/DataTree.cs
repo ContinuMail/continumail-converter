@@ -511,6 +511,12 @@ namespace PSTFileFormat
             }
         }
 
+        // Spike instrumentation: is the current spine/root block still pending write?
+        public bool IsRootPendingWriteForTest()
+        {
+            return m_rootBlock != null && IsBlockPendingWrite(m_rootBlock);
+        }
+
         public int DataBlockCount
         {
             get

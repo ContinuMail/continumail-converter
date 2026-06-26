@@ -161,6 +161,28 @@ namespace PSTFileFormat
             m_blocksToFree.Clear();
         }
 
+        /// <summary>
+        /// Streaming-flush primitive [R2:M1]: persist the given leaf blocks (write bytes + insert the
+        /// in-memory BBT entry) and remove ONLY their BIDs from the pending set, leaving the spine and
+        /// every other pending block untouched. Unlike SaveChanges() this does NO rescan/zero-fill and
+        /// does NOT clear m_blocksToWrite wholesale. Caller guarantees each BID is a full leaf DataBlock.
+        /// </summary>
+        public void PersistLeafBlocks(IEnumerable<ulong> leafBlockIDs)
+        {
+            foreach (ulong blockID in leafBlockIDs)
+            {
+                if (!m_blocksToWrite.Contains(blockID))
+                {
+                    continue; // already persisted in a prior batch
+                }
+                Block block = m_blockBuffer[blockID];
+                long offset = AllocationHelper.AllocateSpaceForBlock(m_file, block.TotalLength);
+                block.WriteToStream(m_file.BaseStream, offset);
+                m_file.BlockBTree.InsertBlockEntry(block.BlockID, offset, block.DataLength);
+                m_blocksToWrite.Remove(blockID);
+            }
+        }
+
         public PSTFile File
         {
             get

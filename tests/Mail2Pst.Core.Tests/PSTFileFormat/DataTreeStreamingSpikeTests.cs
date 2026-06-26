@@ -52,4 +52,42 @@ public class DataTreeStreamingSpikeTests : IDisposable
         Assert.NotNull(file.FindBlockEntryByBlockID(leaf0));     // BBT-indexed in-memory
         Assert.Equal(payload, tree.GetData());                  // re-readable, no EndSavingChanges yet
     }
+
+    [Fact]
+    public void StreamingFlush_KeepsSpinePending_NoReallocationAcrossBatches()
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+
+        // Batch 1: append > 8176 B so an XBlock spine exists with several leaves.
+        tree.AppendData(MakeBytes(40_000, 7));        // ~5 leaves + XBlock root
+        int count = tree.DataBlockCount;
+        ulong spineBidBefore = tree.RootBlock.BlockID.Value;
+
+        // Flush the full leaves (0 .. count-2); the partial tail (count-1) stays pending.
+        var fullLeaves = Enumerable.Range(0, count - 1)
+                                   .Select(i => tree.GetDataBlock(i).BlockID.Value)
+                                   .ToList();
+        tree.PersistLeafBlocks(fullLeaves);
+
+        Assert.True(tree.IsRootPendingWriteForTest(), "spine must remain pending after a leaf flush");
+
+        // Batch 2: more appends update the spine IN PLACE (pending) -> BID unchanged.
+        tree.AppendData(MakeBytes(40_000, 9));
+        Assert.Equal(spineBidBefore, tree.RootBlock.BlockID.Value);
+    }
+
+    [Fact]
+    public void NaiveSaveChanges_ReallocatesSpine_DemonstratingWhyFlushIsMandatory()  // [A2] fail-closed contrast
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        tree.AppendData(MakeBytes(40_000, 7));
+        ulong spineBidBefore = tree.RootBlock.BlockID.Value;
+
+        tree.SaveChanges();                            // clears m_blocksToWrite -> spine no longer pending
+        tree.AppendData(MakeBytes(40_000, 9));         // spine update now allocates a NEW BID
+
+        Assert.NotEqual(spineBidBefore, tree.RootBlock.BlockID.Value);
+    }
 }
