@@ -8,6 +8,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using Utilities;
 
@@ -68,6 +69,48 @@ namespace PSTFileFormat
         public static HeapOrNodeID StoreExternalProperty(PSTFile file, HeapOnNode heap, ref SubnodeBTree subnodeBTree, byte[] propertyBytes)
         {
             return StoreExternalProperty(file, heap, ref subnodeBTree, new HeapOrNodeID(HeapID.EmptyHeapID), propertyBytes);
+        }
+
+        /// <summary>
+        /// [A11] INSERT-only streaming overload: heap-vs-subnode routing by length.
+        /// ≤3580 B: reads from stream into a buffer and delegates to the existing heap (byte[]) INSERT path.
+        /// &gt;3580 B: builds a new subnode DataTree via streaming AppendData (which ends with its own
+        /// SaveChanges [R2:C1]), then inserts the subnode entry AFTER that flush [A4].
+        /// [I2] No UPDATE-path stream overload — INSERT-only is enforced at the PropertyContext seam (Task 4).
+        /// </summary>
+        internal static HeapOrNodeID StoreExternalProperty(PSTFile file, HeapOnNode heap,
+            ref SubnodeBTree subnodeBTree, Stream stream, long length,
+            System.Threading.CancellationToken cancellationToken)
+        {
+            if (length <= HeapOnNode.MaximumAllocationLength)
+            {
+                byte[] small = new byte[(int)length];
+                ReadExactly(stream, small, (int)length);
+                return StoreExternalProperty(file, heap, ref subnodeBTree, small);
+            }
+
+            if (subnodeBTree == null)
+            {
+                subnodeBTree = new SubnodeBTree(file);
+            }
+            DataTree dataTree = new DataTree(file);
+            dataTree.AppendData(stream, length, cancellationToken); // streams + persists/evicts + final local SaveChanges [R2:C1]
+
+            NodeID subnodeID = file.Header.AllocateNextNodeID(NodeTypeName.NID_TYPE_LTP);
+            subnodeBTree.InsertSubnodeEntry(subnodeID, dataTree, null); // [A4] reads RootBlock.BlockID AFTER AppendData's flush
+
+            return new HeapOrNodeID(subnodeID);
+        }
+
+        private static void ReadExactly(Stream stream, byte[] buffer, int count)
+        {
+            int read = 0;
+            while (read < count)
+            {
+                int n = stream.Read(buffer, read, count - read);
+                if (n <= 0) throw new EndOfStreamException("Stream ended before the declared property length.");
+                read += n;
+            }
         }
 
         /// <param name="subnodeBTree">Note: We use ref, this way we are able to create a new subnode BTree and update the subnodeBTree the caller provided</param>
