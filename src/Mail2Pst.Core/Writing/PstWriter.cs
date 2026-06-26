@@ -39,8 +39,11 @@ public class PstWriter
     private readonly bool _attachmentStreamingDisabled =
         Environment.GetEnvironmentVariable("MAIL2PST_NO_ATTACH_STREAM") is { Length: > 0 };
 
-    // Set at the top of WritePlan so instance methods WriteMessage/WriteAttachment can pass it
-    // to SetExternalProperty without threading it through every call signature.
+    // Holds the active WritePlan's cancellation token so the streaming attachment write (WriteAttachment ->
+    // SetExternalProperty(Stream)) can honor it without threading a token through the token-less write delegate.
+    // INVARIANT: set at the top of WritePlan and read only on that same WritePlan's (sequential) consumer thread.
+    // ConversionRunner runs WritePlan calls sequentially, so this is single-active. REVISIT before any
+    // multi-output / parallel WritePlan work — concurrent WritePlan calls on one PstWriter would race this field.
     private CancellationToken _activeCancellationToken;
 
     // Number of successfully-written messages between on-disk size checks.
