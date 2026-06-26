@@ -31,6 +31,18 @@ namespace Mail2Pst.Core.Writing;
 /// </summary>
 public class PstWriter
 {
+    // [M1] attachments below this never stream — the OOM is a hundreds-of-MB phenomenon (spec §1).
+    // internal (not const) so tests can lower it; production default is 16 MB.
+    internal long StreamingThresholdBytes = 16L * 1024 * 1024;
+
+    // [L4] kill-switch: env var (read once on first use) forces the byte[] path for ALL attachments.
+    private readonly bool _attachmentStreamingDisabled =
+        Environment.GetEnvironmentVariable("MAIL2PST_NO_ATTACH_STREAM") is { Length: > 0 };
+
+    // Set at the top of WritePlan so instance methods WriteMessage/WriteAttachment can pass it
+    // to SetExternalProperty without threading it through every call signature.
+    private CancellationToken _activeCancellationToken;
+
     // Number of successfully-written messages between on-disk size checks.
     private readonly int _checkIntervalMessages;
 
@@ -64,6 +76,7 @@ public class PstWriter
     {
         // Pre-flight: if already cancelled, create nothing so DeletedFiles stays empty.
         cancellationToken.ThrowIfCancellationRequested();
+        _activeCancellationToken = cancellationToken;
 
         var partManager = new PstPartManager(
             plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages, WriteMessageCore);
@@ -378,7 +391,7 @@ public class PstWriter
 
     internal static bool AttachmentTooLarge(long contentLength) => contentLength > MaxAttachmentBytes;
 
-    private static void WriteMessage(PSTFile file, PSTFolder folder, MailMessage message)
+    private void WriteMessage(PSTFile file, PSTFolder folder, MailMessage message)
     {
         // Pre-flight: reject a message carrying an unrepresentable attachment BEFORE creating
         // any node, so an oversized attachment becomes a clean per-message skip rather than a
@@ -504,7 +517,7 @@ public class PstWriter
         // a folder's whole contents table per message is ~O(n^2); batching is the E3 perf win.
     }
 
-    private static void WriteAttachment(PSTFile file, Note note, MailAttachment a)
+    private void WriteAttachment(PSTFile file, Note note, MailAttachment a)
     {
         note.CreateSubnodeBTreeIfNotExist();
         AttachmentObject attachment = AttachmentObject.CreateNewAttachmentObject(file, note.SubnodeBTree);
@@ -515,7 +528,21 @@ public class PstWriter
         attachment.PC.SetStringProperty(PropertyID.PidTagAttachExtension, Path.GetExtension(a.FileName));
         attachment.PC.SetStringProperty(PropertyID.PidTagAttachMimeTag, a.MimeType);
         attachment.PC.SetInt32Property(PropertyID.PidTagAttachMethod, (int)AttachMethod.ByValue);
-        attachment.PC.SetBytesProperty(PropertyID.PidTagAttachData, a.Content.ReadAllBytes());
+        // [M1] Only large attachments stream; small/medium keep the proven byte[] path (zero memory
+        // benefit below tens of MB). [A9] streaming requires NDB_CRYPT_PERMUTE. [L4] kill-switch.
+        bool canStream = a.Content.Length >= StreamingThresholdBytes
+            && file.Header.bCryptMethod == bCryptMethodName.NDB_CRYPT_PERMUTE
+            && !_attachmentStreamingDisabled;
+        if (canStream)
+        {
+            using Stream attachStream = a.Content.OpenRead();   // [R2:H2] closed before finally deletes the temp file
+            attachment.PC.SetExternalProperty(PropertyID.PidTagAttachData, PropertyTypeName.PtypBinary,
+                attachStream, a.Content.Length, _activeCancellationToken);
+        }
+        else
+        {
+            attachment.PC.SetBytesProperty(PropertyID.PidTagAttachData, a.Content.ReadAllBytes());   // small/medium or non-PERMUTE
+        }
         attachment.PC.SetInt32Property(PropertyID.PidTagAttachSize, (int)a.Content.Length);
 
         if (!string.IsNullOrEmpty(a.ContentId))
