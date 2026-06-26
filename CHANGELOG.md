@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps every message, so unique mail is never dropped.
 
 ### Changed
+- Writer: large attachments (≥ 16 MB) are now written by streaming. A single large attachment
+  previously caused writer-side peak memory to spike to a multiple of its size — the vendored
+  layer materialised the full payload in memory while building the data blocks. The attachment
+  data is now fed through a batched, bounded-residency pipeline, so an arbitrarily large
+  attachment no longer drives the process toward the OOM cliff. Small and medium attachments
+  (< 16 MB) keep the existing `byte[]` path; output is byte-identical and is structure-validated
+  by the independent MS-PST reader (`tools/pst-validate`).
 - Writer: PST files are now built from scratch via `PSTFile.CreateEmptyStore()` instead of
   copying a pre-seeded blank seed file. The blank-seed asset, the seed-extraction helper,
   and the dev-only seed-regeneration tool have been retired; `PstWriter`, `PstPartManager`,
