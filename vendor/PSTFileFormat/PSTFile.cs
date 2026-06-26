@@ -40,6 +40,16 @@ namespace PSTFileFormat
         internal List<int> AMapMaxFreeGeneral;
         internal List<int> AMapMaxFreeAligned;
 
+        /// <summary>Measurement-only [§7]. AMap cache residency (one AllocationMapPage per ~254 KB of file,
+        /// pinned by the #34/free-space design) + the AMapMaxFree* index list lengths. Read-only.</summary>
+        internal (int pageCount, long bytes, int maxFreeGeneral, int maxFreeAligned) AMapResidencyForTest()
+        {
+            int pages = AMapCache?.Count ?? 0;
+            int g = AMapMaxFreeGeneral?.Count ?? 0;
+            int a = AMapMaxFreeAligned?.Count ?? 0;
+            return (pages, (long)pages * 512, g, a);
+        }
+
         private WriterCompatibilityMode m_writerCompatibilityMode;
         
         FileStream m_stream;
