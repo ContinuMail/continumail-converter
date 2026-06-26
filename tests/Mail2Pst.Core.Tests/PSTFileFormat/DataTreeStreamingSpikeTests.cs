@@ -191,6 +191,24 @@ public class DataTreeStreamingSpikeTests : IDisposable
     }
 
     [Fact]
+    public void Streaming_DoesNotReallocateSpine_AcrossManyBatches()  // [A2]
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        long before = tree.BlockReallocationsForTest;
+
+        using (var src = new MemoryStream(MakeBytes(9_000_000, 13), writable: false))
+        {
+            tree.AppendData(src, 9_000_000);            // many 8 MB-batch boundaries
+        }
+        long spineReallocs = tree.BlockReallocationsForTest - before;
+
+        // In-place spine updates only. A small constant (initial DataBlock->XBlock->XXBlock promotions)
+        // is fine; growth proportional to batch count is the failure mode.
+        Assert.True(spineReallocs < 16, $"spine reallocated {spineReallocs} times — superlinear churn");
+    }
+
+    [Fact]
     public void EveryPersistedInteriorLeaf_IsFull8176_NoPartialInteriorBlock()  // [R2:M4] — round-trip alone is vacuous
     {
         var file = NewStore();

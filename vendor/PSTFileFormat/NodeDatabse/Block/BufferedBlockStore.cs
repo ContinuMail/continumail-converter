@@ -27,6 +27,9 @@ namespace PSTFileFormat
         private HashSet<ulong> m_blocksToWrite = new HashSet<ulong>();
         private List<ulong> m_blocksToFree = new List<ulong>();
 
+        // Spike instrumentation: counts BID reallocations (the non-pending UpdateBlock branch).
+        private long m_blockReallocationsForTest = 0;
+
         protected BufferedBlockStore(PSTFile file)
         {
             m_file = file;
@@ -83,6 +86,7 @@ namespace PSTFileFormat
             {
                 // we need to mark the old block for freeing, and add the new block to the buffer
                 DeleteBlock(block);
+                m_blockReallocationsForTest++;
                 bool isInternal = block.BlockID.Internal;
                 block.BlockID = m_file.Header.AllocateNextBlockID();
                 block.BlockID.Internal = isInternal;
@@ -228,6 +232,11 @@ namespace PSTFileFormat
             {
                 return m_file;
             }
+        }
+
+        public long BlockReallocationsForTest
+        {
+            get { return m_blockReallocationsForTest; }
         }
     }
 }
