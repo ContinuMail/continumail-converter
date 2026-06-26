@@ -11,6 +11,8 @@ namespace Mail2Pst.Core.Diagnostics;
 /// into a DurableMemoryReport. Read-only: it only reads the …ForTest residency snapshots. The folder
 /// traversal (folders -> GetContentsTable() -> Heap -> DataTree) is REQUIRED [R2:M2]: keying only on
 /// PSTFile's public BlockBTree/NodeBTree would miss family #1 (the evictable folder-TC leaves) -> false 0% ratio.
+/// Assumes already-materialized folders: GetContentsTable() lazy-loads and caches the contents table, so
+/// call this only on folders the writer has already populated (true at the PstPartManager checkpoint hook).
 /// </summary>
 public static class DurableMemoryCollector
 {
@@ -35,6 +37,8 @@ public static class DurableMemoryCollector
             blockAvail += hr.blockAvailEntries;
 
             // Family #1: the TC's backing DataTree block buffer (the evictable leaf measure).
+            // Deferred: the TC's SubnodeBTree block buffer is not summed here (empty/minimal for
+            // small-to-medium TCs); only the contents-table DataTree is traversed.
             DataTree dt = tc.DataTree;
             ulong? rootBid = dt.RootBlock?.BlockID.Value;
             var dr = dt.BlockBufferResidencyForTest(rootBid);
