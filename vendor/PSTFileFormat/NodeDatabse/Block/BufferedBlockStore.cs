@@ -241,5 +241,32 @@ namespace PSTFileFormat
         {
             get { return m_blockReallocationsForTest; }
         }
+
+        /// <summary>
+        /// Measurement-only [§7]. Sums residency of m_blockBuffer WITHOUT mutating it: total payload bytes,
+        /// pending bytes (BID still in m_blocksToWrite), and "evictable" bytes — buffered FULL leaf DataBlocks
+        /// that pass a non-mutating mirror of the §4 safe-eviction predicate (present, not pending, BBT-indexed,
+        /// a full 8176 B DataBlock, and not the live root BID). Read-only: never evicts.
+        /// </summary>
+        internal (int count, long payload, long pending, long evictable) BlockBufferResidencyForTest(ulong? liveRootBid)
+        {
+            int count = 0;
+            long payload = 0, pending = 0, evictable = 0;
+            foreach (var kv in m_blockBuffer)
+            {
+                ulong bid = kv.Key;
+                Block block = kv.Value;
+                count++;
+                long bytes = block.DataLength;
+                payload += bytes;
+                bool isPending = m_blocksToWrite.Contains(bid);
+                if (isPending) { pending += bytes; continue; }
+                bool isFullLeaf = block is DataBlock db && db.DataLength == DataBlock.MaximumDataLength;
+                bool isRoot = liveRootBid.HasValue && bid == liveRootBid.Value;
+                bool bbtIndexed = m_file.FindBlockEntryByBlockID(bid) != null;
+                if (isFullLeaf && bbtIndexed && !isRoot) evictable += bytes;
+            }
+            return (count, payload, pending, evictable);
+        }
     }
 }
