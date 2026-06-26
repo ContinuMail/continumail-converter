@@ -87,15 +87,17 @@ authoritative description of the local PSTFileFormat modifications.
   measurement (measurement-only; no production behaviour change; each accessor is a property or
   method returning current in-memory counts/sizes and is never called on the hot write path)
   (ContinuMail, 2026):
-  - `BufferedBlockStore.BlockBufferResidencyForTest`: returns `(int count, long payloadBytes,
-    long pendingBytes, long evictableBytes, long pinnedBytes)` summarising the resident block
-    buffer (count of buffered blocks, payload bytes, pending-write bytes, evictable-leaf bytes,
-    and pinned bytes). Read-only snapshot; does not mutate buffer state.
-  - `BufferedBTreePageStore.PageBufferResidencyForTest`: returns `(int count, long payloadBytes)`
-    for the resident BTree-page buffer. Read-only snapshot.
-  - `HeapOnNode.HeapResidencyForTest`: returns `(int blockCount, long payloadBytes)` for all
-    in-memory HID heap blocks. Read-only snapshot; does not mutate heap state.
-  - `PSTFile.AMapResidencyForTest`: returns `(int pageCount, long payloadBytes)` for in-memory
-    AMap pages cached on the file object. Read-only snapshot.
+  - `BufferedBlockStore.BlockBufferResidencyForTest(ulong? liveRootBid)`: returns
+    `(int count, long payload, long pending, long evictable)` summarising the resident block
+    buffer (count of buffered blocks, payload bytes, pending-write bytes, and evictable-leaf
+    bytes). Read-only snapshot; does not mutate buffer state.
+  - `BufferedBTreePageStore.PageBufferResidencyForTest()`: returns `(int count, long bytes,
+    long pending)` for the resident BTree-page buffer. Read-only snapshot.
+  - `HeapOnNode.HeapResidencyForTest()`: returns `(int bufferCount, long decodedBytes,
+    int freeIndexEntries, int blockAvailEntries)` for the decoded-heap-block cache and
+    free-space index entry counts. Read-only snapshot; does not mutate heap state.
+  - `PSTFile.AMapResidencyForTest()`: returns `(int pageCount, long bytes,
+    int maxFreeGeneral, int maxFreeAligned)` for in-memory AMap pages and free-index list
+    lengths cached on the file object. Read-only snapshot.
 
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

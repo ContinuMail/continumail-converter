@@ -66,7 +66,7 @@ public static class DurableMemoryCollector
         var families = new List<FamilyResidency>
         {
             new("blockBuffer",               bbCount,                    bbPayload,  bbPending,  bbEvictable,  bbPinned),
-            new("pageBuffer",                pageCount,                  pagePinned, pagePending, 0,           pagePinned),
+            new("pageBuffer",                pageCount,                  pagePinned, pagePending, 0,           pagePinned - pagePending),
             new("heapDecodedCache",          heapCount,                  heapBytes,  0,          0,            heapBytes),
             new("freeSpaceIndex+rowIndex",   freeIdx + blockAvail + rowIndex, 0,    0,          0,            0),
             new("amapCache",                 amap.pageCount,             amap.bytes, 0,          0,            amap.bytes),
