@@ -24,7 +24,7 @@ namespace PSTFileFormat
 
         // The NDB is immutable, we allocate blocks for both new blocks and modified blocks,
         // for modified blocks, we unallocate the original blocks (using m_blocksToFree).
-        private List<ulong> m_blocksToWrite = new List<ulong>();
+        private HashSet<ulong> m_blocksToWrite = new HashSet<ulong>();
         private List<ulong> m_blocksToFree = new List<ulong>();
 
         protected BufferedBlockStore(PSTFile file)

@@ -25,7 +25,7 @@ namespace PSTFileFormat
 
         // The NDB is immutable, we allocate pages for both new pages and modified pages,
         // for modified pages, we unallocate the original pages (using m_pagesToFree).
-        private List<ulong> m_pagesToWrite = new List<ulong>();
+        private HashSet<ulong> m_pagesToWrite = new HashSet<ulong>();
         private List<ulong> m_offsetsToFree = new List<ulong>();
 
         public BufferedBTreePageStore(PSTFile file)
