@@ -152,6 +152,14 @@ internal sealed class PstPartManager
 
     public void DeleteCurrentPart() => TryDeletePart(_currentPath);
 
+    /// <summary>Measurement-only [§7]: aggregate this part's durable-memory residency from live state.</summary>
+    internal Mail2Pst.Core.Diagnostics.DurableMemoryReport SnapshotDurableMemory(int messagesWritten)
+    {
+        if (_file is null) return new Mail2Pst.Core.Diagnostics.DurableMemoryReport(
+            System.Array.Empty<Mail2Pst.Core.Diagnostics.FamilyResidency>(), 0, messagesWritten);
+        return Mail2Pst.Core.Diagnostics.DurableMemoryCollector.Collect(_file, _folders.Values, messagesWritten);
+    }
+
     // Closes the current (already-flushed) part and opens the next. PRECONDITION: the
     // caller has just flushed (EndSavingChanges). Once the old part is closed it is COMPLETE,
     // so _currentPath is cleared until the next part opens: if creating the next part throws,
