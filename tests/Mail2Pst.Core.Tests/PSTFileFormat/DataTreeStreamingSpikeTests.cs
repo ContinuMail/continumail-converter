@@ -111,7 +111,9 @@ public class DataTreeStreamingSpikeTests : IDisposable
         Assert.Equal(bufBefore - 1, tree.BufferedBlockCountForTest);
 
         Assert.False(tree.TryEvictLeaf(tailLeaf, _ => true), "partial pending tail must not be evictable");
-        Assert.False(tree.TryEvictLeaf(spine, _ => true), "spine (XBlock) is not a leaf DataBlock");
+
+        tree.SaveChanges();   // persist the spine to the BBT + clear it from m_blocksToWrite so the next check reaches cond 4/6
+        Assert.False(tree.TryEvictLeaf(spine, _ => true), "spine is an XBlock, not a leaf DataBlock — fails cond 4/6");
     }
 
     [Fact]
