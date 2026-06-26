@@ -15,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Diagnostics;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Progress;
@@ -59,7 +60,7 @@ public class PstWriter
         _progressIntervalMessages = progressIntervalMessages;
     }
 
-    public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages, string outputDirectory, ConversionReport report, int totalMessages = -1, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default)
+    public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages, string outputDirectory, ConversionReport report, int totalMessages = -1, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null)
     {
         // Pre-flight: if already cancelled, create nothing so DeletedFiles stays empty.
         cancellationToken.ThrowIfCancellationRequested();
@@ -154,6 +155,7 @@ public class PstWriter
                 if (partManager.CheckpointDue)
                 {
                     partManager.Flush();
+                    memoryObserver?.Observe(partManager.SnapshotDurableMemory(report.ConvertedCount));
                     throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
                     partManager.TrySplitOrResumeAfterFlush();   // both branches leave the part write-ready
                 }

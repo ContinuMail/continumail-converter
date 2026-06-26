@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Diagnostics;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Msf;
@@ -30,7 +31,7 @@ public class ConversionRunner
         _writer = new PstWriter(checkIntervalMessages, progressIntervalMessages);
     }
 
-    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default)
+    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null)
     {
         // Validate the config up front (output names, duplicates, sizes, sources)
         // so problems fail loudly before any output file is created.
@@ -81,7 +82,7 @@ public class ConversionRunner
             foreach (PstOutputPlan plan in plans)
             {
                 IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, enrichmentOptions, onProgress);
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, outputDirectory, report, total, onProgress, cancellationToken);
+                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
                 report.AddOutputFiles(outputFiles);
             }
 
