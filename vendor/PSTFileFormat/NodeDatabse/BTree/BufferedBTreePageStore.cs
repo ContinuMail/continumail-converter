@@ -185,6 +185,16 @@ namespace PSTFileFormat
             }
         }
 
+        /// <summary>Measurement-only [§7]. Page-buffer residency: every BTree page is a fixed Page.Length (512 B).
+        /// Read-only: never evicts. All of this is "pinned" in the durable-memory report.</summary>
+        internal (int count, long bytes, long pending) PageBufferResidencyForTest()
+        {
+            int count = m_pageBuffer.Count;
+            long bytes = (long)count * Page.Length;
+            long pending = (long)m_pagesToWrite.Count * Page.Length;
+            return (count, bytes, pending);
+        }
+
         private static int CompareByCLevel(BTreePage x, BTreePage y)
         {
             if (x.cLevel > y.cLevel)
