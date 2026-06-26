@@ -64,4 +64,23 @@ authoritative description of the local PSTFileFormat modifications.
   `PSTFolder`). The write path (search-update queue included) is untouched; output PSTs are byte-for-byte
   unchanged and pass the round-trip + independent-reader gates (ContinuMail, 2026).
 
+- Phase-2 streaming spike — new public APIs added to `BufferedBlockStore` and `DataTree` for streaming
+  large-attachment writes with bounded resident memory (ContinuMail, 2026):
+  - `BufferedBlockStore.PersistLeafBlocks(IEnumerable<ulong>)`: flush named leaf blocks to the BBT
+    without clearing the pending-write set wholesale, leaving the spine pending for in-place updates.
+  - `BufferedBlockStore.TryEvictLeaf(ulong, Func<ulong,bool>)`: residency-only eviction of a
+    persisted, full leaf DataBlock from the in-memory buffer so block count stays bounded.
+  - `BufferedBlockStore.ReadDataLeafWithoutCaching(ulong)`: read a persisted data leaf by BID without
+    re-adding it to the resident buffer.
+  - `BufferedBlockStore.PendingWriteCountForTest`: spike instrumentation — current pending (unwritten)
+    block count.
+  - `BufferedBlockStore.BufferedBlockCountForTest`: spike instrumentation — current resident block count.
+  - `BufferedBlockStore.BlockReallocationsForTest`: spike instrumentation — BID reallocation counter
+    (incremented in the non-pending `UpdateBlock` branch); used by the scaling gate to assert the spine
+    is updated in-place across many batch boundaries.
+  - `DataTree.AppendData(Stream, long)`: streaming append of `length` bytes from a `Stream` across
+    leaf blocks with batched persist+evict, so resident memory is independent of attachment size.
+  - `DataTree.IsRootPendingWriteForTest()`: spike instrumentation — whether the current root/spine
+    block is still in the pending-write set.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
