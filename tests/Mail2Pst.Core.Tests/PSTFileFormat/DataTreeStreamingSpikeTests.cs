@@ -229,6 +229,17 @@ public class DataTreeStreamingSpikeTests : IDisposable
         }
     }
 
+    [Fact]
+    public void StreamAppend_CancelledAtBatchBoundary_ThrowsOperationCanceled()
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        using var cts = new System.Threading.CancellationTokenSource();
+        cts.Cancel();   // already cancelled -> must throw at/just before the first batch boundary
+        using var src = new System.IO.MemoryStream(MakeBytes(9_000_000, 5), writable: false);
+        Assert.Throws<System.OperationCanceledException>(() => tree.AppendData(src, 9_000_000, cts.Token));
+    }
+
     // Every leaf BID except the final (tail) leaf, read from the live spine without re-caching. [R3:F3]
     private static System.Collections.Generic.List<ulong> InteriorLeafBids(global::PSTFileFormat.PSTFile file, DataTree tree)
     {

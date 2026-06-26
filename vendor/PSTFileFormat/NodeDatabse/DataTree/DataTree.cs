@@ -502,6 +502,16 @@ namespace PSTFileFormat
         /// </summary>
         public void AppendData(Stream stream, long length)
         {
+            AppendData(stream, length, System.Threading.CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Cancellation-aware streaming append. Checks the token at the top of each leaf iteration
+        /// (every ≤8176 B); an OCE propagates before the final spine SaveChanges(), leaving the tree
+        /// partial+pending for the caller to discard with the part.
+        /// </summary>
+        public void AppendData(Stream stream, long length, System.Threading.CancellationToken cancellationToken)
+        {
             if (m_bCryptMethod != bCryptMethodName.NDB_CRYPT_PERMUTE)   // [A9/R2:M3]
             {
                 throw new NotSupportedException("Streaming attachment write requires NDB_CRYPT_PERMUTE");
@@ -523,6 +533,8 @@ namespace PSTFileFormat
 
             while (remaining > 0)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 int toRead = (int)Math.Min((long)LeafSize, remaining);
                 byte[] leaf = new byte[toRead];                       // one fresh buffer per leaf [R3:F5]
                 ReadExactly(stream, leaf, toRead);
