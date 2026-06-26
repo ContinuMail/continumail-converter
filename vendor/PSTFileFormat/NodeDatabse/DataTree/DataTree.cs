@@ -494,6 +494,110 @@ namespace PSTFileFormat
             }
         }
 
+        /// <summary>
+        /// Streaming append [Target A]: write `length` bytes from `stream` across leaf blocks, persisting
+        /// and evicting older full leaves in byte-batches so resident memory is independent of `length`.
+        /// Ends with one explicit spine SaveChanges() [R2:C1]. Never partial-persists an interior block [A1].
+        /// </summary>
+        public void AppendData(Stream stream, long length)
+        {
+            if (m_bCryptMethod != bCryptMethodName.NDB_CRYPT_PERMUTE)   // [A9/R2:M3]
+            {
+                throw new NotSupportedException("Streaming attachment write requires NDB_CRYPT_PERMUTE");
+            }
+            if (length == 0)
+            {
+                return;   // zero-length: leave the tree empty, caller must not write a subnode entry [R3:NEW-03]
+            }
+            // Precondition: a freshly created DataTree (single empty root DataBlock).
+            System.Diagnostics.Debug.Assert(DataBlockCount == 1, "AppendData(Stream,long) requires a fresh DataTree");
+
+            const int LeafSize = DataBlock.MaximumDataLength;          // 8176
+            const long BatchBytes = 8L * 1024 * 1024;                 // 8 MB starting batch
+
+            long remaining = length;
+            long bytesSinceFlush = 0;
+            int lowWaterIndex = 0;                                     // first not-yet-evicted leaf
+            bool first = true;
+
+            while (remaining > 0)
+            {
+                int toRead = (int)Math.Min((long)LeafSize, remaining);
+                byte[] leaf = new byte[toRead];                       // one fresh buffer per leaf [R3:F5]
+                ReadExactly(stream, leaf, toRead);
+
+                if (first)
+                {
+                    UpdateDataBlock(0, leaf);                          // fill the initial empty root DataBlock
+                    first = false;
+                }
+                else
+                {
+                    AddDataBlock(leaf);                               // zero-fills prior tail, grows the spine
+                }
+
+                remaining -= toRead;
+                bytesSinceFlush += toRead;
+
+                if (bytesSinceFlush >= BatchBytes)
+                {
+                    FlushAndEvictBatch(ref lowWaterIndex);
+                    bytesSinceFlush = 0;
+                }
+            }
+
+            // Drain: one final flush+evict so end-state residency is just tail + preceding + spine,
+            // making writer-side residency independent of attachment size [R3:F1].
+            FlushAndEvictBatch(ref lowWaterIndex);
+
+            // Final, explicit local spine flush [R2:C1] — persists the spine + the unflushed tail leaf.
+            // (Caller inserts the subnode entry AFTER this, reading RootBlock.BlockID at that instant [A4].)
+            SaveChanges();
+        }
+
+        // Persist the FULL leaves (0..count-2) not yet persisted; evict old full leaves up to count-3,
+        // keeping the preceding block (count-2) and the partial tail (count-1) resident [A1, R2:L3].
+        private void FlushAndEvictBatch(ref int lowWaterIndex)
+        {
+            int count = DataBlockCount;                               // hoisted (XXBlock getter clones) [R2:L2]
+            int highestFull = count - 2;                              // count-1 tail is partial
+            if (highestFull < lowWaterIndex) return;
+
+            var fullLeaves = new List<ulong>();
+            for (int i = lowWaterIndex; i <= highestFull; i++)
+            {
+                fullLeaves.Add(GetDataBlock(i).BlockID.Value);
+            }
+            PersistLeafBlocks(fullLeaves);
+
+            int highestEvictable = count - 3;                         // keep preceding + tail
+            for (int i = lowWaterIndex; i <= highestEvictable; i++)
+            {
+                DataBlock leaf = GetDataBlock(i);                     // live spine identity, re-read each batch [A3]
+                ulong liveBid = leaf.BlockID.Value;
+                bool full = leaf.DataLength == DataBlock.MaximumDataLength;
+                if (TryEvictLeaf(liveBid, _ => full))
+                {
+                    lowWaterIndex = i + 1;
+                }
+                else
+                {
+                    break;                                           // stop at first non-evictable; preserves order
+                }
+            }
+        }
+
+        private static void ReadExactly(Stream stream, byte[] buffer, int count)
+        {
+            int read = 0;
+            while (read < count)
+            {
+                int n = stream.Read(buffer, read, count - read);
+                if (n <= 0) throw new EndOfStreamException("Attachment stream ended before declared length");
+                read += n;
+            }
+        }
+
         public void Clear()
         {
             // delete extra blocks

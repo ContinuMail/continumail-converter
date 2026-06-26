@@ -135,4 +135,100 @@ public class DataTreeStreamingSpikeTests : IDisposable
         Assert.Equal(leaf0Bytes, readBack);
         Assert.Equal(bufAfterEvict, tree.BufferedBlockCountForTest);   // NOT re-cached
     }
+
+    [Theory]
+    [InlineData(20_000)]        // DataBlock -> XBlock
+    [InlineData(8_347_696)]     // exactly 1021 * 8176 — boundary at the XBlock -> XXBlock transition [R3:NEW-02]
+    [InlineData(9_000_000)]     // XXBlock, non-8176-aligned tail
+    public void StreamAppend_RoundTrips_AcrossSpineTransitions(int length)
+    {
+        byte[] payload = MakeBytes(length, 42);
+        ulong rootBid;
+
+        // --- write phase (streaming) ---
+        {
+            var file = NewStore();
+            var tree = new DataTree(file);
+            using (var src = new MemoryStream(payload, writable: false))
+            {
+                tree.AppendData(src, payload.Length);
+            }
+            Assert.Equal(0, tree.PendingWriteCountForTest);    // [C1] spine + all leaves flushed, nothing pending [R3]
+            rootBid = tree.RootBlock.BlockID.Value;
+            file.EndSavingChanges();
+            file.CloseFile();
+            _file = null;
+        }
+
+        // --- read phase (reopen) --- PSTFile has no IDisposable; close via try/finally [R3:F2]
+        var file2 = new global::PSTFileFormat.PSTFile(_path, FileAccess.Read, WriterCompatibilityMode.Outlook2007RTM);
+        try
+        {
+            Block root = file2.FindBlockByBlockID(rootBid);
+            var tree2 = new DataTree(file2, root);
+            Assert.Equal(payload, tree2.GetData());
+        }
+        finally
+        {
+            file2.CloseFile();
+        }
+    }
+
+    [Fact]
+    public void StreamAppend_KeepsBufferBounded_IndependentOfAttachmentSize()  // peak-memory intent
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        using (var src = new MemoryStream(MakeBytes(9_000_000, 1), writable: false))
+        {
+            tree.AppendData(src, 9_000_000);
+        }
+        // ~1100 leaves written; after AppendData's final drain only tail + preceding + spine (~5) remain
+        // resident, independent of attachment size. (Mid-stream PEAK is ~one 8 MB batch of leaves — the
+        // bounded "+ batch" term in spec §1; this end-state check proves the drain reclaims it.) [R3:F1]
+        Assert.True(tree.BufferedBlockCountForTest < 16,
+            $"buffer not bounded after drain: {tree.BufferedBlockCountForTest} resident blocks");
+    }
+
+    [Fact]
+    public void EveryPersistedInteriorLeaf_IsFull8176_NoPartialInteriorBlock()  // [R2:M4] — round-trip alone is vacuous
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        using (var src = new MemoryStream(MakeBytes(9_000_000, 11), writable: false))
+        {
+            tree.AppendData(src, 9_000_000);
+        }
+        // Read interior leaf BIDs from the in-memory spine WITHOUT GetDataBlock (which re-caches evicted
+        // leaves via GetBlock, violating [A12]); assert each BBT-recorded length == 8176. [R3:F3]
+        var interiorBids = InteriorLeafBids(file, tree);
+        Assert.NotEmpty(interiorBids);
+        foreach (ulong bid in interiorBids)
+        {
+            var entry = file.FindBlockEntryByBlockID(bid);
+            Assert.NotNull(entry);
+            Assert.Equal(DataBlock.MaximumDataLength, (int)entry.cb);   // cb is ushort (BlockBTreeEntry.cs:19) [R3]
+        }
+    }
+
+    // Every leaf BID except the final (tail) leaf, read from the live spine without re-caching. [R3:F3]
+    private static System.Collections.Generic.List<ulong> InteriorLeafBids(global::PSTFileFormat.PSTFile file, DataTree tree)
+    {
+        var bids = new System.Collections.Generic.List<ulong>();
+        Block root = tree.RootBlock;
+        if (root is XBlock xb)
+        {
+            foreach (BlockID b in xb.rgbid) bids.Add(b.Value);
+        }
+        else if (root is XXBlock xxb)
+        {
+            foreach (BlockID xbid in xxb.rgbid)
+            {
+                var child = (XBlock)file.FindBlockByBlockID(xbid.Value);   // non-caching (PSTFile level)
+                foreach (BlockID b in child.rgbid) bids.Add(b.Value);
+            }
+        }
+        if (bids.Count > 0) bids.RemoveAt(bids.Count - 1);   // drop the tail (allowed to be partial)
+        return bids;
+    }
 }
