@@ -183,6 +183,45 @@ namespace PSTFileFormat
             }
         }
 
+        /// <summary>
+        /// Residency-only eviction [§4]. Evicts blockID from m_blockBuffer iff ALL hold:
+        /// (1) present in the buffer; (2) not pending; (4/6) a leaf DataBlock; (3) BBT-indexed;
+        /// (5/7) the owner's live-spine policy approves (caller passes the CURRENT live BID + fullness).
+        /// The GetBlock clone contract makes this logically safe (callers never alias the cached block).
+        /// </summary>
+        public bool TryEvictLeaf(ulong blockID, Func<ulong, bool> isFullAndEvictable)
+        {
+            if (!m_blockBuffer.ContainsKey(blockID)) return false;          // cond 1
+            if (m_blocksToWrite.Contains(blockID)) return false;            // cond 2 (pending)
+            if (!(m_blockBuffer[blockID] is DataBlock)) return false;       // cond 4/6 (leaf only)
+            if (m_file.FindBlockEntryByBlockID(blockID) == null) return false; // cond 3 (BBT-indexed)
+            // cond 7b: leaf is full. cond 7a (live-spine identity) is the CALLER's job — it must pass the
+            // current rgbid[index] BID, re-read each batch, never a remembered/cached BID. [R3]
+            if (!isFullAndEvictable(blockID)) return false;
+            m_blockBuffer.Remove(blockID);
+            return true;
+        }
+
+        /// <summary>Read a persisted data leaf by BID WITHOUT re-adding it to m_blockBuffer [A12].</summary>
+        public byte[] ReadDataLeafWithoutCaching(ulong blockID)
+        {
+            DataBlock block = (DataBlock)m_file.FindBlockByBlockID(blockID);
+            return block.Data;
+        }
+
+        // Spike instrumentation: current resident block count.
+        public int BufferedBlockCountForTest
+        {
+            get { return m_blockBuffer.Count; }
+        }
+
+        // Spike instrumentation: pending (unwritten) block count. A strictly stronger [C1] gate than a
+        // per-leaf walk — it also catches a pending spine block — and allocation-free. [R3]
+        public int PendingWriteCountForTest
+        {
+            get { return m_blocksToWrite.Count; }
+        }
+
         public PSTFile File
         {
             get

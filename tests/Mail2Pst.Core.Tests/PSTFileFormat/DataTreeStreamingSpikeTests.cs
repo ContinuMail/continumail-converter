@@ -90,4 +90,47 @@ public class DataTreeStreamingSpikeTests : IDisposable
 
         Assert.NotEqual(spineBidBefore, tree.RootBlock.BlockID.Value);
     }
+
+    [Fact]
+    public void TryEvictLeaf_RemovesPersistedLeafFromBuffer_PendingAndSpineSurvive()
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        tree.AppendData(MakeBytes(40_000, 3));
+        int count = tree.DataBlockCount;
+
+        ulong leaf0 = tree.GetDataBlock(0).BlockID.Value;
+        ulong tailLeaf = tree.GetDataBlock(count - 1).BlockID.Value;
+        ulong spine = tree.RootBlock.BlockID.Value;
+
+        tree.PersistLeafBlocks(Enumerable.Range(0, count - 1).Select(i => tree.GetDataBlock(i).BlockID.Value).ToList());
+        int bufBefore = tree.BufferedBlockCountForTest;
+
+        bool evicted = tree.TryEvictLeaf(leaf0, _ => true);   // full + persisted + leaf
+        Assert.True(evicted);
+        Assert.Equal(bufBefore - 1, tree.BufferedBlockCountForTest);
+
+        Assert.False(tree.TryEvictLeaf(tailLeaf, _ => true), "partial pending tail must not be evictable");
+        Assert.False(tree.TryEvictLeaf(spine, _ => true), "spine (XBlock) is not a leaf DataBlock");
+    }
+
+    [Fact]
+    public void ReadDataLeafWithoutCaching_ReturnsBytes_WithoutRepopulatingBuffer()  // [A12]
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        byte[] payload = MakeBytes(40_000, 5);
+        tree.AppendData(payload);
+        int count = tree.DataBlockCount;
+
+        ulong leaf0 = tree.GetDataBlock(0).BlockID.Value;
+        byte[] leaf0Bytes = tree.GetDataBlock(0).Data;       // capture expected leaf bytes
+        tree.PersistLeafBlocks(Enumerable.Range(0, count - 1).Select(i => tree.GetDataBlock(i).BlockID.Value).ToList());
+        tree.TryEvictLeaf(leaf0, _ => true);
+        int bufAfterEvict = tree.BufferedBlockCountForTest;
+
+        byte[] readBack = tree.ReadDataLeafWithoutCaching(leaf0);
+        Assert.Equal(leaf0Bytes, readBack);
+        Assert.Equal(bufAfterEvict, tree.BufferedBlockCountForTest);   // NOT re-cached
+    }
 }
