@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
-
+#nullable enable
 using System;
 using System.IO;
 using Mail2Pst.Core.Models;
@@ -107,5 +107,34 @@ public class AttachmentContentTests
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void OpenRead_BytesBacked_StreamsExactContent_LengthMatches()
+    {
+        byte[] data = { 1, 2, 3, 4, 5 };
+        using var c = AttachmentContent.FromBytes(data);
+        using Stream s = c.OpenRead();
+        Assert.Equal(data.Length, c.Length);
+        var ms = new MemoryStream();
+        s.CopyTo(ms);
+        Assert.Equal(data, ms.ToArray());
+    }
+
+    [Fact]
+    public void OpenRead_TempFileBacked_StreamsFileContent_WithoutPreReading()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "m2p-att-" + System.Guid.NewGuid().ToString("N"));
+        byte[] data = { 9, 8, 7, 6 };
+        File.WriteAllBytes(path, data);
+        try
+        {
+            using var c = AttachmentContent.FromTempFile(path, data.Length);
+            using Stream s = c.OpenRead();
+            var ms = new MemoryStream();
+            s.CopyTo(ms);
+            Assert.Equal(data, ms.ToArray());
+        }
+        finally { File.Delete(path); }
     }
 }

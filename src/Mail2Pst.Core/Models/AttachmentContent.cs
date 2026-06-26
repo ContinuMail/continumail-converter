@@ -41,6 +41,22 @@ public sealed class AttachmentContent : IDisposable
         return _bytes ?? File.ReadAllBytes(_tempPath!);
     }
 
+    /// <summary>
+    /// Opens a readable, seekable stream over the content WITHOUT materializing it: a MemoryStream
+    /// wrapping the existing byte[] (no copy) for in-memory content, or a FileStream over the temp file
+    /// (no read). The caller owns + disposes the returned stream. Enables streaming attachment writes
+    /// so a large attachment is never copied into a writer-side byte[].
+    /// </summary>
+    public Stream OpenRead()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(AttachmentContent));
+        if (_bytes is not null)
+        {
+            return new MemoryStream(_bytes, writable: false);
+        }
+        return new FileStream(_tempPath!, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
