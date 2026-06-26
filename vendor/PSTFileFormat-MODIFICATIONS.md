@@ -83,6 +83,31 @@ authoritative description of the local PSTFileFormat modifications.
   - `DataTree.IsRootPendingWriteForTest()`: spike instrumentation — whether the current root/spine
     block is still in the pending-write set.
 
+- Phase-2 Target-A production wiring — streaming-write APIs wired into the production write path,
+  removing the writer-side OOM cliff on large attachments (ContinuMail, 2026):
+  - `DataTree.SaveChanges()`: hoisted `DataBlockCount - 1` out of the zero-fill loop (the
+    `DataBlockCount` getter clones the last XBlock/XXBlock for multi-level trees, so evaluating it
+    on every iteration was wasteful). Behaviour-preserving performance fix; a modification to an
+    existing method, not a new API. (`[R2:L2]`)
+  - `DataTree.AppendData(Stream, long, CancellationToken)`: cancellation-aware streaming append
+    overload. Checks the token at the top of each leaf iteration (~8 KB); an
+    `OperationCanceledException` propagates before the final spine `SaveChanges()`, leaving the
+    tree partial+pending for the caller to discard with the in-progress PST part. The two-argument
+    `AppendData(Stream, long)` overload (shipping since the Phase-2 spike) delegates to this with
+    `CancellationToken.None`.
+  - `NodeStorageHelper.StoreExternalProperty(PSTFile, HeapOnNode, ref SubnodeBTree, Stream, long,
+    CancellationToken)` (`internal`): INSERT-only streaming store path. Routes small payloads
+    (≤ `HeapOnNode.MaximumAllocationLength`) through the existing heap path after buffering them
+    from the stream; routes large payloads into a fresh `DataTree` via
+    `AppendData(stream, length, cancellationToken)` followed by a new subnode entry. No streaming
+    UPDATE overload is provided — the converter writes `PidTagAttachData` exactly once per
+    attachment, so an UPDATE path is never reached.
+  - `PropertyContext.SetExternalProperty(PropertyID, PropertyTypeName, Stream, long,
+    CancellationToken)`: INSERT-only streaming seam on the property context. Delegates to
+    `NodeStorageHelper.StoreExternalProperty(…, Stream, long, CancellationToken)`. Throws
+    `NotSupportedException` if a record for `propertyID` already exists (UPDATE not supported);
+    the production write path never triggers this because `PidTagAttachData` is written once.
+
 - Phase-2 Target-C measurement — read-only residency snapshot APIs added for durable-memory
   measurement (measurement-only; no production behaviour change; each accessor is a property or
   method returning current in-memory counts/sizes and is never called on the hot write path)
