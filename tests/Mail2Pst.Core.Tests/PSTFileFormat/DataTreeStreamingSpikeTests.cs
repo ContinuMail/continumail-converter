@@ -174,20 +174,27 @@ public class DataTreeStreamingSpikeTests : IDisposable
         }
     }
 
-    [Fact]
-    public void StreamAppend_KeepsBufferBounded_IndependentOfAttachmentSize()  // peak-memory intent
+    // Extended in Task 6 to three sizes (9 / 18 / 36 MB) to prove the post-drain residency is
+    // constant across sizes — not just a single-point check. The existing 9 MB case is kept
+    // so the Theory is a strict superset of the former Fact.
+    [Theory]
+    [InlineData(9_000_000)]    // ~1100 leaves — XXBlock territory (original single-Fact coverage)
+    [InlineData(18_000_000)]   // ~2200 leaves — 2× size: buffer must stay constant, not scale with size
+    [InlineData(36_000_000)]   // ~4400 leaves — 4× size: confirms O(1) post-drain residency at scale
+    public void StreamAppend_KeepsBufferBounded_IndependentOfAttachmentSize(int length)  // peak-memory intent
     {
         var file = NewStore();
         var tree = new DataTree(file);
-        using (var src = new MemoryStream(MakeBytes(9_000_000, 1), writable: false))
+        using (var src = new MemoryStream(MakeBytes(length, 1), writable: false))
         {
-            tree.AppendData(src, 9_000_000);
+            tree.AppendData(src, length);
         }
-        // ~1100 leaves written; after AppendData's final drain only tail + preceding + spine (~5) remain
-        // resident, independent of attachment size. (Mid-stream PEAK is ~one 8 MB batch of leaves — the
-        // bounded "+ batch" term in spec §1; this end-state check proves the drain reclaims it.) [R3:F1]
+        // After AppendData's final drain only tail + preceding + spine (~5) remain resident,
+        // independent of attachment size. (Mid-stream PEAK is ~one 8 MB batch of leaves — the
+        // bounded "+ batch" term in spec §1; this end-state check proves the drain reclaims it
+        // across all three sizes.) [R3:F1]
         Assert.True(tree.BufferedBlockCountForTest < 16,
-            $"buffer not bounded after drain: {tree.BufferedBlockCountForTest} resident blocks");
+            $"buffer not bounded after drain: {tree.BufferedBlockCountForTest} resident blocks (length={length})");
     }
 
     [Fact]
