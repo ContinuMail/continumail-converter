@@ -180,6 +180,9 @@ namespace PSTFileFormat
                     continue; // already persisted in a prior batch
                 }
                 Block block = m_blockBuffer[blockID];
+                System.Diagnostics.Debug.Assert(
+                    block is DataBlock dbl && dbl.DataLength == DataBlock.MaximumDataLength,
+                    "PersistLeafBlocks requires full (8176 B) leaf DataBlocks — partial/interior block would violate the zero-fill invariant [A1]");
                 long offset = AllocationHelper.AllocateSpaceForBlock(m_file, block.TotalLength);
                 block.WriteToStream(m_file.BaseStream, offset);
                 m_file.BlockBTree.InsertBlockEntry(block.BlockID, offset, block.DataLength);

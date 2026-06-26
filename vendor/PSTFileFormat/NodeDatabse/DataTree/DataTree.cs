@@ -576,6 +576,7 @@ namespace PSTFileFormat
                 DataBlock leaf = GetDataBlock(i);                     // live spine identity, re-read each batch [A3]
                 ulong liveBid = leaf.BlockID.Value;
                 bool full = leaf.DataLength == DataBlock.MaximumDataLength;
+                // [A3] liveBid is re-read from the live spine each batch (never a remembered BID); the lambda only carries fullness.
                 if (TryEvictLeaf(liveBid, _ => full))
                 {
                     lowWaterIndex = i + 1;
