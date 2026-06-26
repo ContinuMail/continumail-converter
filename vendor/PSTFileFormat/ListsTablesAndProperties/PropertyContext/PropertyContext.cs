@@ -426,6 +426,32 @@ namespace PSTFileFormat
             }
         }
 
+        /// <summary>
+        /// INSERT-only stream overload. Allocates a new external storage entry for
+        /// <paramref name="propertyID"/> by routing to
+        /// <see cref="NodeStorageHelper.StoreExternalProperty(PSTFile,HeapOnNode,ref SubnodeBTree,System.IO.Stream,long,System.Threading.CancellationToken)"/>.
+        /// The stream is consumed and closed synchronously before this method returns [A10].
+        /// If a property record for <paramref name="propertyID"/> already exists,
+        /// <see cref="System.NotSupportedException"/> is thrown — UPDATE is not supported via this
+        /// overload [R2:H1].
+        /// </summary>
+        public void SetExternalProperty(PropertyID propertyID, PropertyTypeName propertyType, System.IO.Stream stream, long length, System.Threading.CancellationToken cancellationToken)
+        {
+            PropertyContextRecord record = GetRecordByPropertyID(propertyID);
+            if (record != null)
+            {
+                throw new System.NotSupportedException("streaming external property write is INSERT-only");
+            }
+            else // old record does not exist
+            {
+                record = new PropertyContextRecord();
+                record.HeapOrNodeID = NodeStorageHelper.StoreExternalProperty(this.File, this.Heap, ref m_subnodeBTree, stream, length, cancellationToken);
+                record.wPropId = propertyID;
+                record.wPropType = propertyType;
+                AddRecord(record);
+            }
+        }
+
         public void SetBooleanProperty(PropertyID propertyID, bool value)
         {
             SetInternalProperty(propertyID, PropertyTypeName.PtypBoolean, Convert.ToByte(value));
