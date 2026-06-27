@@ -31,7 +31,7 @@ public class ConversionRunner
         _writer = new PstWriter(checkIntervalMessages, progressIntervalMessages);
     }
 
-    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null)
+    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null, int precomputedTotalMessages = -1)
     {
         // Validate the config up front (output names, duplicates, sizes, sources)
         // so problems fail loudly before any output file is created.
@@ -60,17 +60,27 @@ public class ConversionRunner
         int total = 0;
         if (onProgress is not null)
         {
-            foreach (PstOutputPlan plan in plans)
+            if (precomputedTotalMessages >= 0)
             {
-                foreach (SourceMapping mapping in plan.SourceMappings)
+                // A caller that already counted (e.g. the GUI's preceding `scan`) passes the total here,
+                // so a progress-mode convert skips a full second boundary pass over every source. When
+                // omitted (-1, the default and the direct-CLI path) we count on demand as before.
+                total = precomputedTotalMessages;
+            }
+            else
+            {
+                foreach (PstOutputPlan plan in plans)
                 {
-                    try
+                    foreach (SourceMapping mapping in plan.SourceMappings)
                     {
-                        total += ParserRegistry.Get(mapping.Source.Type).CountMessages(mapping.Source.Path);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        // best-effort: missing/unreadable source contributes 0 to the total
+                        try
+                        {
+                            total += ParserRegistry.Get(mapping.Source.Type).CountMessages(mapping.Source.Path);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            // best-effort: missing/unreadable source contributes 0 to the total
+                        }
                     }
                 }
             }

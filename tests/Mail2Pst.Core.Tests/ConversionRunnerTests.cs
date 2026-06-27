@@ -7,6 +7,7 @@ using System.IO;
 using System.Threading;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 using PSTFileFormat;
 using Xunit;
@@ -340,6 +341,71 @@ public class ConversionRunnerTests
         {
             Directory.Delete(outputDir, true);
         }
+    }
+
+    [Fact]
+    public void Run_WithPrecomputedTotal_EmitsItAndSkipsCountPass()
+    {
+        // sample.mbox really holds 2 messages. Passing a deliberately different precomputed total and
+        // asserting the ScanEvent carries THAT value proves the convert-time count pass was skipped in
+        // favour of the supplied number (the GUI's preceding `scan` already paid for it).
+        string fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample.mbox");
+        string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(outputDir);
+        try
+        {
+            var config = new ConversionConfig
+            {
+                Outputs = new List<OutputGroupConfig>
+                {
+                    new()
+                    {
+                        Name = "Personal", MaxSizeMB = 100, FolderMapping = FolderMappingMode.Mirror,
+                        Sources = new List<SourceConfig> { new() { Type = "mbox", Path = fixturePath } },
+                    },
+                },
+            };
+
+            int? emittedTotal = null;
+            ConversionReport report = new ConversionRunner().Run(
+                config, outputDir,
+                onProgress: evt => { if (evt is ScanEvent s) emittedTotal = s.TotalMessages; },
+                precomputedTotalMessages: 999);
+
+            Assert.Equal(999, emittedTotal);     // supplied total used verbatim
+            Assert.Equal(2, report.ConvertedCount); // real conversion + independent verify still correct
+        }
+        finally { Directory.Delete(outputDir, true); }
+    }
+
+    [Fact]
+    public void Run_WithoutPrecomputedTotal_CountsOnDemand()
+    {
+        string fixturePath = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample.mbox");
+        string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-tests-" + Guid.NewGuid());
+        Directory.CreateDirectory(outputDir);
+        try
+        {
+            var config = new ConversionConfig
+            {
+                Outputs = new List<OutputGroupConfig>
+                {
+                    new()
+                    {
+                        Name = "Personal", MaxSizeMB = 100, FolderMapping = FolderMappingMode.Mirror,
+                        Sources = new List<SourceConfig> { new() { Type = "mbox", Path = fixturePath } },
+                    },
+                },
+            };
+
+            int? emittedTotal = null;
+            new ConversionRunner().Run(
+                config, outputDir,
+                onProgress: evt => { if (evt is ScanEvent s) emittedTotal = s.TotalMessages; });
+
+            Assert.Equal(2, emittedTotal);   // default (-1) -> count on demand, the real message count
+        }
+        finally { Directory.Delete(outputDir, true); }
     }
 
     [Fact]

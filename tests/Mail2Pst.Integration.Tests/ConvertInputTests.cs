@@ -96,4 +96,48 @@ public class ConvertInputTests
         ConvertResolution r = ConvertInput.Resolve(new[] { "--config", "--output", "out" });
         Assert.NotNull(r.Error);
     }
+
+    [Fact]
+    public void Resolve_ExpectedTotal_ParsedOnSuccess()
+    {
+        string profile = MakeProfile();
+        try
+        {
+            ConvertResolution r = ConvertInput.Resolve(
+                new[] { "--profile", profile, "--output", "out", "--expected-total", "42" });
+            Assert.Null(r.Error);
+            Assert.Equal(42, r.ExpectedTotal);
+        }
+        finally { Directory.Delete(profile, true); }
+    }
+
+    [Fact]
+    public void Resolve_NoExpectedTotal_DefaultsToMinusOne()
+    {
+        string profile = MakeProfile();
+        try
+        {
+            ConvertResolution r = ConvertInput.Resolve(new[] { "--profile", profile, "--output", "out" });
+            Assert.Null(r.Error);
+            Assert.Equal(-1, r.ExpectedTotal);   // sentinel -> count on demand
+        }
+        finally { Directory.Delete(profile, true); }
+    }
+
+    [Fact]
+    public void Resolve_NonNumericExpectedTotal_Error()
+    {
+        ConvertResolution r = ConvertInput.Resolve(
+            new[] { "--config", "c.json", "--output", "out", "--expected-total", "notanumber" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("expected-total", r.Error!);
+    }
+
+    [Fact]
+    public void Resolve_NegativeExpectedTotal_Error()
+    {
+        ConvertResolution r = ConvertInput.Resolve(
+            new[] { "--config", "c.json", "--output", "out", "--expected-total", "-5" });
+        Assert.NotNull(r.Error);
+    }
 }

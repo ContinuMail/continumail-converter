@@ -8,8 +8,9 @@ using Mail2Pst.Core.Discovery;
 
 namespace Mail2Pst.Cli;
 
-/// <summary>Resolved convert inputs, or a user-facing Error string. Pure (no signals/conversion).</summary>
-internal sealed record ConvertResolution(ConversionConfig? Config, string? OutputDir, string? InputLabel, string? Error);
+/// <summary>Resolved convert inputs, or a user-facing Error string. Pure (no signals/conversion).
+/// <paramref name="ExpectedTotal"/> is an optional precomputed message count (-1 = count on demand).</summary>
+internal sealed record ConvertResolution(ConversionConfig? Config, string? OutputDir, string? InputLabel, string? Error, int ExpectedTotal = -1);
 
 /// <summary>
 /// Resolves `convert` arguments into a ConversionConfig (or an error), supporting --config (existing),
@@ -20,7 +21,7 @@ internal sealed record ConvertResolution(ConversionConfig? Config, string? Outpu
 internal static class ConvertInput
 {
     private static readonly System.Collections.Generic.HashSet<string> KnownFlags =
-        new(StringComparer.Ordinal) { "--config", "--profile", "--output" };
+        new(StringComparer.Ordinal) { "--config", "--profile", "--output", "--expected-total" };
 
     internal static ConvertResolution Resolve(string[] args)
     {
@@ -32,6 +33,17 @@ internal static class ConvertInput
         string? configPath = CliArgs.Flag(args, "--config");
         string? profileDir = CliArgs.Flag(args, "--profile");
         string? outputDir = CliArgs.Flag(args, "--output");
+
+        // Optional precomputed message count (non-negative). Lets a caller that already scanned skip the
+        // convert-time count pass; omitted -> -1 -> count on demand. Direct CLI users are unaffected.
+        int expectedTotal = -1;
+        string? expectedTotalRaw = CliArgs.Flag(args, "--expected-total");
+        if (expectedTotalRaw is not null &&
+            (!int.TryParse(expectedTotalRaw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out expectedTotal) || expectedTotal < 0))
+        {
+            return new(null, null, null, $"Invalid --expected-total value: {expectedTotalRaw}");
+        }
 
         if (outputDir is null)
             return new(null, null, null, "Missing --output <dir>.");
@@ -56,7 +68,7 @@ internal static class ConvertInput
             {
                 DiscoveryResult discovery = MailProfileDiscovery.Discover(profileDir);
                 ConversionConfig config = ConfigFromDiscovery.Build(discovery, template);
-                return new(config, outputDir, profileDir, null);
+                return new(config, outputDir, profileDir, null, expectedTotal);
             }
             catch (Exception ex)
             {
@@ -70,7 +82,7 @@ internal static class ConvertInput
         try
         {
             ConversionConfig config = ConfigLoader.Load(configPath!);
-            return new(config, outputDir, configPath, null);
+            return new(config, outputDir, configPath, null, expectedTotal);
         }
         catch (Exception ex)
         {
