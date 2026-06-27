@@ -25,10 +25,10 @@ public class ScanRunnerProgressTests
 
         runner.Scan(new[] { a, b }, "mbox", progresses.Add);
 
-        // Two tiny (<64 MB) sources → exactly one guaranteed file-end emit each,
-        // no throttle, no duplicate at the boundary. Asserting the exact count
-        // (not just NotEmpty) locks in the de-dup / one-emit-per-file behavior.
-        Assert.Equal(2, progresses.Count);
+        // Under parallel range aggregation the exact emit count is no longer fixed (it depends on
+        // range tiling + the byte throttle), so assert the DURABLE invariants instead: at least one
+        // emit, every emit clamped to total, non-decreasing, and the final EmitFinal reaches 100%.
+        Assert.NotEmpty(progresses);
         Assert.All(progresses, p => Assert.Equal(total, p.TotalBytes));
         Assert.All(progresses, p => Assert.True(p.Bytes <= p.TotalBytes, "bytes must be clamped to total"));
         for (int i = 1; i < progresses.Count; i++)

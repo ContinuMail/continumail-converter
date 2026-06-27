@@ -96,7 +96,7 @@ public class MboxParser : IMailSourceParser
     /// per-message <see cref="FormatException"/>/<see cref="IOException"/> becomes a skip
     /// (<see cref="RangeMessage.SkipReason"/>) and anything else (incl. spill) propagates.
     /// </summary>
-    public RangeScanResult ScanRange(string path, long startOffset, long endOffset, Action<long>? onBytesRead)
+    public virtual RangeScanResult ScanRange(string path, long startOffset, long endOffset, Action<long>? onBytesRead)
     {
         using FileStream stream = File.OpenRead(path);
         stream.Seek(startOffset, SeekOrigin.Begin);
