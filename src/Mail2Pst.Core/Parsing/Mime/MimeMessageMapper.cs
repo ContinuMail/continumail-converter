@@ -163,14 +163,11 @@ public class MimeMessageMapper
                 const string embeddedMimeType = "message/rfc822";
                 try
                 {
-                    using var messageBytes = new MemoryStream();
-                    messagePart.Message.WriteTo(messageBytes);
-
                     attachments.Add(new MailAttachment
                     {
                         FileName = embeddedFileName,
                         MimeType = embeddedMimeType,
-                        Content = ToAttachmentContent(messageBytes),
+                        Content = WriteEmbeddedMessageContent(messagePart),
                     });
                 }
                 catch (Exception ex)
@@ -245,7 +242,11 @@ public class MimeMessageMapper
                     MimeType = mimeType,
                     ContentId = contentId,
                     ContentLocation = part.ContentLocation?.ToString(),
-                    IsInline = isInlineDisposition || contentId is not null,
+                    // A Content-ID marks a part inline (body-embedded, hidden, no paperclip) ONLY when
+                    // it is not also an explicit attachment. Many mailers attach genuine files (PDFs,
+                    // ICS invites, signed parts) that carry BOTH Content-Disposition: attachment and a
+                    // Content-ID — those must stay visible, so the explicit attachment disposition wins.
+                    IsInline = isInlineDisposition || (contentId is not null && !isAttachmentDisposition),
                     Content = content,
                 });
             }
@@ -271,6 +272,28 @@ public class MimeMessageMapper
         }
         using var buffer = new MemoryStream();
         part.Content!.DecodeTo(buffer);
+        return ToAttachmentContent(buffer);
+    }
+
+    // Same measure-only contract as DecodeContent, for an embedded message/rfc822 attachment: in scan
+    // measure-only mode, serialize the embedded message into a CountingStream to capture its exact length
+    // while retaining nothing — otherwise a large forwarded .eml would be fully buffered (and temp-spilled
+    // past the threshold) per scan worker, defeating the parallel-scan memory-safety guarantee.
+    private AttachmentContent WriteEmbeddedMessageContent(MessagePart messagePart)
+    {
+        // A message/rfc822 part with no parsed inner message has nothing to attach; surface it as a
+        // dropped-attachment warning (the caller catches this) rather than NRE-ing on WriteTo.
+        MimeMessage message = messagePart.Message
+            ?? throw new InvalidOperationException("embedded message/rfc822 part has no message content");
+
+        if (_measureOnly)
+        {
+            var counter = new CountingStream();
+            message.WriteTo(counter);
+            return AttachmentContent.FromLengthOnly(counter.BytesWritten);
+        }
+        using var buffer = new MemoryStream();
+        message.WriteTo(buffer);
         return ToAttachmentContent(buffer);
     }
 

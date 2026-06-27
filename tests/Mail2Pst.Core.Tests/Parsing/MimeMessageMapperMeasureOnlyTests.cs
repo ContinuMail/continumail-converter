@@ -47,6 +47,54 @@ public class MimeMessageMapperMeasureOnlyTests
         Assert.Throws<InvalidOperationException>(() => content.OpenRead());
     }
 
+    // An embedded message/rfc822 attachment (a forwarded .eml), explicitly attached.
+    private static MimeMessage MsgWithEmbeddedMessageAttachment()
+    {
+        var original = new MimeMessage { Subject = "Original" };
+        original.From.Add(new MailboxAddress("O", "o@example.com"));
+        original.Body = new TextPart("plain") { Text = new string('x', 500) };
+
+        var mixed = new Multipart("mixed");
+        mixed.Add(new TextPart("plain") { Text = "see attached" });
+        mixed.Add(new MessagePart
+        {
+            Message = original,
+            ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+        });
+
+        var outer = new MimeMessage { Subject = "fwd" };
+        outer.From.Add(new MailboxAddress("A", "a@example.com"));
+        outer.Body = mixed;
+        return outer;
+    }
+
+    [Fact]
+    public void MeasureOnly_EmbeddedMessage_LengthMatchesMaterialized_ButWritesNoTempFile()
+    {
+        var src = new SourceReference { SourcePath = "p", Identifier = "message #1" };
+
+        // Build ONCE and map twice: MimeKit assigns per-construction boundaries, so two separate
+        // constructions could serialize to different lengths. Mapping the same message guarantees a
+        // byte-identical WriteTo and a deterministic length comparison.
+        MimeMessage mime = MsgWithEmbeddedMessageAttachment();
+
+        // Materialize at threshold 1: the embedded message is fully buffered and spills to a temp file.
+        var materialized = new MimeMessageMapper(tempFileThresholdBytes: 1).Map(mime, src, new List<string>());
+        MailAttachment matAtt = Assert.Single(materialized.Attachments);
+        long materializedLen = matAtt.Content.Length;
+        Assert.True(matAtt.Content.IsTempFileBacked, "materialize mode should spill the embedded message");
+        matAtt.Content.Dispose();
+
+        // Measure-only at threshold 1: exact length retained, but NOTHING buffered or spilled — the
+        // measure-only/parallel-scan memory-safety guarantee must hold for embedded messages too.
+        var measured = new MimeMessageMapper(tempFileThresholdBytes: 1, measureOnly: true).Map(mime, src, new List<string>());
+        AttachmentContent content = Assert.Single(measured.Attachments).Content;
+
+        Assert.False(content.IsTempFileBacked, "measure-only must not spill the embedded message");
+        Assert.Equal(materializedLen, content.Length);   // byte-identical estimate input
+        Assert.Throws<InvalidOperationException>(() => content.OpenRead());
+    }
+
     [Fact]
     public void MeasureOnly_WritesNoAttachmentTempFile_EvenAtTinyThreshold()
     {

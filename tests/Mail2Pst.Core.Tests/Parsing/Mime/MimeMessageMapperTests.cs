@@ -231,6 +231,36 @@ public class MimeMessageMapperTests
     }
 
     [Fact]
+    public void ExtractAttachments_AttachmentDispositionWithContentId_IsNotInline()
+    {
+        // A genuine attachment (Content-Disposition: attachment) that also carries a
+        // Content-ID — common for PDFs, ICS invites and signed parts — must stay VISIBLE,
+        // not be classified inline (which would write it hidden and drop it from the
+        // paperclip/HASATTACH computation). The explicit attachment disposition wins over
+        // the Content-ID inline heuristic.
+        var mime = new MimeMessage();
+        var multipart = new Multipart("mixed");
+        multipart.Add(new TextPart("plain") { Text = "body" });
+
+        var part = new MimePart("application", "pdf")
+        {
+            FileName = "invoice.pdf",
+            Content = new MimeContent(new MemoryStream(Encoding.ASCII.GetBytes("%PDF-1.4 data"))),
+            ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+            ContentId = "part1.body@example.com",
+        };
+        multipart.Add(part);
+        mime.Body = multipart;
+
+        var warnings = new List<string>();
+        List<MailAttachment> attachments = new MimeMessageMapper().ExtractAttachments(mime, warnings);
+
+        MailAttachment att = Assert.Single(attachments);
+        Assert.False(att.IsInline);                              // explicit attachment disposition wins
+        Assert.Equal("part1.body@example.com", att.ContentId);  // Content-ID still preserved for reference
+    }
+
+    [Fact]
     public void ExtractAttachments_PartWithContentLocation_PopulatesContentLocation()
     {
         var mime = new MimeMessage();
