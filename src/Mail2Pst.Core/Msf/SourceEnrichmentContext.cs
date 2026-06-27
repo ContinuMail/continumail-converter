@@ -102,16 +102,14 @@ internal sealed class SourceEnrichmentContext
         {
             context.Result.LiveOffsetFilterEnabledSources = 1;
         }
-        else if (filter.LiveRows > 0)   // HAD a live set but refused to filter -> report it (keep all)
+        else if (filter.LiveRows > 0)   // HAD a live set but refused to filter -> count it (keep all)
         {
+            // A disabled filter is an internal optimisation declining to run (the common, expected case
+            // for IMAP-derived .msf, which usually lacks usable per-row offsets), NOT a user-actionable
+            // problem. The .msf is NOT degraded and the source stays enriched:true. We keep the aggregate
+            // count on the enrichment summary for diagnostics but DO NOT surface a per-source warning or
+            // WarningEvent — doing so produced one alarming warning per IMAP folder for no user benefit.
             context.Result.LiveOffsetFilterDisabledSources = 1;
-            string detail = $"live-offset-filter-disabled: {filter.DisabledReason}; msf={msfPath}; " +
-                $"liveRows={filter.LiveRows} usableOffsets={filter.UsableOffsets} matchedOffsets={filter.MatchedOffsets}" +
-                (filter.UnmatchedSample.Count > 0 ? $" unmatchedSample=[{string.Join(",", filter.UnmatchedSample)}]" : "");
-            // RecordWarning + WarningEvent, NOT Degrade: a disabled filter is a warning, but the .msf itself is
-            // NOT degraded and the source stays enriched:true.
-            report.RecordWarning(sourceRef, detail);
-            onProgress?.Invoke(new WarningEvent(sourceRef.SourcePath, sourceRef.Identifier, detail));
         }
         // filter.LiveRows == 0 (empty live set): keep all, NO warning, NOT counted disabled — nothing to filter.
         return context;

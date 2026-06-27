@@ -18,16 +18,23 @@ public static class MsfMessageReader
     internal const string MsgsKind  = "ns:msg:db:table:kind:msgs";
 
     /// <summary>
-    /// Interprets the single msgs table in <paramref name="doc"/>.
+    /// Interprets the msgs table in <paramref name="doc"/>. Zero msgs tables means an empty
+    /// Thunderbird folder (no messages stored) and yields an empty result. Two or more tables
+    /// is genuinely ambiguous (we cannot pick which holds the live messages) and throws.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="doc"/> is null.</exception>
-    /// <exception cref="MorkFormatException">The document does not contain exactly one msgs table.</exception>
+    /// <exception cref="MorkFormatException">The document contains more than one msgs table.</exception>
     public static MsfReadResult Read(MorkDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
 
         IReadOnlyList<MorkTable> tables = doc.GetTables(MsgsScope, MsgsKind);
-        if (tables.Count != 1)
+        if (tables.Count == 0)
+        {
+            // Empty folder: a .msf with no msgs table is "zero messages", not a malformed file.
+            return new MsfReadResult(System.Array.Empty<MsfMessage>(), System.Array.Empty<MsfDiagnostic>());
+        }
+        if (tables.Count > 1)
         {
             throw new MorkFormatException(
                 $"Expected exactly one Thunderbird msgs table, found {tables.Count}.");

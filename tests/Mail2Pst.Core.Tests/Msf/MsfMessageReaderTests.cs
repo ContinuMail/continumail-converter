@@ -34,11 +34,14 @@ public class MsfMessageReaderTests
     }
 
     [Fact]
-    public void Read_NoMsgsTable_ThrowsMorkFormatException()
+    public void Read_NoMsgsTable_ReturnsEmptyResult()
     {
+        // An empty Thunderbird folder has a .msf with no msgs table. That is "zero messages",
+        // not a malformed file — return an empty result (no warning, no degradation) rather than throw.
         var doc = new MorkDocument(Array.Empty<MorkTable>());
-        var ex = Assert.Throws<MorkFormatException>(() => MsfMessageReader.Read(doc));
-        Assert.Contains("found 0", ex.Message);
+        MsfReadResult result = MsfMessageReader.Read(doc);
+        Assert.Empty(result.Messages);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]

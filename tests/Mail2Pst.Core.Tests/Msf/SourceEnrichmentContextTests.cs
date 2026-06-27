@@ -58,8 +58,12 @@ public class SourceEnrichmentContextTests
     [Fact]
     public void TryCreate_MalformedMsf_Degrades_WithWarning()
     {
+        // Genuine Mork-level corruption (an unterminated row) — MorkReader fails loud, so the source
+        // degrades and warns. NOTE: this must be malformed Mork, not merely table-less: a valid .msf
+        // with no msgs table is an empty folder (see TryCreate_EmptyMsf_NoMsgsTable_Enriched_NoWarning),
+        // not a degradation.
         string mbox = Write(Mbox(), ".mbox");
-        string msf = Write("this is not mork", ".msf");
+        string msf = Write("[1(^88=1)", ".msf");
         var report = new ConversionReport();
         try
         {
@@ -68,6 +72,28 @@ public class SourceEnrichmentContextTests
             Assert.Null(ctx);
             Assert.Equal(1, report.EnrichmentSummary.SourcesDegraded);
             Assert.Equal(1, report.WarningCount);
+        }
+        finally { File.Delete(mbox); File.Delete(msf); }
+    }
+
+    [Fact]
+    public void TryCreate_EmptyMsf_NoMsgsTable_Enriched_NoWarning()
+    {
+        // A valid .msf with column dicts but no msgs table = an empty Thunderbird folder. It must be
+        // treated as "enriched, zero messages" — NOT a degradation and NOT a warning (Bucket B noise).
+        string mbox = Write(Mbox(), ".mbox");
+        string msf = Write(
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(89=message-id) >\n",
+            ".msf");
+        var report = new ConversionReport();
+        try
+        {
+            var ctx = SourceEnrichmentContext.TryCreate(
+                new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report);
+            Assert.NotNull(ctx);
+            Assert.Equal(1, report.EnrichmentSummary.SourcesEnriched);
+            Assert.Equal(0, report.EnrichmentSummary.SourcesDegraded);
+            Assert.Equal(0, report.WarningCount);
         }
         finally { File.Delete(mbox); File.Delete(msf); }
     }
@@ -152,7 +178,7 @@ public class SourceEnrichmentContextTests
     }
 
     [Fact]
-    public void TryCreate_MisalignedMsf_DisablesFilter_KeepsAll_Warns()
+    public void TryCreate_MisalignedMsf_DisablesFilter_KeepsAll_NoUserWarning()
     {
         string mbox = Write("From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n", ".mbox");
         string msf = Write(
@@ -165,17 +191,20 @@ public class SourceEnrichmentContextTests
                 new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report);
             Assert.NotNull(ctx);
             Assert.False(ctx!.ShouldDropOrphan(0));   // disabled -> never drops
+            // A disabled filter is an internal optimisation declining to run, not a user-actionable
+            // problem: the count is kept for diagnostics, but NO warning is surfaced.
             Assert.Equal(1, ctx.Result.LiveOffsetFilterDisabledSources);
-            Assert.Equal(1, report.WarningCount);     // disabled warning recorded immediately in TryCreate
+            Assert.Equal(1, report.EnrichmentSummary.SourcesEnriched); // still enriched, NOT degraded
+            Assert.Equal(0, report.WarningCount);
         }
         finally { File.Delete(mbox); File.Delete(msf); }
     }
 
     [Fact]
-    public void TryCreate_OneRowWithoutUsableOffset_DisablesFilter_KeepsAll_Warns()
+    public void TryCreate_OneRowWithoutUsableOffset_DisablesFilter_KeepsAll_NoUserWarning()
     {
         // Two physical messages; .msf has the first row's storeToken numeric but the second row has NO
-        // usable offset -> activation condition 3 fails -> keep all + warn (must-fix 2).
+        // usable offset -> activation condition 3 fails -> keep all, count it, but DON'T warn.
         string m1 = "From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n\n";
         string mbox = Write(m1 + "From c@d\nMessage-ID: <c@h>\nSubject: t\n\nbody\n", ".mbox");
         string msf = Write(
@@ -189,7 +218,29 @@ public class SourceEnrichmentContextTests
             Assert.NotNull(ctx);
             Assert.False(ctx!.ShouldDropOrphan(0));   // disabled -> nothing dropped, even index 0
             Assert.Equal(1, ctx.Result.LiveOffsetFilterDisabledSources);
-            Assert.Equal(1, report.WarningCount);
+            Assert.Equal(0, report.WarningCount);
+        }
+        finally { File.Delete(mbox); File.Delete(msf); }
+    }
+
+    [Fact]
+    public void TryCreate_DisabledFilter_EmitsNoWarningEvent()
+    {
+        // The disabled-filter case must not push a WarningEvent into the streaming progress channel
+        // (which the CLI/GUI surface to the user) — contrast TryCreate_MissingMsf_EmitsWarningEvent.
+        string mbox = Write("From a@b\nMessage-ID: <a@h>\nSubject: t\n\nbody\n", ".mbox");
+        string msf = Write(
+            "< <(a=c)> (80=ns:msg:db:row:scope:msgs:all)(96=ns:msg:db:table:kind:msgs)(88=flags)(CE=storeToken) >\n" +
+            "{1:^80 {(k^96:c)} [1(^88=1)(^CE=999999)] }", ".msf");
+        var report = new ConversionReport();
+        var events = new List<ConversionProgressEvent>();
+        try
+        {
+            var ctx = SourceEnrichmentContext.TryCreate(
+                new SourceConfig { Path = mbox, Type = "mbox", MsfPath = msf }, Opts(), report, events.Add);
+            Assert.NotNull(ctx);
+            Assert.Equal(1, ctx!.Result.LiveOffsetFilterDisabledSources);
+            Assert.Empty(events.OfType<WarningEvent>());
         }
         finally { File.Delete(mbox); File.Delete(msf); }
     }

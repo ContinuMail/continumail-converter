@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   progressively. The allocator now uses a maintained best-fit free-space index, keeping
   per-message cost flat. A ~16,000-message folder that took ~70 s now takes ~40 s; output
   validity is unchanged (verified against an independent MS-PST reader).
+- Thunderbird enrichment is far quieter on real profiles. Two harmless internal conditions no
+  longer raise per-folder warnings: (1) an **empty folder** (whose `.msf` has no message table) is
+  now treated as "no messages" instead of an unreadable-`.msf` warning; (2) the dead-copy
+  **live-offset filter declining to run** — the common, expected case for IMAP accounts, whose `.msf`
+  rows usually carry no usable byte offset — is now silent. In both cases behaviour is unchanged
+  (every message is still exported and flags/tags still applied); only the noise is gone. A genuinely
+  corrupt `.msf`, and an ambiguous multi-table `.msf`, still warn. The aggregate filter-disabled count
+  remains in the conversion report for diagnostics.
 
 ### Fixed
 - Writer: a failed split (e.g. the next part can't be created mid-conversion) no longer
