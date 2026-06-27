@@ -34,7 +34,7 @@ public class ScanRunner
 
         // Resolve (and validate) the parser once, eagerly: an unsupported type must
         // fail before we touch any file, and the lookup is identical for every source.
-        IMailSourceParser parser = ParserRegistry.Get(sourceType);
+        IMailSourceParser parser = ParserRegistry.GetForScan(sourceType);
 
         // Stat each source once: reused below for per-source sourceBytes. FileInfo.Length still
         // throws FileNotFoundException here (before any parsing) for a missing path, preserving the
