@@ -77,6 +77,9 @@ public class ScanRunnerParallelTests
         {
             ScanReport whole = ScanWith(path, long.MaxValue);
             ScanReport split = ScanWith(path, 64);     // force msg2/msg3 into separate ranges
+            // Prove the tiny chunk actually splits into >1 range (else this test proves nothing if the
+            // splitter ever fail-closed-collapsed to the whole-file range). [final-review finding #6]
+            Assert.True(MboxMessageSplitter.ComputeRanges(path, new FileInfo(path).Length, 64).Count > 1);
             Assert.Equal(whole.Totals.Messages, split.Totals.Messages);          // raw count incl. the skip
             Assert.Equal(3, split.Totals.Messages);
             var skip = Assert.Single(split.Skipped);
