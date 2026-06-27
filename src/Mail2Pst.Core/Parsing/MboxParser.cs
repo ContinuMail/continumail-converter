@@ -10,6 +10,8 @@ using System.Text;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Parsing.Mime;
 using Mail2Pst.Core.Parsing.Mbox;
+using Mail2Pst.Core.Scanning;
+using Mail2Pst.Core.Writing;
 using MimeKit;
 
 namespace Mail2Pst.Core.Parsing;
@@ -81,6 +83,76 @@ public class MboxParser : IMailSourceParser
     }
 
     /// <summary>
+    /// Parses only the messages whose start ("From ") boundary falls in <c>[startOffset, endOffset)</c>
+    /// and returns a structured per-message record for each. Used by the range-parallel scan: a file is
+    /// split into message-aligned windows, each parsed independently, then merged. No "message #N"
+    /// identifier is assigned here — that is rendered only at merge.
+    ///
+    /// <paramref name="startOffset"/> is always a real boundary offset (or 0); the stream seeks there
+    /// and the shared boundary engine runs over the window (stopping at the first boundary &gt;=
+    /// <paramref name="endOffset"/>). Measure-only + spill is used (this instance is the scan parser),
+    /// so per-message data is derived IDENTICALLY to <see cref="Parse"/> / ScanRunner:
+    /// <see cref="PstWriter.EstimateMessageSize"/>, <c>message.Date</c>, and the mapper warnings; a
+    /// per-message <see cref="FormatException"/>/<see cref="IOException"/> becomes a skip
+    /// (<see cref="RangeMessage.SkipReason"/>) and anything else (incl. spill) propagates.
+    /// </summary>
+    public RangeScanResult ScanRange(string path, long startOffset, long endOffset, Action<long>? onBytesRead)
+    {
+        using FileStream stream = File.OpenRead(path);
+        stream.Seek(startOffset, SeekOrigin.Begin);
+
+        var messages = new List<RangeMessage>();
+        foreach (SpillableMessageBuffer raw in EnumerateMessageChunks(
+                     stream, materialize: true, _rawSpillThreshold, onBytesRead,
+                     onMessageStart: null, startAbsolute: startOffset, endOffset: endOffset)
+                 .Select(b => b!))
+        {
+            // Same sourceRef shape as Parse, minus the rendered "message #N" identifier
+            // (assigned only at merge in the range-merge step).
+            var sourceRef = new SourceReference { SourcePath = path };
+
+            MimeMessage? mime = null;
+            string? error = null;
+            try
+            {
+                using var s = raw.OpenRead();
+                mime = ParseMimeMessage(s);
+            }
+            catch (Exception ex) when (ex is FormatException or IOException)
+            {
+                // Same per-message skip allowlist as Parse: malformed MIME / stream error.
+                // RawMessageSpillException is neither, so it propagates → fatal (handled at merge).
+                error = ex.Message;
+            }
+            finally
+            {
+                raw.Dispose();
+            }
+
+            if (error is not null)
+            {
+                messages.Add(new RangeMessage(0, null, error, Array.Empty<string>()));
+                continue;
+            }
+
+            var warnings = new List<string>();
+            MailMessage message = _mapper.Map(mime!, sourceRef, warnings);
+            long estimatedBytes = PstWriter.EstimateMessageSize(message);
+            DateTimeOffset? date = message.Date;
+
+            // Mirror ScanRunner: release measured attachment content immediately.
+            foreach (MailAttachment attachment in message.Attachments)
+                attachment.Content.Dispose();
+
+            messages.Add(new RangeMessage(
+                estimatedBytes, date, null,
+                warnings.Count > 0 ? warnings : Array.Empty<string>()));
+        }
+
+        return new RangeScanResult(startOffset, messages);
+    }
+
+    /// <summary>
     /// Parses one message's raw bytes (via stream) into a <see cref="MimeMessage"/>. Per
     /// MimeKit, throws <see cref="FormatException"/> for malformed MIME and
     /// <see cref="IOException"/> for stream errors; <see cref="Parse"/> treats
@@ -140,9 +212,21 @@ public class MboxParser : IMailSourceParser
     ///              the caller only counts and never dereferences. Keeps counting cheap.
     /// <paramref name="onBytesRead"/> is invoked with the stream position at each yield
     /// (scan progress); pass null when counting.
+    ///
+    /// Windowing (for range-parallel scan, see <see cref="ScanRange"/>):
+    /// <paramref name="startAbsolute"/> is the absolute file offset that the stream is already
+    /// positioned at (the engine's local <c>consumed</c> is relative to it), so a boundary's
+    /// absolute offset is <c>startAbsolute + lineStart</c>. When a boundary's absolute offset is
+    /// &gt;= <paramref name="endOffset"/>, that boundary begins the NEXT window's first message:
+    /// the engine yields the just-completed message (which is owned by this window) and stops —
+    /// it does not begin/parse the out-of-window message. The defaults
+    /// (<c>startAbsolute = 0</c>, <c>endOffset = long.MaxValue</c>) make whole-file callers
+    /// (<see cref="SplitMessages"/>, <see cref="CountMessages"/>, <see cref="ScanMessageStartOffsets"/>)
+    /// behave exactly as before.
     /// </summary>
     private static IEnumerable<SpillableMessageBuffer?> EnumerateMessageChunks(
-        Stream rawStream, bool materialize, long rawSpillThreshold, Action<long>? onBytesRead, Action<long>? onMessageStart = null)
+        Stream rawStream, bool materialize, long rawSpillThreshold, Action<long>? onBytesRead,
+        Action<long>? onMessageStart = null, long startAbsolute = 0, long endOffset = long.MaxValue)
     {
         var buffer = new byte[BufferSize];
         using var line = new MemoryStream(256);
@@ -194,6 +278,11 @@ public class MboxParser : IMailSourceParser
                         if (materialize) current = new SpillableMessageBuffer(rawSpillThreshold);
                         currentHasContent = false;
                     }
+                    // A boundary at or beyond endOffset begins the NEXT window's first message:
+                    // the message just yielded above is the last one this window owns, so stop
+                    // here without starting (or parsing) the out-of-window message.
+                    if (startAbsolute + lineStart >= endOffset)
+                        yield break;
                     currentStart = lineStart;  // this boundary begins the next message
                     // The marker line is not written into the message.
                 }
