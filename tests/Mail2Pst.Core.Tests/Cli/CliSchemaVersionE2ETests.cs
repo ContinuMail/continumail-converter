@@ -16,33 +16,14 @@ namespace Mail2Pst.Core.Tests.Cli;
 // emission site that bypasses the serializer would be caught.
 public class CliSchemaVersionE2ETests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Mail2Pst.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        return dir?.FullName ?? throw new InvalidOperationException("Could not locate repo root (Mail2Pst.sln).");
-    }
-
-    private static string CliDllPath()
-    {
-        string config = AppContext.BaseDirectory.Replace('\\', '/').Contains("/bin/Release/") ? "Release" : "Debug";
-        string dll = Path.Combine(RepoRoot(), "src", "Mail2Pst.Cli", "bin", config, "net8.0", "Mail2Pst.Cli.dll");
-        Assert.True(File.Exists(dll), $"CLI build output not found at {dll}");
-        return dll;
-    }
-
     private static (int exitCode, List<string> jsonLines) RunCli(string args)
     {
-        var psi = new ProcessStartInfo("dotnet", $"\"{CliDllPath()}\" {args}")
+        var psi = new ProcessStartInfo("dotnet", $"\"{CliE2EProcess.CliDllPath()}\" {args}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            WorkingDirectory = RepoRoot(),
+            WorkingDirectory = CliE2EProcess.RepoRoot(),
         };
 
         using Process proc = Process.Start(psi)!;
