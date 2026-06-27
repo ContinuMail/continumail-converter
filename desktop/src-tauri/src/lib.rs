@@ -35,6 +35,31 @@ fn drain_lines(buf: &mut String) -> Vec<String> {
     out
 }
 
+// The exact CLI argument vector for a streaming scan. The GUI ALWAYS passes
+// `--progress` (the Rust reader consumes the advisory `scanProgress` lines plus
+// the final authoritative `scan` object). Pure + unit-tested so the contract the
+// sidecar is invoked with can't drift silently.
+fn scan_args(paths: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = vec!["scan".into()];
+    for p in paths {
+        args.push("--input".into());
+        args.push(p.clone());
+    }
+    args.push("--progress".into());
+    args
+}
+
+// The exact CLI argument vector for a conversion run.
+fn convert_args(config_path: &str, output_dir: &str) -> Vec<String> {
+    vec![
+        "convert".into(),
+        "--config".into(),
+        config_path.into(),
+        "--output".into(),
+        output_dir.into(),
+    ]
+}
+
 // Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
 // something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
 // object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
@@ -196,12 +221,7 @@ async fn start_scan(
         return Err("A scan is already running.".into());
     }
 
-    let mut args: Vec<String> = vec!["scan".into()];
-    for p in paths {
-        args.push("--input".into());
-        args.push(p);
-    }
-    args.push("--progress".into());
+    let args = scan_args(&paths);
 
     let (mut rx, child) = app
         .shell()
@@ -302,7 +322,7 @@ async fn start_convert(
             let _ = std::fs::remove_file(&config_path);
             format!("sidecar not found: {e}")
         })?
-        .args(["convert", "--config", &config_path_str, "--output", &output_dir])
+        .args(convert_args(&config_path_str, &output_dir))
         .spawn()
         .map_err(|e| {
             let _ = std::fs::remove_file(&config_path);
@@ -697,7 +717,31 @@ Path=Profiles/xyz.dev\n";
 
 #[cfg(test)]
 mod tests {
-    use super::drain_lines;
+    use super::{convert_args, drain_lines, scan_args};
+
+    #[test]
+    fn scan_args_one_input_passes_progress_flag() {
+        assert_eq!(
+            scan_args(&["a.mbox".to_string()]),
+            vec!["scan", "--input", "a.mbox", "--progress"]
+        );
+    }
+
+    #[test]
+    fn scan_args_repeats_input_flag_per_path_in_order() {
+        assert_eq!(
+            scan_args(&["a.mbox".to_string(), "b.mbox".to_string()]),
+            vec!["scan", "--input", "a.mbox", "--input", "b.mbox", "--progress"]
+        );
+    }
+
+    #[test]
+    fn convert_args_config_and_output_flags() {
+        assert_eq!(
+            convert_args("C:/tmp/cfg.json", "C:/out"),
+            vec!["convert", "--config", "C:/tmp/cfg.json", "--output", "C:/out"]
+        );
+    }
 
     #[test]
     fn drain_lines_splits_batched_records_and_keeps_partial() {
@@ -722,5 +766,111 @@ mod tests {
         let lines = drain_lines(&mut buf);
         assert_eq!(lines, vec!["a", "b"]);
         assert_eq!(buf, "");
+    }
+}
+
+// Exercises the REAL CLI sidecar the GUI spawns, proving the JSON-Lines contract the
+// Rust readers depend on: every emitted line is JSON carrying `schemaVersion`; a
+// `scan --progress` stream ends with the authoritative single `scan` object; advisory
+// `scanProgress` lines clamp `bytes` to `totalBytes`. Locates the published Tauri
+// sidecar binary, else falls back to the dotnet build output; SKIPS (no failure) if
+// neither is present (a checkout where the engine hasn't been built). Run with
+// `cargo test` — not currently wired into CI (see roadmap: add a cargo-test job).
+#[cfg(test)]
+mod sidecar_integration_tests {
+    use super::{drain_lines, scan_args};
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    fn manifest() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    // (program, leading args) to invoke the CLI, or None if no build is present.
+    fn locate_cli() -> Option<(String, Vec<String>)> {
+        // 1) Published Tauri sidecar: binaries/mail2pst-cli-<target-triple>[.exe]
+        if let Ok(entries) = std::fs::read_dir(manifest().join("binaries")) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("mail2pst-cli") && (name.ends_with(".exe") || !name.contains('.')) {
+                    return Some((e.path().to_string_lossy().to_string(), vec![]));
+                }
+            }
+        }
+        // 2) Fallback: run the dotnet build output directly.
+        for cfg in ["Debug", "Release"] {
+            let dll = manifest()
+                .join("../../src/Mail2Pst.Cli/bin")
+                .join(cfg)
+                .join("net8.0/Mail2Pst.Cli.dll");
+            if dll.exists() {
+                return Some(("dotnet".to_string(), vec![dll.to_string_lossy().to_string()]));
+            }
+        }
+        None
+    }
+
+    fn run(program: &str, lead: &[String], args: &[String]) -> (i32, Vec<String>) {
+        let out = Command::new(program)
+            .args(lead)
+            .args(args)
+            .output()
+            .expect("failed to spawn CLI");
+        let mut buf = String::from_utf8_lossy(&out.stdout).to_string();
+        if !buf.ends_with('\n') {
+            buf.push('\n'); // ensure a final unterminated line still drains
+        }
+        (out.status.code().unwrap_or(-1), drain_lines(&mut buf))
+    }
+
+    #[test]
+    fn version_emits_one_versioned_json_line() {
+        let Some((prog, lead)) = locate_cli() else {
+            eprintln!("skipping: no CLI build found (sidecar binary or dotnet dll)");
+            return;
+        };
+        let (code, lines) = run(&prog, &lead, &["version".to_string()]);
+        assert_eq!(code, 0, "version should exit 0");
+        assert_eq!(lines.len(), 1, "version prints exactly one line");
+        let v: serde_json::Value = serde_json::from_str(&lines[0]).expect("version line is JSON");
+        assert_eq!(v["type"], "version");
+        assert!(v["schemaVersion"].as_i64().unwrap_or(0) >= 1);
+    }
+
+    #[test]
+    fn scan_progress_stream_is_jsonlines_and_ends_with_scan() {
+        let Some((prog, lead)) = locate_cli() else {
+            eprintln!("skipping: no CLI build found (sidecar binary or dotnet dll)");
+            return;
+        };
+        let sample = manifest().join("../../fixtures/sample.mbox");
+        if !sample.exists() {
+            eprintln!("skipping: fixtures/sample.mbox not found");
+            return;
+        }
+
+        let args = scan_args(&[sample.to_string_lossy().to_string()]);
+        let (code, lines) = run(&prog, &lead, &args);
+        assert_eq!(code, 0, "scan should exit 0");
+        assert!(!lines.is_empty(), "scan --progress emits at least the final scan line");
+
+        for line in &lines {
+            let v: serde_json::Value =
+                serde_json::from_str(line).unwrap_or_else(|_| panic!("not JSON: {line}"));
+            assert!(
+                v["schemaVersion"].as_i64().unwrap_or(0) >= 1,
+                "line missing schemaVersion: {line}"
+            );
+            if v["type"] == "scanProgress" {
+                let b = v["bytes"].as_i64().unwrap_or(0);
+                let t = v["totalBytes"].as_i64().unwrap_or(0);
+                assert!(b <= t, "scanProgress bytes {b} exceeds total {t}");
+            }
+        }
+
+        // The LAST line is the authoritative single `scan` object.
+        let last: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
+        assert_eq!(last["type"], "scan", "final line must be the scan result");
+        assert!(last["totals"]["messages"].as_i64().unwrap_or(-1) >= 0);
     }
 }
