@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The optional **"Import category colours"** step no longer hangs when the categories are already in
+  Outlook. Re-importing colours that already existed in Outlook's master list left the brief background
+  Outlook running and the import spinner stuck indefinitely. The importer now always shuts that temporary
+  Outlook down (and finishes in a few seconds when there's nothing new to add), and the desktop app caps
+  the step so it can't get stuck. No effect on the colours themselves.
 - Thunderbird `.msf` reading no longer fails on a **reparsed folder**. A folder that Thunderbird had
   reparsed left a table-rebuild fragment in its `.msf` that the reader mistook for a second message
   table, so it gave up on that folder's metadata ("found 2 msgs tables") and fell back to mbox flags.

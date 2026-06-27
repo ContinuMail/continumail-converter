@@ -34,7 +34,8 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
 {
     private const string RoamingXmlStreamProp = "http://schemas.microsoft.com/mapi/proptag/0x7C080102";
     private const int OlFolderCalendar = 9;
-    private const int ShutdownWaitMs = 30_000;
+    private const int ShutdownWaitMs = 30_000;       // wait for a clean exit when we wrote a FAI Save (flush window)
+    private const int NoChangeShutdownWaitMs = 3_000; // nothing saved -> nothing to flush, so kill the linger fast
 
     private readonly object _app;
     private readonly object _session;
@@ -43,6 +44,7 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
     private readonly IReadOnlySet<string> _existing;
     private readonly List<(string Name, int OutlookColor)> _pending = new();
     private readonly int[] _startedPids;   // OUTLOOK.EXE PIDs that appeared when we created the instance
+    private bool _savedChanges;            // true once Commit() actually wrote+saved the FAI (picks the wait budget)
 
     internal OutlookComCategoryStore()
     {
@@ -77,6 +79,7 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
         dynamic pa = _storage.PropertyAccessor;
         pa.SetProperty(RoamingXmlStreamProp, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(newXml));
         _storage.Save(); // single atomic commit of the FAI message
+        _savedChanges = true;
         _pending.Clear();
     }
 
@@ -121,9 +124,17 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
             try { ((dynamic)_app).Quit(); } catch { /* best-effort */ }
 
             // Wait for the OUTLOOK.EXE we started to exit — that is the flush-complete signal — bounded so a
-            // hung instance can't block the CLI. (If Logon blocks earlier and the STA Join times out, the
-            // store is abandoned un-Disposed and the started instance can leak; that path emits a clear
-            // "dismiss any Outlook prompt" error and is rare given ShowDialog=false + Outlook-closed.)
+            // hung instance can't block the CLI. If Quit() does NOT terminate it within the budget (seen on a
+            // no-op run: nothing was Saved, so Outlook has no MAPI change to flush and lingers), force-kill it.
+            // CRITICAL (KB-004): the COM-launched OUTLOOK.EXE inherits THIS process's stdout pipe
+            // handle. A lingering instance keeps that pipe open after the CLI exits, so the GUI's
+            // `.output()` (which reads stdout to EOF) blocks until Outlook finally dies — effectively forever
+            // → the colour-import spinner hangs. Killing the instance we started releases the pipe at once.
+            // We only kill PIDs in _startedPids (our own transient instance), never the user's Outlook. By this
+            // point Commit()'s Save (if any) has had the full wait budget to flush a tiny FAI XML write.
+            // Full flush window only when we actually wrote a Save; otherwise there is nothing to flush, so a
+            // lingering instance gets killed after a short grace (the common re-import-existing case → fast).
+            int waitBudget = _savedChanges ? ShutdownWaitMs : NoChangeShutdownWaitMs;
             var sw = Stopwatch.StartNew();
             foreach (int pid in _startedPids)
             {
@@ -131,10 +142,11 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
                 try
                 {
                     p = Process.GetProcessById(pid);
-                    int remaining = ShutdownWaitMs - (int)sw.ElapsedMilliseconds;
+                    int remaining = waitBudget - (int)sw.ElapsedMilliseconds;
                     if (remaining > 0) p.WaitForExit(remaining);
+                    if (!p.HasExited) p.Kill(entireProcessTree: true); // Quit() didn't take — don't leak/hold the pipe
                 }
-                catch { /* already exited / not found */ }
+                catch { /* already exited / not found / access denied */ }
                 finally { p?.Dispose(); }
             }
         }

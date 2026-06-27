@@ -39,14 +39,19 @@ fn drain_lines(buf: &mut String) -> Vec<String> {
 // something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
 // object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
 async fn run_sidecar_capture(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
-    let output = app
+    let cmd = app
         .shell()
         .sidecar("mail2pst-cli")
         .map_err(|e| format!("sidecar not found: {e}"))?
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| format!("failed to run engine: {e}"))?;
+        .args(args);
+    // Defence-in-depth (KB-004): never let a stuck sidecar hang the UI forever. The CLI bounds its own
+    // Outlook work and kills its transient instance, but if a child ever keeps the stdout pipe open
+    // `.output()` would await EOF indefinitely. Cap it so the command always resolves; the colour-import
+    // card surfaces a retry on this error. ("timed out" maps to a friendly message in ColourImportCard.)
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await {
+        Ok(r) => r.map_err(|e| format!("failed to run engine: {e}"))?,
+        Err(_) => return Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string()),
+    };
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if output.status.success() || !stdout.trim().is_empty() {
         Ok(stdout)
