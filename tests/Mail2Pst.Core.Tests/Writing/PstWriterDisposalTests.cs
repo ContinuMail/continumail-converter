@@ -180,4 +180,68 @@ public class PstWriterDisposalTests
                 if (File.Exists(tp)) File.Delete(tp);
         }
     }
+
+    [Fact]
+    public void WritePlan_FatalErrorWhileProducerBlockedOnFullQueue_DisposesInFlightAttachmentTempFile()
+    {
+        string outputDir = Path.Combine(Path.GetTempPath(), "mail2pst-disposal-inflight-" + Guid.NewGuid());
+        Directory.CreateDirectory(outputDir);
+
+        var createdTempPaths = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+        // A LAZY producer mirroring production (EnumeratePlannedMessages yields): a temp file is
+        // created only when a message is actually pulled. The bounded parse queue (capacity 32)
+        // fills while the consumer is stuck in the throwing progress callback, leaving the NEXT
+        // message blocked mid-Add. That in-flight message is never enqueued (so the drain loop
+        // can't see it) and was never dequeued — its temp-backed attachment must still be cleaned up.
+        IEnumerable<PlannedMessage> LazyMessages()
+        {
+            for (int i = 0; i < 60; i++)
+            {
+                string tp = Path.GetTempFileName();
+                File.WriteAllBytes(tp, [1, 2, 3]);
+                createdTempPaths.Add(tp);
+                yield return new PlannedMessage
+                {
+                    TargetFolderPath = new[] { "Inbox" },
+                    Message = new MailMessage
+                    {
+                        Subject = $"m{i}",
+                        Source = new SourceReference { SourcePath = "test.mbox", Identifier = $"#{i}" },
+                        Attachments =
+                        [
+                            new MailAttachment
+                            {
+                                FileName = $"f{i}.bin",
+                                MimeType = "application/octet-stream",
+                                Content = AttachmentContent.FromTempFile(tp, 3),
+                            },
+                        ],
+                    },
+                };
+            }
+        }
+
+        try
+        {
+            var plan = new PstOutputPlan { Name = "Test", MaxSizeBytes = 100L * 1024 * 1024 };
+            // checkInterval=1 so the first written message hits a checkpoint and fires the progress
+            // callback, which sleeps (letting the producer fill the queue and block on the next Add)
+            // then throws — a fatal error that cancels the producer mid-Add.
+            var writer = new PstWriter(checkIntervalMessages: 1);
+
+            Assert.ThrowsAny<Exception>(() => writer.WritePlan(
+                plan, LazyMessages(), outputDir, new ConversionReport(), totalMessages: 60,
+                onProgress: _ => { Thread.Sleep(100); throw new InvalidOperationException("boom"); }));
+
+            foreach (string tp in createdTempPaths)
+                Assert.False(File.Exists(tp), $"in-flight/queued temp file leaked after fatal error: {tp}");
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            foreach (string tp in createdTempPaths)
+                if (File.Exists(tp)) File.Delete(tp);
+        }
+    }
 }

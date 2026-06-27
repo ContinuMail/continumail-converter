@@ -93,12 +93,26 @@ public class PstWriter
 
         var producer = Task.Run(() =>
         {
+            // Tracks the message currently being handed to the bounded queue. On cancel/fatal while the
+            // queue is full, queue.Add throws OperationCanceledException with this message NOT enqueued —
+            // so the consumer's drain loop never sees it. Dispose its (possibly temp-backed) attachments
+            // here, or that one in-flight message's temp file would leak.
+            PlannedMessage? inFlight = null;
             try
             {
                 foreach (PlannedMessage msg in messages)
+                {
+                    inFlight = msg;
                     queue.Add(msg, cts.Token);
+                    inFlight = null;
+                }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                if (inFlight is not null)
+                    foreach (MailAttachment attachment in inFlight.Message.Attachments)
+                        attachment.Content.Dispose();
+            }
             catch (Exception ex) { producerException = ex; }
             finally { queue.CompleteAdding(); }
         });
