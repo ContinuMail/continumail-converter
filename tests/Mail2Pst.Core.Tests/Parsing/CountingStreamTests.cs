@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#nullable enable
 using System.IO;
 using Mail2Pst.Core.Parsing.Mime;
 using Xunit;

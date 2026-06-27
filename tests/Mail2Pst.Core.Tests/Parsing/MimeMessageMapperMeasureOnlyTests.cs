@@ -46,4 +46,19 @@ public class MimeMessageMapperMeasureOnlyTests
         Assert.Equal(materializedLen, content.Length);   // byte-identical estimate input
         Assert.Throws<InvalidOperationException>(() => content.OpenRead());
     }
+
+    [Fact]
+    public void MeasureOnly_WritesNoAttachmentTempFile_EvenAtTinyThreshold()
+    {
+        var src = new SourceReference { SourcePath = "p", Identifier = "message #1" };
+        // Materialize mode at threshold 1: the (decoded) attachment spills to a temp file.
+        var materialized = new MimeMessageMapper(tempFileThresholdBytes: 1)
+            .Map(MsgWithBase64Attachment(), src, new System.Collections.Generic.List<string>());
+        Assert.True(Assert.Single(materialized.Attachments).Content.IsTempFileBacked);
+        Assert.Single(materialized.Attachments).Content.Dispose();
+        // Measure-only mode at threshold 1: length-only content, NO temp file.
+        var measured = new MimeMessageMapper(tempFileThresholdBytes: 1, measureOnly: true)
+            .Map(MsgWithBase64Attachment(), src, new System.Collections.Generic.List<string>());
+        Assert.False(Assert.Single(measured.Attachments).Content.IsTempFileBacked);
+    }
 }
