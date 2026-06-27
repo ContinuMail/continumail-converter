@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Thunderbird `.msf` reading no longer fails on a **reparsed folder**. A folder that Thunderbird had
+  reparsed left a table-rebuild fragment in its `.msf` that the reader mistook for a second message
+  table, so it gave up on that folder's metadata ("found 2 msgs tables") and fell back to mbox flags.
+  The reader now recognises the rebuild marker and folds it into the real table, so tags, read/unread,
+  and flags come across for those folders too. Affected only metadata fidelity — message content and
+  folder structure were never at risk.
+
 ## [0.2.1] — 2026-06-27
 
 ### Added

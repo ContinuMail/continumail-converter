@@ -439,6 +439,16 @@ internal sealed class MorkAssembler
         // Table id
         string tableId = ExpectText();
 
+        // A leading '-' is the Mork transaction CUT/clear marker on the table (e.g. `{-1:^80 ...}`,
+        // emitted during a Thunderbird folder reparse) — it targets table `1`, it is NOT part of the id
+        // and NOT a distinct table. The tokenizer only recognises the ROW-level cut (`[-id]`, after '['),
+        // so without this the '-' stays attached to the id ("-1") and ReadTable forks a phantom second
+        // table with the same scope/kind — which made MsfMessageReader throw "found 2 msgs tables"
+        // (KB-003). Strip it so the fragment folds into the real table via the append-log merge below.
+        // Hex table ids never legitimately start with '-', so this cannot collide with a real table.
+        if (tableId.Length > 1 && tableId[0] == '-')
+            tableId = tableId.Substring(1);
+
         // Colon separator
         Expect(MorkTokenKind.Colon);
 

@@ -40,6 +40,22 @@ public class MorkMergeTests
     }
 
     [Fact]
+    public void Merge_TableLevelCutMarker_FoldsIntoBaseTable_NotPhantomTable()
+    {
+        // KB-003: a transaction restating the table with a leading '-' (`{-1:^80 ...}`) is a Mork
+        // table-level cut/transaction marker that targets table 1 — NOT a declaration of a new table
+        // "-1". Real Thunderbird .msf emits this during a folder reparse. The assembler must fold it
+        // into table 1 (yielding ONE msgs table), not fork a phantom second msgs table — which made
+        // MsfMessageReader throw "found 2 msgs tables".
+        var doc = MorkReader.ParseString(
+            Dict + "{1:^80 {(k^96:c)} [1(^88=1)] } @$${1{@ {-1:^80 {(k^96:c)} [1(^88=5)] } @$$}1}@");
+        // Exactly one msgs-scoped table — TryGetSingleTable returns false if a phantom "-1" also exists.
+        Assert.True(doc.TryGetSingleTable(
+            "ns:msg:db:row:scope:msgs:all", "ns:msg:db:table:kind:msgs", out var t));
+        Assert.Equal("5", t.Rows["1"].Cells["flags"]); // transaction folded into table 1 (last-write-wins)
+    }
+
+    [Fact]
     public void Merge_RowUpdateToEmptyValue_CellPresentButEmpty()
     {
         // Task 0 RESOLVED: Thunderbird .msf has NO cell-cut. `(^81=)` is an EMPTY-STRING value applied
