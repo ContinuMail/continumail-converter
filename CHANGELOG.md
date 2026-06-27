@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-27
+
 ### Added
 - Thunderbird `.msf` enrichment now preserves **message priority** set inside Thunderbird. A
   priority a user or filter applied in Thunderbird is stored only in the `.msf` (not in the mbox
