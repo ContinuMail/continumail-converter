@@ -11,6 +11,7 @@ public sealed class AttachmentContent : IDisposable
 {
     private readonly byte[]? _bytes;
     private readonly string? _tempPath;
+    private readonly bool _lengthOnly;
     private bool _disposed;
 
     public long Length { get; }
@@ -18,10 +19,11 @@ public sealed class AttachmentContent : IDisposable
     internal bool IsTempFileBacked => _tempPath is not null;
     internal string? TempPath => _tempPath;
 
-    private AttachmentContent(byte[]? bytes, string? tempPath, long length)
+    private AttachmentContent(byte[]? bytes, string? tempPath, long length, bool lengthOnly = false)
     {
         _bytes = bytes;
         _tempPath = tempPath;
+        _lengthOnly = lengthOnly;
         Length = length;
     }
 
@@ -31,11 +33,22 @@ public sealed class AttachmentContent : IDisposable
     public static AttachmentContent FromTempFile(string path, long length) =>
         new(null, path, length);
 
+    /// <summary>A scan measure-only attachment: carries the exact decoded <see cref="Length"/> but NO
+    /// content. <see cref="OpenRead"/>/<see cref="ReadAllBytes"/> throw — it must never reach the writer.</summary>
+    public static AttachmentContent FromLengthOnly(long length)
+    {
+        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length)); // model invariant
+        return new(null, null, length, lengthOnly: true);
+    }
+
     // Materializes the whole attachment in memory (in-memory bytes, or the entire temp
     // file). The temp-file path bounds the parse/write queue's sustained memory, not peak —
     // see MimeMessageMapper.ToAttachmentContent.
     public byte[] ReadAllBytes()
     {
+        if (_lengthOnly)
+            throw new InvalidOperationException(
+                "This attachment was produced in scan measure-only mode and has no content (length only).");
         if (_disposed)
             throw new ObjectDisposedException(nameof(AttachmentContent));
         return _bytes ?? File.ReadAllBytes(_tempPath!);
@@ -49,6 +62,9 @@ public sealed class AttachmentContent : IDisposable
     /// </summary>
     public Stream OpenRead()
     {
+        if (_lengthOnly)
+            throw new InvalidOperationException(
+                "This attachment was produced in scan measure-only mode and has no content (length only).");
         if (_disposed) throw new ObjectDisposedException(nameof(AttachmentContent));
         if (_bytes is not null)
         {

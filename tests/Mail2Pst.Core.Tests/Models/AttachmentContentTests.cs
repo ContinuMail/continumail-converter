@@ -138,3 +138,22 @@ public class AttachmentContentTests
         finally { File.Delete(path); }
     }
 }
+
+public class AttachmentContentLengthOnlyTests
+{
+    [Fact]
+    public void FromLengthOnly_ExposesLength_ButByteAccessThrows()
+    {
+        var c = AttachmentContent.FromLengthOnly(4096);
+        Assert.Equal(4096, c.Length);
+        Assert.Throws<InvalidOperationException>(() => c.OpenRead());
+        Assert.Throws<InvalidOperationException>(() => c.ReadAllBytes());
+        c.Dispose(); // no temp file, no throw
+    }
+
+    [Fact]
+    public void FromLengthOnly_NegativeLength_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => AttachmentContent.FromLengthOnly(-1));
+    }
+}
