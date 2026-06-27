@@ -21,11 +21,11 @@ public class MboxParser : IMailSourceParser
 
     private readonly MimeMessageMapper _mapper;
 
-    public MboxParser(long tempFileThresholdBytes = 4L * 1024 * 1024)
+    public MboxParser(long tempFileThresholdBytes = 4L * 1024 * 1024, bool measureOnly = false)
     {
         if (tempFileThresholdBytes < 0)
             throw new ArgumentOutOfRangeException(nameof(tempFileThresholdBytes), tempFileThresholdBytes, "Temp-file threshold must be non-negative.");
-        _mapper = new MimeMessageMapper(tempFileThresholdBytes);
+        _mapper = new MimeMessageMapper(tempFileThresholdBytes, measureOnly);
     }
 
     public IEnumerable<ParseResult> Parse(string path, Action<long>? onBytesRead = null)
