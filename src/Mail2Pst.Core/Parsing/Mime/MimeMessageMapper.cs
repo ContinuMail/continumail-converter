@@ -22,17 +22,19 @@ namespace Mail2Pst.Core.Parsing.Mime;
 public class MimeMessageMapper
 {
     private readonly long _tempFileThresholdBytes;
+    private readonly bool _measureOnly;
 
     private const uint MozillaStatusRead = 0x0001;
     private const uint MozillaStatusReplied = 0x0002;
     private const uint MozillaStatusMarked = 0x0004;
     private const uint MozillaStatusForwarded = 0x1000;
 
-    public MimeMessageMapper(long tempFileThresholdBytes = 4L * 1024 * 1024)
+    public MimeMessageMapper(long tempFileThresholdBytes = 4L * 1024 * 1024, bool measureOnly = false)
     {
         if (tempFileThresholdBytes < 0)
             throw new ArgumentOutOfRangeException(nameof(tempFileThresholdBytes), tempFileThresholdBytes, "Temp-file threshold must be non-negative.");
         _tempFileThresholdBytes = tempFileThresholdBytes;
+        _measureOnly = measureOnly;
     }
 
     // A missing Date header yields null; a present-but-unparseable one makes
@@ -231,8 +233,7 @@ public class MimeMessageMapper
 
             try
             {
-                using var buffer = new MemoryStream();
-                part.Content.DecodeTo(buffer);
+                AttachmentContent content = DecodeContent(part);
 
                 string? contentId = string.IsNullOrEmpty(part.ContentId) ? null : NormalizeContentId(part.ContentId);
                 bool isInlineDisposition = part.ContentDisposition?.Disposition is { } partDisposition
@@ -245,7 +246,7 @@ public class MimeMessageMapper
                     ContentId = contentId,
                     ContentLocation = part.ContentLocation?.ToString(),
                     IsInline = isInlineDisposition || contentId is not null,
-                    Content = ToAttachmentContent(buffer),
+                    Content = content,
                 });
             }
             catch (Exception ex)
@@ -255,6 +256,22 @@ public class MimeMessageMapper
         }
 
         return attachments;
+    }
+
+    // Scan measure-only: decode the part to get its exact length, retaining nothing (no buffer, no temp
+    // file). Materialize mode keeps the existing memory/temp-spill behavior. Both run the decoder, so a
+    // decode failure still throws and is recorded as a dropped-attachment warning by the caller.
+    private AttachmentContent DecodeContent(MimeKit.MimePart part)
+    {
+        if (_measureOnly)
+        {
+            var counter = new CountingStream();
+            part.Content!.DecodeTo(counter);
+            return AttachmentContent.FromLengthOnly(counter.BytesWritten);
+        }
+        using var buffer = new MemoryStream();
+        part.Content!.DecodeTo(buffer);
+        return ToAttachmentContent(buffer);
     }
 
     // Routes attachment bytes to memory (small) or a temp file (large) to bound the
