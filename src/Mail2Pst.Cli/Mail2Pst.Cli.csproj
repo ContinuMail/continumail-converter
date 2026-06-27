@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Mail2Pst.Cli</RootNamespace>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <!-- Server GC: measured win on the parallel byte-range scan (4.5 GB gmail corpus:
          ~19s -> ~13.5s wall-clock, ~30% faster). Peak working set rises 163 -> 314 MB,
          still size-independent and modest. See docs/pst-engine-benchmarks.md. -->

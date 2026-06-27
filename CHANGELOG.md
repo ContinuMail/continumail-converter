@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-06-28
+
+### Changed
+- Scanning is now **parallel and dramatically faster**. The dry-run that counts messages and estimates
+  output size — the CLI `scan` step and the desktop app's pre-conversion scan — now parses each mailbox
+  as several message-aligned byte ranges across CPU cores instead of one sequential pass. On a large
+  multi-GB archive this is roughly **3–4× faster** (a 4.5 GB Gmail export scans in ~13 s instead of
+  ~47 s), with no slowdown on a single very large folder. Peak memory during a scan is now **bounded and
+  independent of mailbox or message size** (large messages spill to a temp file rather than residing in
+  memory), so scanning a multi-GB archive no longer grows memory with the file. Scan results — counts,
+  size estimates, dates, and warnings — are byte-for-byte identical to the previous sequential scan, and
+  a scan-only parse never materialises attachment bytes or writes attachment temp files. (CLI scan JSON
+  output and the GUI scan contract are unchanged.)
+
 ### Fixed
 - The optional **"Import category colours"** step no longer hangs when the categories are already in
   Outlook. Re-importing colours that already existed in Outlook's master list left the brief background
