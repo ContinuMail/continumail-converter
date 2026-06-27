@@ -315,6 +315,99 @@ public class MboxParser : IMailSourceParser
         }
     }
 
+    /// <summary>Back-seek window for <see cref="FindBoundaryAtOrAfter"/>'s context bootstrap.</summary>
+    private const int BoundaryBackWindow = 64 * 1024;
+
+    /// <summary>
+    /// Discovery helper for the byte-range splitter (<see cref="Scanning.MboxMessageSplitter"/>): returns the
+    /// absolute offset of the first REAL message boundary at offset &gt;= <paramref name="target"/>, decided by
+    /// the SAME <see cref="IsMessageBoundary"/>/<see cref="IsBlankLine"/> rule the parse engine uses — so a
+    /// split offset can never disagree with where <see cref="Parse"/>/<see cref="ScanRange"/> would begin a
+    /// message (the byte-identity guarantee depends on the two notions of "boundary" being one and the same).
+    ///
+    /// Context bootstrap `[R3]`: seeks back up to <see cref="BoundaryBackWindow"/> before <paramref name="target"/>
+    /// to a clean line start, then refuses to accept any boundary until at least one full line has been observed
+    /// since that clean start, so <c>previousLineWasBlank</c> reflects a line actually read (not assumed). When the
+    /// back-window reaches BOF the scan starts with <c>previousLineWasBlank = true</c> (the engine's BOF rule).
+    ///
+    /// Returns <c>null</c> if no boundary is found before <c>target + <paramref name="scanCap"/></c>.
+    /// </summary>
+    internal static long? FindBoundaryAtOrAfter(Stream stream, long target, long scanCap)
+    {
+        long backStart = Math.Max(0, target - BoundaryBackWindow);
+        stream.Seek(backStart, SeekOrigin.Begin);
+
+        long scanLimit = target + scanCap;            // boundaries at >= this offset are out of budget
+        bool previousLineWasBlank = backStart == 0;   // BOF: previous "line" is treated as blank
+        bool contextEstablished = backStart == 0;     // at BOF the blank-state is real immediately
+        bool needCleanStart = backStart > 0;          // mid-stream: discard the first (partial) line
+
+        var buffer = new byte[BufferSize];
+        using var line = new MemoryStream(256);
+        long lineStart = backStart;                   // absolute offset of the current line's first byte
+
+        int bytesRead;
+        while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            int offset = 0;
+            while (offset < bytesRead)
+            {
+                int newlineIndex = Array.IndexOf(buffer, (byte)'\n', offset, bytesRead - offset);
+                if (newlineIndex == -1)
+                {
+                    // Partial line — carry it across to the next read.
+                    line.Write(buffer, offset, bytesRead - offset);
+                    break;
+                }
+
+                int lineLength = newlineIndex - offset + 1;
+                line.Write(buffer, offset, lineLength);
+                offset = newlineIndex + 1;
+
+                int lineLen = (int)line.Length;
+
+                if (needCleanStart)
+                {
+                    // We seeked into the middle of this line; discard it. The next line begins at a
+                    // clean line start, and only then does observed blank-state become trustworthy.
+                    needCleanStart = false;
+                    lineStart += lineLen;
+                    line.SetLength(0);
+                    continue;
+                }
+
+                ReadOnlySpan<byte> span = line.GetBuffer().AsSpan(0, lineLen);
+                if (contextEstablished && lineStart >= target
+                    && IsMessageBoundary(span, previousLineWasBlank))
+                {
+                    return lineStart;
+                }
+
+                previousLineWasBlank = IsBlankLine(span);
+                contextEstablished = true;            // one full line observed since the clean start
+                lineStart += lineLen;
+                line.SetLength(0);
+
+                if (lineStart >= scanLimit)
+                    return null;
+            }
+        }
+
+        // A boundary can be the final line even without a trailing '\n'.
+        if (line.Length > 0 && !needCleanStart)
+        {
+            int finalLen = (int)line.Length;
+            ReadOnlySpan<byte> span = line.GetBuffer().AsSpan(0, finalLen);
+            if (contextEstablished && lineStart >= target && lineStart < scanLimit
+                && IsMessageBoundary(span, previousLineWasBlank))
+            {
+                return lineStart;
+            }
+        }
+
+        return null;
+    }
+
     private static bool StartsWithMarkerAt(ReadOnlySpan<byte> line, int index, ReadOnlySpan<byte> marker)
     {
         if (line.Length - index < marker.Length)
