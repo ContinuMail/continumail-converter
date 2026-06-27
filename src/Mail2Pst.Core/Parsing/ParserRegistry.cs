@@ -18,7 +18,7 @@ public static class ParserRegistry
     private static readonly Dictionary<string, IMailSourceParser> ScanParsers =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["mbox"] = new MboxParser(measureOnly: true),
+            ["mbox"] = new MboxParser(measureOnly: true, rawSpillThreshold: 4L * 1024 * 1024),
         };
 
     public static IMailSourceParser Get(string sourceType)

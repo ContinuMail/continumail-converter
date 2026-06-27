@@ -54,7 +54,7 @@ public class MboxParserErrorHandlingTests
     // downgrade it to a per-message skip, which would hide real defects.
     private sealed class BugParser : MboxParser
     {
-        protected override MimeMessage ParseMimeMessage(byte[] messageBytes) =>
+        protected override MimeMessage ParseMimeMessage(Stream s) =>
             throw new InvalidOperationException("simulated bug");
     }
 

@@ -20,11 +20,14 @@ public class MboxParser : IMailSourceParser
     private const int BufferSize = 81920;
 
     private readonly MimeMessageMapper _mapper;
+    private readonly long _rawSpillThreshold;
 
-    public MboxParser(long tempFileThresholdBytes = 4L * 1024 * 1024, bool measureOnly = false)
+    public MboxParser(long tempFileThresholdBytes = 4L * 1024 * 1024, bool measureOnly = false,
+                      long rawSpillThreshold = long.MaxValue)
     {
         if (tempFileThresholdBytes < 0)
             throw new ArgumentOutOfRangeException(nameof(tempFileThresholdBytes), tempFileThresholdBytes, "Temp-file threshold must be non-negative.");
+        _rawSpillThreshold = rawSpillThreshold;
         _mapper = new MimeMessageMapper(tempFileThresholdBytes, measureOnly);
     }
 
@@ -33,7 +36,7 @@ public class MboxParser : IMailSourceParser
         using FileStream stream = File.OpenRead(path);
 
         int index = 0;
-        foreach (byte[] messageBytes in SplitMessages(stream, onBytesRead))
+        foreach (SpillableMessageBuffer raw in SplitMessages(stream, onBytesRead))
         {
             index++;
             var sourceRef = new SourceReference
@@ -46,7 +49,8 @@ public class MboxParser : IMailSourceParser
             string? error = null;
             try
             {
-                mime = ParseMimeMessage(messageBytes);
+                using var s = raw.OpenRead();
+                mime = ParseMimeMessage(s);
             }
             catch (Exception ex) when (ex is FormatException or IOException)
             {
@@ -54,7 +58,14 @@ public class MboxParser : IMailSourceParser
                 // error): record as a skip and continue. Any other exception is
                 // an unexpected defect and is allowed to propagate so it surfaces
                 // loudly instead of silently dropping mail.
+                // RawMessageSpillException is NOT FormatException/IOException so it
+                // propagates through the finally → fatal path, never swallowed here.
                 error = ex.Message;
+            }
+            finally
+            {
+                // Delete temp file immediately after parse — before yielding the result.
+                raw.Dispose();
             }
 
             if (error is not null)
@@ -70,16 +81,15 @@ public class MboxParser : IMailSourceParser
     }
 
     /// <summary>
-    /// Parses one message's raw bytes into a <see cref="MimeMessage"/>. Per
+    /// Parses one message's raw bytes (via stream) into a <see cref="MimeMessage"/>. Per
     /// MimeKit, throws <see cref="FormatException"/> for malformed MIME and
     /// <see cref="IOException"/> for stream errors; <see cref="Parse"/> treats
     /// only those as a per-message skip and lets anything else propagate.
     /// Virtual so tests can substitute the parse step.
     /// </summary>
-    protected virtual MimeMessage ParseMimeMessage(byte[] messageBytes)
+    protected virtual MimeMessage ParseMimeMessage(Stream s)
     {
-        using var messageStream = new MemoryStream(messageBytes);
-        var entityParser = new MimeParser(messageStream, MimeFormat.Entity);
+        var entityParser = new MimeParser(s, MimeFormat.Entity);
         return entityParser.ParseMessage();
     }
 
@@ -90,7 +100,7 @@ public class MboxParser : IMailSourceParser
         // drifts from the messages Parse yields. (ConversionRunner reads the file twice:
         // count here, then Parse during conversion; external mutation of the file between
         // the two passes can still diverge — an accepted, out-of-scope limitation.)
-        return EnumerateMessageChunks(stream, materialize: false, onBytesRead: null, onMessageStart: null).Count();
+        return EnumerateMessageChunks(stream, materialize: false, rawSpillThreshold: 0, onBytesRead: null, onMessageStart: null).Count();
     }
 
     /// <summary>
@@ -102,19 +112,19 @@ public class MboxParser : IMailSourceParser
     {
         using FileStream stream = File.OpenRead(path);
         var offsets = new List<long>();
-        foreach (var _ in EnumerateMessageChunks(stream, materialize: false, onBytesRead: null, onMessageStart: offsets.Add))
+        foreach (var _ in EnumerateMessageChunks(stream, materialize: false, rawSpillThreshold: 0, onBytesRead: null, onMessageStart: offsets.Add))
         { /* enumerate to drive the callback */ }
         return offsets;
     }
 
     /// <summary>
-    /// Splits an mbox file into the raw bytes of each contained message. Thin adapter over
+    /// Splits an mbox file into a <see cref="SpillableMessageBuffer"/> per message. Thin adapter over
     /// the shared <see cref="EnumerateMessageChunks"/> engine (materialize mode). See that
     /// method for the boundary rule and why we avoid MimeKit's <see cref="MimeFormat.Mbox"/>
     /// parser. The `!` is sound: materialize mode never yields a null chunk.
     /// </summary>
-    private static IEnumerable<byte[]> SplitMessages(Stream rawStream, Action<long>? onBytesRead = null) =>
-        EnumerateMessageChunks(rawStream, materialize: true, onBytesRead, onMessageStart: null).Select(b => b!);
+    private IEnumerable<SpillableMessageBuffer> SplitMessages(Stream rawStream, Action<long>? onBytesRead = null) =>
+        EnumerateMessageChunks(rawStream, materialize: true, _rawSpillThreshold, onBytesRead, onMessageStart: null).Select(b => b!);
 
     /// <summary>
     /// THE single source of truth for "where do messages begin and end" in an mbox stream.
@@ -125,18 +135,18 @@ public class MboxParser : IMailSourceParser
     /// and un-escaped here. The marker line itself is not part of the returned message.
     ///
     /// Return-value invariant keyed off <paramref name="materialize"/>:
-    ///   - true  -> every yielded element is a NON-NULL message byte array.
+    ///   - true  -> every yielded element is a NON-NULL SpillableMessageBuffer (caller owns + disposes).
     ///   - false -> yields a null placeholder per message (no per-message buffer allocated);
     ///              the caller only counts and never dereferences. Keeps counting cheap.
     /// <paramref name="onBytesRead"/> is invoked with the stream position at each yield
     /// (scan progress); pass null when counting.
     /// </summary>
-    private static IEnumerable<byte[]?> EnumerateMessageChunks(
-        Stream rawStream, bool materialize, Action<long>? onBytesRead, Action<long>? onMessageStart = null)
+    private static IEnumerable<SpillableMessageBuffer?> EnumerateMessageChunks(
+        Stream rawStream, bool materialize, long rawSpillThreshold, Action<long>? onBytesRead, Action<long>? onMessageStart = null)
     {
         var buffer = new byte[BufferSize];
         using var line = new MemoryStream(256);
-        MemoryStream? current = materialize ? new MemoryStream() : null;
+        SpillableMessageBuffer? current = materialize ? new SpillableMessageBuffer(rawSpillThreshold) : null;
         bool previousLineWasBlank = true;
         bool currentHasContent = false;
         long consumed = 0;      // total bytes of completed lines (independent of rawStream.Position)
@@ -180,8 +190,8 @@ public class MboxParser : IMailSourceParser
                     {
                         onBytesRead?.Invoke(rawStream.Position);
                         onMessageStart?.Invoke(currentStart);
-                        yield return materialize ? current!.ToArray() : null;
-                        if (materialize) current = new MemoryStream();
+                        yield return materialize ? current : null;
+                        if (materialize) current = new SpillableMessageBuffer(rawSpillThreshold);
                         currentHasContent = false;
                     }
                     currentStart = lineStart;  // this boundary begins the next message
@@ -212,7 +222,7 @@ public class MboxParser : IMailSourceParser
         {
             onBytesRead?.Invoke(rawStream.Position);
             onMessageStart?.Invoke(currentStart);
-            yield return materialize ? current!.ToArray() : null;
+            yield return materialize ? current : null;
         }
     }
 
@@ -238,7 +248,7 @@ public class MboxParser : IMailSourceParser
     // extra leading '>' to distinguish it from a real envelope boundary. Strip exactly one
     // '>' from any line of the form ^>+From ; write every other line unchanged. Writes
     // straight into the message buffer — no per-line allocation.
-    private static void WriteUnescapedFromLine(ReadOnlySpan<byte> line, MemoryStream destination)
+    private static void WriteUnescapedFromLine(ReadOnlySpan<byte> line, SpillableMessageBuffer destination)
     {
         int gt = 0;
         while (gt < line.Length && line[gt] == (byte)'>')
