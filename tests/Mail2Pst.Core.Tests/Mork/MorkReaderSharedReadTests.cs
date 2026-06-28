@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System;
 using System.IO;
 using Mail2Pst.Core.Mork;
 using Xunit;
@@ -33,6 +34,10 @@ public class MorkReaderSharedReadTests
     {
         // Documents WHY the shared variant exists: plain Parse (File.OpenRead -> FileShare.Read) cannot
         // open a file another handle holds with write access.
+        // Windows-only: file-share locking is mandatory on Windows (FileShare.Read vs the holder's
+        // ReadWrite -> sharing violation -> IOException). On Linux/macOS locks are advisory, so the
+        // open succeeds and no exception is thrown — the documented failure mode doesn't exist there.
+        if (!OperatingSystem.IsWindows()) return;
         string path = Path.GetTempFileName();
         try
         {
