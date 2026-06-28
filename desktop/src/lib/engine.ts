@@ -145,10 +145,27 @@ export async function pickOutputFolder(): Promise<string | null> {
   return typeof result === "string" ? result : null;
 }
 
-export function startConvert(config: ConversionConfig, outputDir: string): Promise<void> {
+/** The exact Tauri invoke payload for a conversion run. expectedTotal is OMITTED
+ * (not sent as undefined) when absent, so the Rust side receives None and the
+ * engine counts on demand. Exported for unit testing the flag contract. */
+export function buildStartConvertPayload(
+  config: ConversionConfig,
+  outputDir: string,
+  expectedTotal?: number,
+) {
+  return expectedTotal === undefined
+    ? { config, outputDir }
+    : { config, outputDir, expectedTotal };
+}
+
+export function startConvert(
+  config: ConversionConfig,
+  outputDir: string,
+  expectedTotal?: number,
+): Promise<void> {
   // Tauri v2 auto-converts camelCase JS arg keys to snake_case Rust params, so
-  // `outputDir` here maps to the Rust `output_dir` parameter.
-  return invoke<void>("start_convert", { config, outputDir });
+  // `outputDir`/`expectedTotal` map to `output_dir`/`expected_total`.
+  return invoke<void>("start_convert", buildStartConvertPayload(config, outputDir, expectedTotal));
 }
 
 export function cancelConvert(): Promise<void> {
