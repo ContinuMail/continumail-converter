@@ -30,10 +30,10 @@ public class SqliteAddressBookReaderVCardTests
     [Fact]
     public void Read_CardWithVCard_UsesVCardPath_RichFieldsPresent()
     {
-        string vcard = "BEGIN:VCARD\nVERSION:4.0\nFN:Rich Card\nORG:Acme;Eng\nTITLE:Boss\nEMAIL:rich@x.dk\nEND:VCARD\n";
+        string vcard = "BEGIN:VCARD\nVERSION:4.0\nFN:Rich Card\nORG:Acme;Eng\nTITLE:Boss\nEMAIL:rich@example.com\nEND:VCARD\n";
         string db = BuildDb(
             ("c1", "DisplayName", "Rich Card"),
-            ("c1", "PrimaryEmail", "rich@x.dk"),
+            ("c1", "PrimaryEmail", "rich@example.com"),
             ("c1", "_vCard", vcard));
         try
         {
@@ -49,7 +49,7 @@ public class SqliteAddressBookReaderVCardTests
     [Fact]
     public void Read_CardWithoutVCard_UsesEavPath()
     {
-        string db = BuildDb(("c1", "DisplayName", "Plain"), ("c1", "PrimaryEmail", "p@x.dk"), ("c1", "Company", "EavCo"));
+        string db = BuildDb(("c1", "DisplayName", "Plain"), ("c1", "PrimaryEmail", "p@example.com"), ("c1", "Company", "EavCo"));
         try
         {
             var book = new AddressBook { DisplayName = "P", Path = db, Format = AddressBookFormat.ThunderbirdSqlite };
@@ -65,7 +65,7 @@ public class SqliteAddressBookReaderVCardTests
     {
         string db = BuildDb(
             ("c1", "DisplayName", "Fallback Guy"),
-            ("c1", "PrimaryEmail", "fb@x.dk"),
+            ("c1", "PrimaryEmail", "fb@example.com"),
             ("c1", "_vCard", "this is not a vcard"));
         try
         {
@@ -85,7 +85,7 @@ public class SqliteAddressBookReaderVCardTests
         string emptyish = "BEGIN:VCARD\nVERSION:4.0\nNOTE:hi\nEND:VCARD\n";
         string db = BuildDb(
             ("c1", "DisplayName", "Index Name"),
-            ("c1", "PrimaryEmail", "idx@x.dk"),
+            ("c1", "PrimaryEmail", "idx@example.com"),
             ("c1", "_vCard", emptyish));
         try
         {
@@ -93,7 +93,7 @@ public class SqliteAddressBookReaderVCardTests
             var r = new SqliteAddressBookReader().Read(book).Single();
             Assert.True(r.Success);                            // not discarded
             Assert.Equal("Index Name", r.Contact!.DisplayName); // identity recovered from EAV index rows
-            Assert.Contains("idx@x.dk", r.Contact.Emails);
+            Assert.Contains("idx@example.com", r.Contact.Emails);
             Assert.NotEmpty(r.Warnings);
         }
         finally { SqliteConnection.ClearAllPools(); File.Delete(db); }

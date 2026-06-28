@@ -67,12 +67,12 @@ public class VCardApiSpikeTests
         // EMAIL -> v.EMails -> IEnumerable<TextProperty?> -> .Value is string?
         // Preference: .Parameters.Preference is int (1 = highest in vCard 4.0; 0 = unset)
         var emails = v.EMails!.Where(e => e != null).ToList();
-        Assert.Contains(emails, e => e!.Value == "test@test.dk");
-        Assert.Contains(emails, e => e!.Value == "second@test.dk");
+        Assert.Contains(emails, e => e!.Value == "test@example.com");
+        Assert.Contains(emails, e => e!.Value == "second@example.com");
 
         // The email with PREF=1 is the preferred address
         var preferred = emails.First(e => e!.Parameters.Preference == 1);
-        Assert.Equal("test@test.dk", preferred!.Value);
+        Assert.Equal("test@example.com", preferred!.Value);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class VCardApiSpikeTests
     {
         VCard v = Load();
         // URL -> v.Urls -> IEnumerable<TextProperty?> -> .Value is string?
-        Assert.Contains("https://www.test.dk", v.Urls!.Select(u => u!.Value));
+        Assert.Contains("https://www.example.com", v.Urls!.Select(u => u!.Value));
     }
 
     [Fact]

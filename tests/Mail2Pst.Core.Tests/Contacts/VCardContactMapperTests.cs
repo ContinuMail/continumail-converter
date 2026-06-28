@@ -51,7 +51,7 @@ public class VCardContactMapperTests
         Assert.Equal("Test Unit", c.Department);
         Assert.Equal("Test Title", c.JobTitle);
         Assert.Equal("Test Role", c.Profession);
-        Assert.Equal(new[] { "test@test.dk", "second@test.dk" }, c.Emails);
+        Assert.Equal(new[] { "test@example.com", "second@example.com" }, c.Emails);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class VCardContactMapperTests
         Assert.Equal("Testcity", c.HomeAddress!.City);       // untyped ADR -> Home
         Assert.Equal("Denmark", c.HomeAddress.Country);
         Assert.Equal("12345678", c.BusinessPhone);            // untyped TEL -> Business
-        Assert.Equal("https://www.test.dk", c.PersonalHomePage); // URL TYPE=home -> Personal
+        Assert.Equal("https://www.example.com", c.PersonalHomePage); // URL TYPE=home -> Personal
     }
 
     [Fact]
@@ -148,10 +148,10 @@ public class VCardContactMapperTests
     [Fact]
     public void Map_EmailPreference_Pref1SortsBeforeUnset_RegardlessOfOrder()
     {
-        string vcf = "BEGIN:VCARD\nVERSION:4.0\nFN:E\nEMAIL:unset@x.dk\nEMAIL;PREF=1:top@x.dk\nEND:VCARD\n";
+        string vcf = "BEGIN:VCARD\nVERSION:4.0\nFN:E\nEMAIL:unset@example.com\nEMAIL;PREF=1:top@example.com\nEND:VCARD\n";
         var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
         var c = new VCardContactMapper().Map(v, "c", new System.Collections.Generic.List<string>());
-        Assert.Equal(new[] { "top@x.dk", "unset@x.dk" }, c.Emails);
+        Assert.Equal(new[] { "top@example.com", "unset@example.com" }, c.Emails);
     }
 
     [Fact]

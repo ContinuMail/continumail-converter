@@ -3,10 +3,10 @@ VERSION:4.0
 N:Test;Test;Middle;;
 FN:Test Test
 NICKNAME:Test1
-EMAIL;PREF=1:test@test.dk
-EMAIL:second@test.dk
+EMAIL;PREF=1:test@example.com
+EMAIL:second@example.com
 X-CUSTOM1;VALUE=TEXT:Test Custom
-URL;TYPE=home:https://www.test.dk
+URL;TYPE=home:https://www.example.com
 ADR:;;Teststreet;Testcity;Teststate;2000;Denmark
 TEL;VALUE=TEXT:12345678
 TZ:Europe/Copenhagen
