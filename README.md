@@ -206,7 +206,7 @@ The output directory also gets `conversion-report.txt` (human-readable) and `con
 
 ## 🔧 Build from source
 
-**Engine + CLI** — requires the [.NET 8 SDK](https://dotnet.microsoft.com/download). Windows is the primary target (the PST engine uses some Windows APIs).
+**Engine + CLI** — requires the [.NET 8 SDK](https://dotnet.microsoft.com/download). Builds and runs on Windows, Linux, and macOS (the PST engine is platform-independent; only the optional Outlook category-colour import is Windows-only — see [Limitations](#-limitations)).
 
 ```bash
 dotnet build Mail2Pst.sln
@@ -231,7 +231,7 @@ npm run tauri build   # release build + NSIS installer
 
 ContinuMail Converter reads your archive locally and writes the PST locally. It makes **no network connections** and **uploads nothing**; your originals are only ever read, never modified. See [`SECURITY.md`](SECURITY.md) for the app's security posture and Content Security Policy.
 
-It is free software, provided **"as is", without warranty of any kind** (see [`LICENSE`](LICENSE)). Email history matters, so please **keep a backup** of your originals, **validate** the output (open the PST, or import into a test Outlook profile), and **review the conversion report** before relying on converted data. The installer is not yet code-signed (see [Download & install](#-download--install)).
+It is free software, provided **"as is", without warranty of any kind** (see [`LICENSE`](LICENSE)). Email history matters, so please **keep a backup** of your originals, **validate** the output (open the PST, or import into a test Outlook profile), and **review the conversion report** before relying on converted data. The installer and the CLI binaries are not yet code-signed (see [Download & install](#-download--install)).
 
 ## 🗺️ Roadmap
 
