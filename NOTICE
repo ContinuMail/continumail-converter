@@ -51,6 +51,13 @@ Mork reader (src/Mail2Pst.Core/Mork/)
   This is project-native GPL-3.0-or-later code; the public-domain origin imposes
   no obligation, but the provenance is recorded for hygiene.
 -------------------------------------------------------------------------------
+Microsoft .NET runtime & libraries (bundled in the self-contained CLI binaries)
+  Copyright (c) .NET Foundation and Contributors
+  The cross-platform command-line release binaries are published self-contained and
+  bundle the .NET 8 runtime plus Microsoft-provided libraries (including
+  System.Text.Encoding.CodePages), licensed under the MIT License.
+  License text: https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
+-------------------------------------------------------------------------------
 
 The developer/test-only tool tools/pst-validate depends on the "outlook-pst" crate by Microsoft,
 licensed MIT. The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used
