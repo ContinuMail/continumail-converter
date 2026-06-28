@@ -42,6 +42,10 @@ internal static class TransientFileRetry
 
     private static bool IsTransientFileLock(IOException ex)
     {
+        // Win32 ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33) live in the low word of
+        // HResult on Windows only (e.g. an AV scanner holding a freshly-written PST open). On
+        // Linux/macOS IOException.HResult carries a different (errno-derived) value, so this never
+        // matches and the retry is a deliberate no-op there — that hold-open is a Windows phenomenon.
         int lowWord = ex.HResult & 0xFFFF;
         return lowWord == ErrorSharingViolation || lowWord == ErrorLockViolation;
     }
