@@ -16,4 +16,5 @@ public class PstOutputPlan
     public bool IncludeEmptyFolders { get; set; } = true;
 
     public List<SourceMapping> SourceMappings { get; set; } = new();
+    public List<ContactMapping> ContactMappings { get; set; } = new();
 }

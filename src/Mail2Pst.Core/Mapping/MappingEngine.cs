@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #nullable enable
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Contacts;
 
 namespace Mail2Pst.Core.Mapping;
 
@@ -50,6 +52,32 @@ public static class MappingEngine
                     targetPath = new[] { DefaultFlattenFolderName };
 
                 plan.SourceMappings.Add(new SourceMapping { Source = source, TargetFolderPath = targetPath });
+            }
+
+            // Build contact mappings.
+            foreach (ContactSourceConfig contact in output.Contacts ?? new List<ContactSourceConfig>())
+            {
+                IReadOnlyList<string> target = contact.TargetFolderPath
+                    ?? new[] { "Contacts", Path.GetFileNameWithoutExtension(contact.Path) };
+                plan.ContactMappings.Add(new ContactMapping
+                {
+                    Source = contact,
+                    TargetFolderPath = target,
+                    Format = contact.Format == "thunderbird-mab"
+                        ? AddressBookFormat.ThunderbirdMab : AddressBookFormat.ThunderbirdSqlite,
+                });
+            }
+
+            // Plan-stage item-type collision check: a contact folder path must not equal a mail folder path.
+            var mailPathKeys = new HashSet<string>(
+                plan.SourceMappings.Select(m => FolderPathKey.Join(m.TargetFolderPath)),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (ContactMapping cm in plan.ContactMappings)
+            {
+                string key = FolderPathKey.Join(cm.TargetFolderPath);
+                if (mailPathKeys.Contains(key))
+                    throw new ConfigValidationException(
+                        $"Contact folder '{key}' collides with a mail folder of a different item type in output '{output.Name}'.");
             }
 
             plans.Add(plan);
