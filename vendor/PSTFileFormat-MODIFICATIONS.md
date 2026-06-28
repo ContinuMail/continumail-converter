@@ -134,6 +134,8 @@ authoritative description of the local PSTFileFormat modifications.
     `m_isWindowsDesktopSearchQueuing = false`, so WDS update-queuing is permanently disabled and
     the `SearchDomainObject.ContainsNode`-driven queue path is unchanged. This lets the
     Windows-only `System.ServiceProcess.ServiceController` NuGet ref be dropped from
-    `Mail2Pst.Core.csproj` for the Linux/macOS port.
+    `Mail2Pst.Core.csproj` for the Linux/macOS port. The vestigial `System.ServiceProcess`
+    `<Reference>` in the non-building upstream `PSTFileFormat.csproj` (the legacy old-style
+    project file, not part of the Mail2Pst build) was also cleared for consistency.
 
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

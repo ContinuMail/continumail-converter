@@ -22,10 +22,9 @@ namespace PSTFileFormat
         public SearchManagementQueue(PSTFile file)
         {
             m_file = file;
-            // Windows Desktop Search update-queuing is permanently disabled (the original WDS probe,
-            // which used System.ServiceProcess.ServiceController, was removed for the cross-platform
-            // port — it was unreachable with this flag false). The SearchDomainObject.ContainsNode
-            // queue path is unaffected.
+            // Windows Desktop Search update-queuing is permanently disabled (the original WDS service
+            // probe, which this flag short-circuited, was removed for the cross-platform port). The
+            // SearchDomainObject.ContainsNode queue path is unaffected.
             m_isWindowsDesktopSearchQueuing = false;
         }
 
