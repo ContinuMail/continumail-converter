@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { SplitSizeControl } from "@/components/ui/split-size-control";
 import { buildProfileConfig, buildProfileConfigMulti } from "@/lib/profileConfig";
-import { effectiveRows } from "@/lib/review";
+import { effectiveRows, expectedTotalMessages } from "@/lib/review";
 import { ConvertConfigError, deriveOutputTarget, splitPath, joinOutputPstPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import { openJunkHelp, pickOutputPst } from "@/lib/engine";
@@ -24,7 +24,7 @@ interface ProfileOptionsViewProps {
   skipEmpty: boolean;
   options: OptionsState;
   onSetOptions: (patch: Partial<OptionsState>) => void;
-  onStart: (config: ConversionConfig, outputDir: string) => void;
+  onStart: (config: ConversionConfig, outputDir: string, expectedTotal?: number) => void;
   onBack: () => void;
   // multi-account (optional — only present in profile mode with ≥2 accounts)
   accounts?: Account[];
@@ -106,7 +106,7 @@ export function ProfileOptionsView({
           const combineRows = rows.filter((r) => keys.has(accountKeyForRow(r)));
           const path = joinOutputPstPath(folderDir, sanitizedCombineName);
           const { config, outputDir } = buildProfileConfig(combineRows, checkedIds, skipEmpty, options, path, profileRoot);
-          onStart(config, outputDir);
+          onStart(config, outputDir, expectedTotalMessages(combineRows, checkedIds, skipEmpty));
         } else {
           const accs = accounts ?? [];
           const names = pstNames ?? {};
@@ -116,7 +116,8 @@ export function ProfileOptionsView({
           const { config, outputDir } = buildProfileConfigMulti({
             groups: selectedGroups, checkedIds, skipEmpty, options, target: outputTarget, profileRoot,
           });
-          onStart(config, outputDir);
+          const splitRows = selectedGroups.flatMap((g) => g.rows);
+          onStart(config, outputDir, expectedTotalMessages(splitRows, checkedIds, skipEmpty));
         }
       } catch (e) {
         setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
@@ -130,7 +131,7 @@ export function ProfileOptionsView({
     }
     try {
       const { config, outputDir } = buildProfileConfig(rows, checkedIds, skipEmpty, options, outputPath, profileRoot);
-      onStart(config, outputDir);
+      onStart(config, outputDir, expectedTotalMessages(rows, checkedIds, skipEmpty));
     } catch (e) {
       setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
     }

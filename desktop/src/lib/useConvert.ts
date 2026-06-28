@@ -145,11 +145,11 @@ export function useConvert() {
     };
   }, []);
 
-  const start = useCallback(async (config: ConversionConfig, outputDir: string) => {
+  const start = useCallback(async (config: ConversionConfig, outputDir: string, expectedTotal?: number) => {
     schemaWarnedRef.current = false;
     setState({ ...initialConvertState, phase: "running", outputDir, startedAtMs: Date.now() });
     try {
-      await startConvert(config, outputDir);
+      await startConvert(config, outputDir, expectedTotal);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setState((s) => ({ ...s, phase: "error", errorMessage: message }));

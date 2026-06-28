@@ -14,6 +14,7 @@ import {
   findDuplicateFolderIds,
   type OptionsState,
 } from "@/lib/options";
+import { expectedTotalMessages } from "@/lib/review";
 import type { ConversionConfig, SourceRow } from "@/lib/types";
 import type { ScanResult } from "@/lib/parse";
 
@@ -26,7 +27,7 @@ interface OptionsViewProps {
   options: OptionsState;
   onSetOptions: (patch: Partial<OptionsState>) => void;
   onSetRename: (sourceId: string, name: string) => void;
-  onStart: (config: ConversionConfig, outputDir: string) => void;
+  onStart: (config: ConversionConfig, outputDir: string, expectedTotal?: number) => void;
   onBack: () => void;
 }
 
@@ -64,7 +65,8 @@ export function OptionsView({
       const { config, outputDir } = buildConfigFromOptions(
         scan.sources, checkedIds, skipEmpty, options, outputPath,
       );
-      onStart(config, outputDir);
+      const expectedTotal = expectedTotalMessages(scan.sources, checkedIds, skipEmpty);
+      onStart(config, outputDir, expectedTotal);
     } catch (e) {
       setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
     }
