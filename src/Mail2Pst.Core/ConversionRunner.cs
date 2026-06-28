@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Contacts;
@@ -111,7 +112,7 @@ public class ConversionRunner
                         Format = cm.Format,
                     };
                     IEnumerable<ContactReadResult> results;
-                    try { results = reader.Read(book); }
+                    try { results = reader.Read(book).ToList(); }
                     catch (Exception ex) when (ex is IOException or SqliteException)
                     {
                         report.RecordContactWarning($"Address book skipped [{book.DisplayName}]: {ex.Message}");
