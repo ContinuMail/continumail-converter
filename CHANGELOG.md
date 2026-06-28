@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The desktop app's conversion step is slightly faster to start: it now reuses the message total from the
+  scan it just ran instead of counting every mailbox a second time before converting. Behaviour and
+  progress reporting are otherwise unchanged. (Direct CLI users can do the same with a new
+  `convert --expected-total <n>` flag.)
+
+### Internal
+- CI now runs the desktop Rust unit and sidecar-integration tests (a Windows `cargo test` job), so the
+  Tauri-side contract is gated on every push/PR.
+
 ## [0.2.2] — 2026-06-28
 
 ### Changed
