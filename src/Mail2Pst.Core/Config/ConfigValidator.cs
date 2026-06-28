@@ -35,8 +35,22 @@ public static class ConfigValidator
                 throw new ConfigValidationException(
                     $"Output '{output.Name}' has maxSizeMB={output.MaxSizeMB}; it must be greater than 0.");
 
-            if (output.Sources is null || output.Sources.Count == 0)
-                throw new ConfigValidationException($"Output '{output.Name}' has no sources.");
+            bool hasMail = output.Sources is { Count: > 0 };
+            bool hasContacts = output.Contacts is { Count: > 0 };
+            if (!hasMail && !hasContacts)
+                throw new ConfigValidationException(
+                    $"Output '{output.Name}' has no sources and no contacts.");
+
+            foreach (ContactSourceConfig contact in output.Contacts ?? new List<ContactSourceConfig>())
+            {
+                if (string.IsNullOrWhiteSpace(contact.Path))
+                    throw new ConfigValidationException($"Output '{output.Name}' has a contact source with an empty path.");
+                if (contact.Format is not ("thunderbird-sqlite" or "thunderbird-mab"))
+                    throw new ConfigValidationException(
+                        $"Output '{output.Name}' has a contact source with unknown format '{contact.Format}'.");
+                if (contact.TargetFolderPath is not null)
+                    FolderNameValidator.ValidatePath(contact.TargetFolderPath);
+            }
 
             foreach (SourceConfig source in output.Sources)
             {

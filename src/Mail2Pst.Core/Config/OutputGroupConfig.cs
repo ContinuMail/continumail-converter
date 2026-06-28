@@ -17,4 +17,5 @@ public class OutputGroupConfig
     public bool IncludeEmptyFolders { get; set; } = true;
 
     public List<SourceConfig> Sources { get; set; } = new();
+    public List<ContactSourceConfig> Contacts { get; set; } = new();
 }
