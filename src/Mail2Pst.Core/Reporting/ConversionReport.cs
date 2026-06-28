@@ -17,6 +17,8 @@ public class ConversionReport
     private readonly object _lock = new();
     private int _convertedCount;
     private int _contactsConverted;
+    private int _contactsSkipped;
+    private int _contactWarningCount;
     private readonly List<SkippedMessage> _skipped = new();
     private readonly List<SkippedMessage> _warnings = new();
     private readonly List<string> _outputFiles = new();
@@ -29,8 +31,10 @@ public class ConversionReport
 
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
 
-    // Minimal contact counter (Task 7). The fuller contact reporting surface lands in Task 14.
+    // Contact counters (Task 14 fills the full surface; Task 7 stub kept compatible).
     public int ContactsConverted => Volatile.Read(ref _contactsConverted);
+    public int ContactsSkipped => Volatile.Read(ref _contactsSkipped);
+    public int ContactWarningCount => Volatile.Read(ref _contactWarningCount);
 
     // Cheap, lock-protected counts for the hot path (progress ticks) that don't
     // need to copy the whole list.
@@ -63,6 +67,24 @@ public class ConversionReport
     public void RecordConverted() => Interlocked.Increment(ref _convertedCount);
 
     public void RecordContactConverted() => Interlocked.Increment(ref _contactsConverted);
+
+    public void RecordContactSkipped(string source, string error)
+    {
+        Interlocked.Increment(ref _contactsSkipped);
+        AddWarning($"Contact skipped [{source}]: {error}");
+    }
+
+    public void RecordContactWarning(string message)
+    {
+        Interlocked.Increment(ref _contactWarningCount);
+        AddWarning(message);
+    }
+
+    private void AddWarning(string message)
+    {
+        var entry = new SkippedMessage { SourcePath = string.Empty, Identifier = string.Empty, Reason = message };
+        lock (_lock) _warnings.Add(entry);
+    }
 
     public void RecordSkipped(SourceReference source, string reason)
     {

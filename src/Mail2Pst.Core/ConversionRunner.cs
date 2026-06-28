@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Diagnostics;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
@@ -15,6 +16,7 @@ using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
 using Mail2Pst.Core.Writing;
+using Microsoft.Data.Sqlite;
 
 namespace Mail2Pst.Core;
 
@@ -92,7 +94,44 @@ public class ConversionRunner
             foreach (PstOutputPlan plan in plans)
             {
                 IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, enrichmentOptions, onProgress);
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
+
+                // Assemble contacts for this output group before handing off to the writer.
+                var planned = new List<PlannedContact>();
+                var contactFolders = new List<IReadOnlyList<string>>();
+                foreach (ContactMapping cm in plan.ContactMappings)
+                {
+                    contactFolders.Add(cm.TargetFolderPath);
+                    IAddressBookReader reader = cm.Format == AddressBookFormat.ThunderbirdMab
+                        ? new MorkAddressBookReader()
+                        : new SqliteAddressBookReader();
+                    var book = new AddressBook
+                    {
+                        DisplayName = cm.TargetFolderPath[^1],
+                        Path = cm.Source.Path,
+                        Format = cm.Format,
+                    };
+                    IEnumerable<ContactReadResult> results;
+                    try { results = reader.Read(book); }
+                    catch (Exception ex) when (ex is IOException or SqliteException)
+                    {
+                        report.RecordContactWarning($"Address book skipped [{book.DisplayName}]: {ex.Message}");
+                        continue;
+                    }
+                    foreach (ContactReadResult r in results)
+                    {
+                        if (r.Success)
+                        {
+                            foreach (string w in r.Warnings) report.RecordContactWarning($"[{book.DisplayName}] {w}");
+                            planned.Add(new PlannedContact { Contact = r.Contact!, TargetFolderPath = cm.TargetFolderPath });
+                        }
+                        else
+                        {
+                            report.RecordContactSkipped(r.Source, r.Error!);
+                        }
+                    }
+                }
+
+                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
                 report.AddOutputFiles(outputFiles);
             }
 
@@ -102,7 +141,7 @@ public class ConversionRunner
             // it propagates out of Run to the CLI's fatal error path. Runs only here, on the
             // fully-successful path: cancellation throws out of the loop above and never reaches
             // this line, and the writer's own fatal aborts have already propagated.
-            PstOutputVerifier.Verify(report.OutputFiles, report.ConvertedCount);
+            PstOutputVerifier.Verify(report.OutputFiles, report.ConvertedCount + report.ContactsConverted);
         }
         catch (OperationCanceledException)
         {
