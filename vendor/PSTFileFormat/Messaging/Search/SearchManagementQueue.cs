@@ -8,7 +8,6 @@
  */
 using System;
 using System.Collections.Generic;
-using System.ServiceProcess;
 using System.Text;
 using Utilities;
 
@@ -23,10 +22,11 @@ namespace PSTFileFormat
         public SearchManagementQueue(PSTFile file)
         {
             m_file = file;
-            // http://social.msdn.microsoft.com/Forums/en-US/os_binaryfile/thread/a5f9c653-40f5-4638-85d3-00c54607d984/
-            // Outlook 2007+ queue some SUDs if WDS is enabled.
-            //m_isWindowsDesktopSearchQueuing = file.WriterCompatibilityMode >= WriterCompatibilityMode.Outlook2007RTM && IsWindowsDesktopSearchIndexingEnabled();
-            m_isWindowsDesktopSearchQueuing = false; // I couldn't find a reason to queue these SUDs
+            // Windows Desktop Search update-queuing is permanently disabled (the original WDS probe,
+            // which used System.ServiceProcess.ServiceController, was removed for the cross-platform
+            // port — it was unreachable with this flag false). The SearchDomainObject.ContainsNode
+            // queue path is unaffected.
+            m_isWindowsDesktopSearchQueuing = false;
         }
 
         // http://social.msdn.microsoft.com/Forums/en-US/os_binaryfile/thread/a5f9c653-40f5-4638-85d3-00c54607d984/
@@ -129,31 +129,5 @@ namespace PSTFileFormat
             }
         }
 
-        public static bool IsWindowsDesktopSearchIndexingEnabled()
-        {
-            ServiceController service = FindService("WSearch");
-            if (service != null)
-            {
-                if (service.Status == ServiceControllerStatus.Running)
-                {
-                    // FIXME - For now we assume Outlook is being indexed
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        public static ServiceController FindService(string serviceName)
-        {
-            ServiceController[] services = ServiceController.GetServices();
-            foreach (ServiceController service in services)
-            {
-                if (service.ServiceName.Equals(serviceName, StringComparison.InvariantCultureIgnoreCase))
-                {
-                    return service;
-                }
-            }
-            return null;
-        }
     }
 }

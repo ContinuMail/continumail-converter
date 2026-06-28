@@ -125,4 +125,15 @@ authoritative description of the local PSTFileFormat modifications.
     int maxFreeGeneral, int maxFreeAligned)` for in-memory AMap pages and free-index list
     lengths cached on the file object. Read-only snapshot.
 
+- Cross-platform hygiene — removed the dead Windows-only Desktop-Search service probe
+  (ContinuMail, 2026):
+  - `SearchManagementQueue.cs`: deleted the unreachable static helpers
+    `IsWindowsDesktopSearchIndexingEnabled()` and `FindService(string)` (the only
+    `System.ServiceProcess.ServiceController` callers) and the `using System.ServiceProcess;`.
+    They were reachable only from a commented-out ctor line; the ctor hardcodes
+    `m_isWindowsDesktopSearchQueuing = false`, so WDS update-queuing is permanently disabled and
+    the `SearchDomainObject.ContainsNode`-driven queue path is unchanged. This lets the
+    Windows-only `System.ServiceProcess.ServiceController` NuGet ref be dropped from
+    `Mail2Pst.Core.csproj` for the Linux/macOS port.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
