@@ -69,11 +69,6 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # Build the CLI so the Rust sidecar-integration tests find Mail2Pst.Cli.dll
-      # (via locate_cli's dotnet fallback) and RUN instead of self-skipping.
-      - name: Build CLI (Release)
-        run: dotnet build src/Mail2Pst.Cli -c Release
-
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -81,13 +76,24 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      # tauri-build (the app crate's build script) requires the frontendDist (../dist)
-      # to exist; build the real frontend assets so `cargo test` can compile the crate.
+      - name: Install npm deps
+        working-directory: desktop
+        run: npm ci
+
+      # Publish the CLI sidecar into src-tauri/binaries/ (+ stage resources/sample.mbox).
+      # tauri-build validates that the externalBin + resources declared in tauri.conf.json
+      # exist on disk, so the sidecar must be built BEFORE cargo test or the crate won't
+      # compile. This also makes the Rust sidecar-integration tests use the real sidecar
+      # binary (locate_cli's primary path) rather than the dotnet-dll fallback.
+      - name: Build CLI sidecar
+        working-directory: desktop
+        run: npm run sidecar
+
+      # tauri-build also requires the frontendDist (../dist) to exist; build the real
+      # frontend assets so cargo test can compile the crate.
       - name: Build frontend dist
         working-directory: desktop
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
