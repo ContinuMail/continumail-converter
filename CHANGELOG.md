@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Thunderbird contacts now convert to PST.** Address books become Outlook contacts (real contact
+  cards, not mail items), carrying names, company/department, job title, all phone types, home/business
+  addresses, birthday, websites, notes, custom fields — **and contact photos**. Both modern Thunderbird
+  (the `abook*.sqlite` address books, read via their stored vCard) and legacy `.mab` address books are
+  supported. When you convert a Thunderbird profile, contacts are included automatically; a
+  `--no-contacts` flag (and a future GUI toggle) opts out. Contacts land in an `IPF.Contact` folder per
+  address book and validate cleanly in Outlook and `scanpst.exe`.
+
+### Internal
+- New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
+  `IPM.Contact` writer) added as a distinct write phase that reuses the existing PST size-split,
+  checkpoint, and reporting machinery. Reading is **vCard-first** (modern Thunderbird stores rich contact
+  detail only in a per-card vCard blob) with the denormalized index rows as a fallback, so a malformed or
+  sparse card still yields a usable contact. Adds two pinned, GPL-compatible NuGet dependencies —
+  `Microsoft.Data.Sqlite` and `FolkerKinzel.VCards` (both MIT-family) — recorded in `NOTICE`. The
+  independent `pst-validate` round-trip gate now covers contact folders.
+
 ## [0.2.3] — 2026-06-28
 
 ### Added
