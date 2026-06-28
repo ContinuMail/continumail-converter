@@ -60,6 +60,13 @@ For automated, independent (non-Outlook) validation, see the `MAIL2PST_PST_VALID
 `tests/Mail2Pst.Integration.Tests` and the `tools/pst-validate` crate (a dev/test-only tool, not
 shipped in release artifacts).
 
+## Contacts + photos (manual gate — required before any release that includes contacts)
+
+Convert a real Thunderbird profile, open the output PST in Outlook, and confirm a
+fully-filled contact shows every field AND its photo on the contact card. `pst-validate`
+proves structure and message/contact counts only, not photo rendering, so this manual
+check is required before a release that includes contacts.
+
 ## Validating your own conversion
 
 You can build the same confidence with your own mail:

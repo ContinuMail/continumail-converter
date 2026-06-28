@@ -76,6 +76,14 @@ SQLitePCLRaw.lib.e_sqlite3 / SQLitePCLRaw.provider.e_sqlite3 (2.1.6)
   by its authors and contributors. The SQLitePCLRaw packaging itself
   is licensed Apache-2.0 as above.
 -------------------------------------------------------------------------------
+FolkerKinzel.VCards (8.1.1) and its transitive dependencies:
+  FolkerKinzel.DataUrls (2.0.4), FolkerKinzel.Helpers (1.1.0),
+  FolkerKinzel.MimeTypes (5.5.0), FolkerKinzel.Strings (9.4.1)
+  Copyright (c) Frank Puck (FolkerKinzel)
+  Licensed under the MIT License.
+  License text: https://github.com/FolkerKinzel/VCards/blob/master/LICENSE
+  Used to parse vCard blobs stored in Thunderbird SQLite address books (contacts import).
+-------------------------------------------------------------------------------
 
 The developer/test-only tool tools/pst-validate depends on the "outlook-pst" crate by Microsoft,
 licensed MIT. The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used
