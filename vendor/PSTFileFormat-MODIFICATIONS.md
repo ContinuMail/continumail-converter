@@ -145,4 +145,12 @@ authoritative description of the local PSTFileFormat modifications.
   via `PropertyNameToIDMap.ObtainIDFromName` + `PropertyContext.SetStringProperty` (see
   `tests/Mail2Pst.Core.Tests/PSTFileFormat/NumericNamedPropertyTests.cs`).
 
+- `Messaging/Messages/ContactMessage.cs` (new file): `IPM.Contact` item factory mirroring `Note.cs`.
+  `ContactMessage.CreateNewContact(PSTFile, NodeID)` calls `CreateNewMessage(file,
+  FolderItemTypeName.Contact, parentNodeID, searchKey)` (sets `PidTagMessageClass` to `"IPM.Contact"`
+  via `GetMessageClass(Contact)`), wraps the result via `ContactMessage(PSTNode)`, and sets
+  `MSGFLAG_READ`, `InternetCodepage=65001` (UTF-8 — not Note's 1255 Hebrew default), and normal
+  importance/priority. Also exposes `GetContact(PSTFile, NodeID)` for round-trip reads (ContinuMail,
+  2026).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
