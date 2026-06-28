@@ -56,3 +56,42 @@ jobs:
       - name: Test (Vitest)
         working-directory: desktop
         run: npm test
+
+  desktop-rust:
+    name: Test (desktop Rust)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      # Build the CLI so the Rust sidecar-integration tests find Mail2Pst.Cli.dll
+      # (via locate_cli's dotnet fallback) and RUN instead of self-skipping.
+      - name: Build CLI (Release)
+        run: dotnet build src/Mail2Pst.Cli -c Release
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # tauri-build (the app crate's build script) requires the frontendDist (../dist)
+      # to exist; build the real frontend assets so `cargo test` can compile the crate.
+      - name: Build frontend dist
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
