@@ -27,6 +27,7 @@ internal sealed class PstPartManager
     private readonly long _maxSizeBytes;
     private readonly int _checkIntervalMessages;
     private readonly Action<PSTFile, PSTFolder, MailMessage> _writeMessage;
+    private readonly Action<PSTFile, PSTFolder, ContactRecord> _writeContact;
     private readonly long _emptyStoreSize;
 
     private readonly List<string> _outputFiles = new();
@@ -41,13 +42,15 @@ internal sealed class PstPartManager
 
     public PstPartManager(string groupName, string outputDirectory,
         long maxSizeBytes, int checkIntervalMessages,
-        Action<PSTFile, PSTFolder, MailMessage> writeMessage)
+        Action<PSTFile, PSTFolder, MailMessage> writeMessage,
+        Action<PSTFile, PSTFolder, ContactRecord> writeContact)
     {
         _groupName = groupName;
         _outputDirectory = outputDirectory;
         _maxSizeBytes = maxSizeBytes;
         _checkIntervalMessages = checkIntervalMessages;
         _writeMessage = writeMessage;
+        _writeContact = writeContact;
         // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
         // copy is retired. The initial on-disk size is the constant empty-store size.
         _emptyStoreSize = PSTFile.EmptyStoreSizeBytes;
@@ -61,7 +64,15 @@ internal sealed class PstPartManager
     /// Opens the first (un-suffixed) part, begins saving, and pre-creates the given folders
     /// (the IncludeEmptyFolders set). Call exactly once, before the message loop.
     /// </summary>
-    public void Begin(IReadOnlyList<IReadOnlyList<string>> foldersToPrecreate)
+    public void Begin(IReadOnlyList<IReadOnlyList<string>> foldersToPrecreate) =>
+        Begin(foldersToPrecreate, Array.Empty<IReadOnlyList<string>>());
+
+    /// <summary>
+    /// Opens the first (un-suffixed) part, begins saving, and pre-creates the given mail and
+    /// contact folders with their correct item types. Call exactly once, before the message loop.
+    /// </summary>
+    public void Begin(IReadOnlyList<IReadOnlyList<string>> mailFolders,
+                      IReadOnlyList<IReadOnlyList<string>> contactFolders)
     {
         _currentPath = StartNewFile(_groupName, null, _outputDirectory);
         _outputFiles.Add(_currentPath);
@@ -70,8 +81,10 @@ internal sealed class PstPartManager
         // mismatch here corrupts the AMap marker; the IndependentValidationTests gate would catch it.
         _file = new PSTFile(_currentPath, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
         _file.BeginSavingChanges();
-        foreach (IReadOnlyList<string> path in foldersToPrecreate)
-            GetOrCreateFolder(path);
+        foreach (IReadOnlyList<string> path in mailFolders)
+            GetOrCreateFolder(path, FolderItemTypeName.Note);
+        foreach (IReadOnlyList<string> path in contactFolders)
+            GetOrCreateFolder(path, FolderItemTypeName.Contact);
     }
 
     public bool ShouldSplitBefore(long messageSize) =>
@@ -88,8 +101,15 @@ internal sealed class PstPartManager
 
     public void Write(IReadOnlyList<string> path, MailMessage message)
     {
-        PSTFolder folder = GetOrCreateFolder(path);
+        PSTFolder folder = GetOrCreateFolder(path, FolderItemTypeName.Note);
         _writeMessage(_file!, folder, message);
+        _dirtyFolders.Add(folder);
+    }
+
+    public void WriteContact(IReadOnlyList<string> path, ContactRecord contact)
+    {
+        PSTFolder folder = GetOrCreateFolder(path, FolderItemTypeName.Contact);
+        _writeContact(_file!, folder, contact);
         _dirtyFolders.Add(folder);
     }
 
@@ -253,23 +273,48 @@ internal sealed class PstPartManager
         return fullPath;
     }
 
-    private PSTFolder GetOrCreateFolder(IReadOnlyList<string> path)
+    private PSTFolder GetOrCreateFolder(IReadOnlyList<string> path) =>
+        GetOrCreateFolder(path, FolderItemTypeName.Note);
+
+    private PSTFolder GetOrCreateFolder(IReadOnlyList<string> path, FolderItemTypeName itemType)
     {
         if (path.Count == 0)
             throw new InvalidOperationException("GetOrCreateFolder requires a non-empty path.");
 
         PSTFolder current = _file!.TopOfPersonalFolders;
         var prefix = new List<string>(path.Count);
-        foreach (string segment in path)
+        for (int i = 0; i < path.Count; i++)
         {
+            string segment = path[i];
             prefix.Add(segment);
             string key = FolderPathKey.Join(prefix);
-            if (_folders.TryGetValue(key, out PSTFolder? cached)) { current = cached; continue; }
-            current = current.FindChildFolder(segment)
-                      ?? current.CreateChildFolder(segment, FolderItemTypeName.Note);
+            bool isLeaf = i == path.Count - 1;
+            // Leaf carries the requested item type; parents are containers (Note default is fine).
+            FolderItemTypeName segType = isLeaf ? itemType : FolderItemTypeName.Note;
+
+            if (_folders.TryGetValue(key, out PSTFolder? cached))
+            {
+                GuardLeafClass(isLeaf, segType, cached, key);
+                current = cached; continue;
+            }
+            PSTFolder? existing = current.FindChildFolder(segment);
+            if (existing != null) GuardLeafClass(isLeaf, segType, existing, key);
+            current = existing ?? current.CreateChildFolder(segment, segType);
             _folders[key] = current; // cache EVERY level, not just the leaf
         }
         return current;
+    }
+
+    // Two-way guard: a reused leaf's container class must match the requested item type
+    // (mail asks for IPF.Note, contacts for IPF.Contact). Non-leaf segments are containers
+    // and are not type-checked.
+    private static void GuardLeafClass(bool isLeaf, FolderItemTypeName segType, PSTFolder folder, string key)
+    {
+        if (!isLeaf) return;
+        string expected = PSTFolder.GetContainerClass(segType);   // e.g. "IPF.Contact" / "IPF.Note"
+        if (!string.Equals(folder.ContainerClass, expected, StringComparison.Ordinal))
+            throw new ConfigValidationException(
+                $"Folder '{key}' already exists as '{folder.ContainerClass}'; cannot reuse it as '{expected}'.");
     }
 
     private static void TryDeletePart(string path)

@@ -81,8 +81,11 @@ public class PstWriter
         cancellationToken.ThrowIfCancellationRequested();
         _activeCancellationToken = cancellationToken;
 
+        var contactWriter = new ContactWriter();
         var partManager = new PstPartManager(
-            plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages, WriteMessageCore);
+            plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages,
+            writeMessage: (file, folder, message) => WriteMessageCore(file, folder, message),
+            writeContact: (file, folder, contact) => contactWriter.WriteContact(file, folder, contact));
         var throttler = new ProgressThrottler(onProgress, totalMessages);
 
         // Producer thread parses MIME (CPU-bound); this consumer writes PST (I/O-bound).
