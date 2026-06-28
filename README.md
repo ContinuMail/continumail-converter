@@ -4,7 +4,8 @@
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/ContinuMail/continumail-converter?label=release)](../../releases/latest)
-[![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](#-download--install)
+[![Desktop app: Windows 10/11](https://img.shields.io/badge/desktop%20app-Windows%2010%2F11-0078D6)](#-download--install)
+[![CLI: Windows · Linux · macOS](https://img.shields.io/badge/CLI-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-2ea44f)](#-download--install)
 [![Website: continumail.com](https://img.shields.io/badge/web-continumail.com-b05a36)](https://www.continumail.com/)
 
 <p align="center">
@@ -30,12 +31,39 @@ Most free/open options write PST by remote-controlling a running copy of Outlook
 
 ## 📥 Download & install
 
+### Desktop app (Windows 10/11)
+
 1. Download the latest installer from the [**Releases**](../../releases/latest) page: `ContinuMail Converter_<version>_x64-setup.exe`.
 2. Run it. ContinuMail installs for the current user (no admin needed) and adds a Start-menu shortcut. Windows 10/11, 64-bit.
 
 > **"Windows protected your PC"?** This early release is **not yet code-signed**, so SmartScreen may warn about an "unknown publisher." If you trust this source, click **More info → Run anyway**. (Code signing is [on the roadmap](#-roadmap).)
 
-Prefer the command line? See [Command-line interface](#-command-line-interface).
+### Command-line (Windows · Linux · macOS)
+
+The converter's engine is fully cross-platform. Grab the single-file CLI for your OS from the [**Releases**](../../releases/latest) page (on Windows, the desktop installer above already includes it):
+
+| OS | Binary |
+|----|--------|
+| Windows | `mail2pst-cli-<version>-win-x64.exe` |
+| Linux (x64) | `mail2pst-cli-<version>-linux-x64` |
+| macOS (Apple Silicon) | `mail2pst-cli-<version>-osx-arm64` |
+
+**Linux** — the self-contained runtime needs ICU; install it once if your distro doesn't ship it (`sudo apt install -y libicu-dev` on Debian/Ubuntu), then:
+
+```bash
+chmod +x mail2pst-cli-<version>-linux-x64
+./mail2pst-cli-<version>-linux-x64 scan --input mail.mbox
+```
+
+**macOS** — the binary is **unsigned**, so Gatekeeper quarantines a browser-downloaded copy. Clear the quarantine flag once (or right-click → Open the first time):
+
+```bash
+xattr -dr com.apple.quarantine ./mail2pst-cli-<version>-osx-arm64
+chmod +x mail2pst-cli-<version>-osx-arm64
+./mail2pst-cli-<version>-osx-arm64 scan --input mail.mbox
+```
+
+See [Command-line interface](#-command-line-interface) for the full `scan` / `convert` usage.
 
 ## 🚀 Using the app
 
@@ -197,7 +225,7 @@ npm test              # frontend unit tests (Vitest)
 npm run tauri build   # release build + NSIS installer
 ```
 
-> The CLI sidecar build is Windows / win-x64 only (matching the v1 Windows-first scope) and runs automatically before `tauri dev`/`build`. Cross-platform builds are deferred to a future release.
+> The **CLI engine builds and publishes on Windows, Linux, and macOS** — e.g. `dotnet publish src/Mail2Pst.Cli -c Release -r <rid> --self-contained` (`win-x64` / `linux-x64` / `osx-arm64`). Only the **desktop GUI** is Windows-only for now; its sidecar build (`npm run sidecar`) targets `win-x64` and runs automatically before `tauri dev`/`build`.
 
 ## 🔒 Privacy & disclaimer
 
@@ -211,7 +239,7 @@ ContinuMail Converter aims to be a genuinely **free, open alternative to the pai
 
 - **More formats** — EML and MSG input next (mbox-only today).
 - **Code signing** of the installer (to remove the SmartScreen prompt).
-- **Cross-platform** builds (Windows-only today).
+- **Cross-platform desktop app** — the command-line converter already runs on Windows, Linux, and macOS; bringing the desktop GUI to Linux/macOS (packaging + signing) is next.
 
 The converter is free and open-source and stays that way. (ContinuMail follows an open-core model: this converter is free forever; any paid products are separate.)
 
