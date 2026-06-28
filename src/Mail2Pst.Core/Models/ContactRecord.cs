@@ -25,9 +25,12 @@ public class ContactRecord
     public string? PagerNumber { get; set; }
     public PostalAddress? HomeAddress { get; set; }
     public PostalAddress? BusinessAddress { get; set; }
+    public string? Profession { get; set; }       // vCard ROLE
+    public string? PersonalHomePage { get; set; }  // vCard URL TYPE=home
     public string? Webpage { get; set; }
     public DateTimeOffset? Birthday { get; set; }
     public string? Notes { get; set; }
+    public ContactPhoto? Photo { get; set; }       // embedded photo, if any
     public List<string> CustomFields { get; set; } = new();      // appended to Notes on write
 
     /// <summary>Identity for warnings: source card id or best-effort fallback.</summary>

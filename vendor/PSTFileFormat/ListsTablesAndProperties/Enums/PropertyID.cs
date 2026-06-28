@@ -134,7 +134,9 @@ namespace PSTFileFormat
         PidTagBusinessAddressCountry = 0x3A26,
         PidTagBirthday = 0x3A42,
         PidTagMiddleName = 0x3A44,
+        PidTagProfession = 0x3A46,          // ContinuMail addition 2026
         PidTagNickname = 0x3A4F,
+        PidTagPersonalHomePage = 0x3A50,    // ContinuMail addition 2026
         PidTagBusinessHomePage = 0x3A51,
         PidTagHomeAddressCountry = 0x3A5A,
         PidTagHomeAddressPostalCode = 0x3A5B,

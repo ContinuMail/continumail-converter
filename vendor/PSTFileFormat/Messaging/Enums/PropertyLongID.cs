@@ -93,6 +93,7 @@ namespace PSTFileFormat
         PidLidRemoteAttachment = 0x00008F07,      // Boolean
 
         // ContinuMail addition 2026: contact props
+        PidLidHasPicture = 0x8015,          // ContinuMail addition 2026
         PidLidEmail1DisplayName = 0x8080,
         PidLidEmail1AddressType = 0x8082,
         PidLidEmail1EmailAddress = 0x8083,

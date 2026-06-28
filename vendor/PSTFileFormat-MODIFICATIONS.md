@@ -175,4 +175,14 @@ authoritative description of the local PSTFileFormat modifications.
   added, see previous entry) to write contact email addresses as MAPI named properties
   (ContinuMail, 2026).
 
+- `ListsTablesAndProperties/Enums/PropertyID.cs`: added `PidTagProfession = 0x3A46` and
+  `PidTagPersonalHomePage = 0x3A50` (ContinuMail addition 2026: vCard ROLE and home-page URL fields
+  for contact write; neither name nor value existed in the upstream enum or the earlier ContinuMail
+  batch; verified against a real Outlook contact PST).
+
+- `Messaging/Enums/PropertyLongID.cs`: added `PidLidHasPicture = 0x8015` (ContinuMail addition
+  2026: contact-photo presence flag, used with `PSETID_Address`; absent from the upstream enum and
+  the earlier ContinuMail batch; verified against MS-OXPROPS specification and a real Outlook
+  contact PST with embedded photo).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
