@@ -1,9 +1,10 @@
 name: CI
 
-# CI (right-sized, advisory): build + test the engine on Windows (engine uses Windows-only PST
-# APIs) and run the desktop frontend unit tests (Vitest). Both jobs run on windows-latest — the
-# only supported platform — for every push and PR to master (private repo) and main (public repo).
-# See docs/repo-health-roadmap.md §3. Remaining optional add-on: a hygiene grep step.
+# CI (right-sized, advisory): build + test the engine on a windows/linux/macos matrix — the CLI engine
+# is cross-platform (net8.0); each leg also publishes the CLI single-file and smoke-runs `scan`. The
+# desktop frontend (Vitest) and desktop Rust (cargo) jobs stay windows-only — the Tauri GUI + sidecar
+# are Windows-only for now. Runs on every push and PR to master (private repo) and main (public repo).
+# See docs/repo-health-roadmap.md §3.
 
 on:
   push:
