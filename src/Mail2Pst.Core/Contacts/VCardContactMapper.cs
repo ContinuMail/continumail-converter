@@ -34,14 +34,17 @@ public class VCardContactMapper
         }
 
         // NICKNAME: StringCollectionProperty — .Value is IReadOnlyList<string>
-        c.Nickname = First(v.NickNames?.Select(n => n is null ? null : string.Join(", ", n.Value)));
+        c.Nickname = First(v.NickNames?.Select(n => n?.Value is null ? null : string.Join(", ", n.Value)));
 
         // ORG: Organization.Name (string?) / Organization.Units (IReadOnlyList<string>)
         var orgProp = v.Organizations?.FirstOrDefault(o => o is not null);
         if (orgProp is not null)
         {
             c.CompanyName = NullIfEmpty(orgProp.Value.Name);
-            c.Department  = NullIfEmpty(orgProp.Value.Units.FirstOrDefault());
+            // Units is NULL (not empty) when ORG has a company name but no organizational unit
+            // (e.g. "ORG:Acme"). LINQ on a null list throws ArgumentNullException, so guard for null.
+            var units = orgProp.Value.Units;
+            c.Department  = NullIfEmpty(units is { Count: > 0 } ? units[0] : null);
         }
 
         // TITLE / ROLE

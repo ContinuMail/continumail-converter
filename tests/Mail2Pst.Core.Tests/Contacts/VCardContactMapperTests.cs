@@ -21,6 +21,24 @@ public class VCardContactMapperTests
     }
 
     [Fact]
+    public void Map_OrgWithNoUnit_MapsCompanyAndPhone_DoesNotThrow()
+    {
+        // Regression (synthetic data): vCard 3.0 with ORG (company only, no unit) + TEL and NO
+        // email. FolkerKinzel returns Organization.Units == null (not empty) when ORG has no
+        // unit, so .FirstOrDefault() on it threw ArgumentNullException, aborting the whole Map
+        // and dropping company/phone (degraded to index-row name/email only). Must map cleanly.
+        string vcf = "BEGIN:VCARD\nVERSION:3.0\nN:Doe;Jane;;;\nFN:Jane Doe\n" +
+                     "ORG:Acme Widgets\nREV:20250101T120000Z\nUID:0000aaaa1111bbbb\n" +
+                     "TEL;TYPE=PREF:+15555550100\nEND:VCARD\n";
+        VCard v = Vcf.Parse(vcf).Single();
+        var warnings = new List<string>();
+        ContactRecord c = new VCardContactMapper().Map(v, "card-org", warnings);
+        Assert.Equal("Acme Widgets", c.CompanyName);
+        Assert.Null(c.Department);                 // no unit present
+        Assert.Equal("+15555550100", c.BusinessPhone); // TYPE=PREF (no Cell/Fax/Pager/Home) → Business
+    }
+
+    [Fact]
     public void Map_FullCard_MapsAllScalarFields()
     {
         var c = MapFixture(out _);
