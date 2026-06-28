@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Internal
 - CI now runs the desktop Rust unit and sidecar-integration tests (a Windows `cargo test` job), so the
   Tauri-side contract is gated on every push/PR.
+- The CLI engine now builds, tests, and runs on Linux and macOS, gated by a CI OS matrix
+  (windows/ubuntu/macos, each leg also publishing the CLI single-file and smoke-running `scan`).
+  Removed the unused Windows-only `System.ServiceProcess.ServiceController` dependency. (No user-facing
+  change yet — the desktop app remains Windows-only; cross-platform packaging is a later step.)
 
 ## [0.2.2] — 2026-06-28
 
