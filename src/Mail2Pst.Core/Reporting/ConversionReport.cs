@@ -16,6 +16,7 @@ public class ConversionReport
 {
     private readonly object _lock = new();
     private int _convertedCount;
+    private int _contactsConverted;
     private readonly List<SkippedMessage> _skipped = new();
     private readonly List<SkippedMessage> _warnings = new();
     private readonly List<string> _outputFiles = new();
@@ -27,6 +28,9 @@ public class ConversionReport
     private int _enrOrphanDropped, _lofEnabled, _lofDisabled, _lofDuplicates;
 
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
+
+    // Minimal contact counter (Task 7). The fuller contact reporting surface lands in Task 14.
+    public int ContactsConverted => Volatile.Read(ref _contactsConverted);
 
     // Cheap, lock-protected counts for the hot path (progress ticks) that don't
     // need to copy the whole list.
@@ -57,6 +61,8 @@ public class ConversionReport
     }
 
     public void RecordConverted() => Interlocked.Increment(ref _convertedCount);
+
+    public void RecordContactConverted() => Interlocked.Increment(ref _contactsConverted);
 
     public void RecordSkipped(SourceReference source, string reason)
     {

@@ -76,6 +76,14 @@ public class PstWriter
     }
 
     public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages, string outputDirectory, ConversionReport report, int totalMessages = -1, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null)
+        => WritePlan(plan, messages, Array.Empty<PlannedContact>(), Array.Empty<IReadOnlyList<string>>(),
+                     outputDirectory, report, totalMessages, onProgress, cancellationToken, memoryObserver);
+
+    public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages,
+        IReadOnlyList<PlannedContact> contacts, IReadOnlyList<IReadOnlyList<string>> contactFolders,
+        string outputDirectory, ConversionReport report, int totalMessages = -1,
+        Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default,
+        DurableMemoryObserver? memoryObserver = null)
     {
         // Pre-flight: if already cancelled, create nothing so DeletedFiles stays empty.
         cancellationToken.ThrowIfCancellationRequested();
@@ -122,10 +130,6 @@ public class PstWriter
 
         bool cancelled = false;
         ExceptionDispatchInfo? faultCapture = null;
-        string? currentSource = null;
-        string? currentFolder = null;
-        long estimatedOutputBytes = 0;   // run-wide; NEVER reset on split
-        int messagesSinceProgress = 0;
         try
         {
             // Pre-create a folder for every mapped source when IncludeEmptyFolders, so an
@@ -135,64 +139,16 @@ public class PstWriter
             IReadOnlyList<IReadOnlyList<string>> emptyFolders = plan.IncludeEmptyFolders
                 ? plan.SourceMappings.Select(m => m.TargetFolderPath).ToArray()
                 : Array.Empty<IReadOnlyList<string>>();
-            partManager.Begin(emptyFolders);
+            // Two-arg Begin pre-creates contact folders too, so an EMPTY address book still
+            // gets its IPF.Contact folder.
+            partManager.Begin(emptyFolders, contactFolders);
 
-            foreach (PlannedMessage planned in queue.GetConsumingEnumerable())
-            {
-                currentSource = planned.Message.Source.SourcePath;
-                currentFolder = FolderPathDisplay.Join(planned.TargetFolderPath);
+            // Phase 1: mail. Phase 2: contacts — BOTH inside this try and the same open-store
+            // lifecycle, so cancel/fatal cleanup (below) covers contacts as well.
+            (string? currentSource, string? currentFolder, long estimatedOutputBytes) =
+                WriteMailPhase(queue, partManager, throttler, report, cancellationToken, memoryObserver);
 
-                long messageSize = 0;
-                bool written = false;
-                try
-                {
-                    // Cancellation BEFORE the predictive split so a cancelled run never
-                    // creates an extra part. Inside the try so finally always disposes this
-                    // dequeued message's attachments even if cancel fires before the write.
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    messageSize = EstimateMessageSize(planned.Message);
-
-                    if (partManager.ShouldSplitBefore(messageSize))
-                        partManager.FlushAndSplit();
-
-                    partManager.Write(planned.TargetFolderPath, planned.Message);
-                    report.RecordConverted();
-                    written = true;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (IsRecoverableWriteError(ex))
-                {
-                    report.RecordSkipped(planned.Message.Source, ex.Message);
-                }
-                finally
-                {
-                    foreach (MailAttachment attachment in planned.Message.Attachments)
-                        attachment.Content.Dispose();
-                }
-
-                if (!written) continue;
-
-                estimatedOutputBytes += messageSize;
-                partManager.OnWritten(messageSize);
-                messagesSinceProgress++;
-                if (messagesSinceProgress >= _progressIntervalMessages)
-                {
-                    throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
-                    messagesSinceProgress = 0;
-                }
-
-                if (partManager.CheckpointDue)
-                {
-                    partManager.Flush();
-                    memoryObserver?.Observe(partManager.SnapshotDurableMemory(report.ConvertedCount));
-                    throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
-                    partManager.TrySplitOrResumeAfterFlush();   // both branches leave the part write-ready
-                }
-            }
+            WriteContactPhase(partManager, contacts, totalMessages, report, onProgress, cancellationToken);
 
             partManager.Finish();
             throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
@@ -245,6 +201,125 @@ public class PstWriter
 
         return partManager.OutputFiles.ToList();
     }
+
+    // Mail phase: the producer/consumer write loop, extracted VERBATIM from the former inline
+    // WritePlan body (only parameterized + returning its final progress state so WritePlan can
+    // emit the post-Finish progress event after the contact phase). Behaviour is byte-for-byte
+    // unchanged for mail. estimatedOutputBytes is run-wide here; NEVER reset on split.
+    private (string? currentSource, string? currentFolder, long estimatedOutputBytes) WriteMailPhase(
+        BlockingCollection<PlannedMessage> queue, PstPartManager partManager, ProgressThrottler throttler,
+        ConversionReport report, CancellationToken cancellationToken, DurableMemoryObserver? memoryObserver)
+    {
+        string? currentSource = null;
+        string? currentFolder = null;
+        long estimatedOutputBytes = 0;   // run-wide; NEVER reset on split
+        int messagesSinceProgress = 0;
+
+        foreach (PlannedMessage planned in queue.GetConsumingEnumerable())
+        {
+            currentSource = planned.Message.Source.SourcePath;
+            currentFolder = FolderPathDisplay.Join(planned.TargetFolderPath);
+
+            long messageSize = 0;
+            bool written = false;
+            try
+            {
+                // Cancellation BEFORE the predictive split so a cancelled run never
+                // creates an extra part. Inside the try so finally always disposes this
+                // dequeued message's attachments even if cancel fires before the write.
+                cancellationToken.ThrowIfCancellationRequested();
+
+                messageSize = EstimateMessageSize(planned.Message);
+
+                if (partManager.ShouldSplitBefore(messageSize))
+                    partManager.FlushAndSplit();
+
+                partManager.Write(planned.TargetFolderPath, planned.Message);
+                report.RecordConverted();
+                written = true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (IsRecoverableWriteError(ex))
+            {
+                report.RecordSkipped(planned.Message.Source, ex.Message);
+            }
+            finally
+            {
+                foreach (MailAttachment attachment in planned.Message.Attachments)
+                    attachment.Content.Dispose();
+            }
+
+            if (!written) continue;
+
+            estimatedOutputBytes += messageSize;
+            partManager.OnWritten(messageSize);
+            messagesSinceProgress++;
+            if (messagesSinceProgress >= _progressIntervalMessages)
+            {
+                throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
+                messagesSinceProgress = 0;
+            }
+
+            if (partManager.CheckpointDue)
+            {
+                partManager.Flush();
+                memoryObserver?.Observe(partManager.SnapshotDurableMemory(report.ConvertedCount));
+                throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
+                partManager.TrySplitOrResumeAfterFlush();   // both branches leave the part write-ready
+            }
+        }
+
+        return (currentSource, currentFolder, estimatedOutputBytes);
+    }
+
+    // Contact phase: runs after the mail phase inside the SAME open-store lifecycle, reusing the
+    // part manager's split/checkpoint machinery. Contact folders are pre-created in Begin so an
+    // empty address book still yields an IPF.Contact folder. Emits additive contact progress
+    // (Phase="contacts"); mail Converted/Total/Warnings/Skipped are preserved via the same report
+    // accessors the mail phase reads.
+    private void WriteContactPhase(PstPartManager partManager, IReadOnlyList<PlannedContact> contacts,
+        int mailTotal, ConversionReport report, Action<ConversionProgressEvent>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        int contactsTotal = contacts.Count;
+        foreach (PlannedContact planned in contacts)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long size = EstimateContactSize(planned.Contact);
+            if (partManager.ShouldSplitBefore(size)) partManager.FlushAndSplit();
+            try
+            {
+                partManager.WriteContact(planned.TargetFolderPath, planned.Contact);
+                report.RecordContactConverted();
+            }
+            catch (ConfigValidationException) { throw; } // collision = fatal
+            partManager.OnWritten(size);
+            // Additive contact progress: mail Converted/Total stay as-is (phase="contacts").
+            onProgress?.Invoke(new ProgressEvent(
+                Converted: report.ConvertedCount,
+                TotalMessages: mailTotal,
+                Warnings: report.WarningCount,
+                Skipped: report.SkippedCount,
+                CurrentSource: planned.Contact.SourceCardId,
+                CurrentFolder: FolderPathDisplay.Join(planned.TargetFolderPath),
+                EstimatedOutputBytes: 0,
+                ContactsConverted: report.ContactsConverted,
+                ContactsTotal: contactsTotal,
+                Phase: "contacts"));
+            if (partManager.CheckpointDue)
+            {
+                partManager.Flush();
+                partManager.TrySplitOrResumeAfterFlush();
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    // A contact is far smaller than a mail message and has no attachments in MVP.
+    private static long EstimateContactSize(ContactRecord c) => 2048;
 
     private static string GetPlainTextBody(MailMessage message)
     {

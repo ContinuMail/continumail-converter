@@ -15,7 +15,10 @@ public sealed record ProgressEvent(
     int Skipped,
     string? CurrentSource = null,
     string? CurrentFolder = null,
-    long EstimatedOutputBytes = 0) : ConversionProgressEvent;
+    long EstimatedOutputBytes = 0,
+    int ContactsConverted = 0,
+    int ContactsTotal = 0,
+    string Phase = "mail") : ConversionProgressEvent;
 
 public sealed record WarningEvent(
     string Source,
