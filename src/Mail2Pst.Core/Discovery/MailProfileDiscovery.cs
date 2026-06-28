@@ -136,12 +136,41 @@ public static class MailProfileDiscovery
             })
             .ToList();
 
+        var addressBooks = DiscoverAddressBooks(prefsRoot ?? root).ToList();
+
         return new DiscoveryResult(root, layout, sources, warnings, skipped,
             new DiscoveryPairingSummary(paired, unpaired, orphan))
         {
-            Accounts = accounts
+            Accounts = accounts,
+            AddressBooks = addressBooks,
         };
     }
+
+    public static IEnumerable<DiscoveredAddressBook> DiscoverAddressBooks(string profileDir)
+    {
+        if (!Directory.Exists(profileDir)) yield break;
+        foreach (string sqlite in Directory.EnumerateFiles(profileDir, "*.sqlite"))
+        {
+            string name = Path.GetFileName(sqlite);
+            if (name is "abook.sqlite" or "history.sqlite" || name.StartsWith("abook", StringComparison.OrdinalIgnoreCase))
+                yield return new DiscoveredAddressBook
+                {
+                    DisplayName = FriendlyBookName(name), Path = sqlite, Format = "thunderbird-sqlite",
+                };
+        }
+        foreach (string mab in Directory.EnumerateFiles(profileDir, "*.mab"))
+            yield return new DiscoveredAddressBook
+            {
+                DisplayName = FriendlyBookName(Path.GetFileName(mab)), Path = mab, Format = "thunderbird-mab",
+            };
+    }
+
+    private static string FriendlyBookName(string fileName) => fileName switch
+    {
+        "abook.sqlite" or "abook.mab" => "Personal Address Book",
+        "history.sqlite" or "history.mab" => "Collected Addresses",
+        _ => Path.GetFileNameWithoutExtension(fileName),
+    };
 
     private static bool IsLocalFolders(string? store, string segment) =>
         string.Equals(store, "Mail", StringComparison.OrdinalIgnoreCase) &&

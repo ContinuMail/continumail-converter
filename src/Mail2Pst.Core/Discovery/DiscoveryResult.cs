@@ -23,6 +23,13 @@ public sealed record Account(
     string Id, string FolderSegment, string AccountPath, string? Store,
     string? Email, string? Host, AddressResolution AddressResolution);
 
+public sealed class DiscoveredAddressBook
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+    public string Format { get; set; } = string.Empty; // "thunderbird-sqlite" | "thunderbird-mab"
+}
+
 public sealed record DiscoveryResult(
     string Root, string Layout,
     IReadOnlyList<DiscoveredSource> Sources,
@@ -31,4 +38,5 @@ public sealed record DiscoveryResult(
     DiscoveryPairingSummary Pairing)
 {
     public IReadOnlyList<Account> Accounts { get; init; } = System.Array.Empty<Account>();
+    public List<DiscoveredAddressBook> AddressBooks { get; init; } = new();
 }
