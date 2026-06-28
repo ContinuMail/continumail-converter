@@ -181,8 +181,7 @@ public class VCardApiSpikeTests
         // For genuinely garbled input, any returned VCard has no FN, no emails, no name.
         const string garbage = "this is not a vcard";
         var result = Vcf.Parse(garbage);
-        // If this line throws, update the task report — the library throws instead of returning empty.
-        Assert.NotNull(result);
-        // Document: result is an IReadOnlyList<VCard> (count 0 or elements with no meaningful data).
+        // FolkerKinzel returns an empty list for genuinely garbled input (no BEGIN:VCARD).
+        Assert.Empty(result);
     }
 }
