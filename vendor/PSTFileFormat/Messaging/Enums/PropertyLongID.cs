@@ -91,5 +91,19 @@ namespace PSTFileFormat
         Unknown0x000085a8 = 0x000085a8,           // Binary, appears at appointment contents table (Outlook 2010)
         PidLidValidFlagStringProof = 0x000085BF,  // DateTime
         PidLidRemoteAttachment = 0x00008F07,      // Boolean
+
+        // ContinuMail addition 2026: contact props
+        PidLidEmail1DisplayName = 0x8080,
+        PidLidEmail1AddressType = 0x8082,
+        PidLidEmail1EmailAddress = 0x8083,
+        PidLidEmail1OriginalDisplayName = 0x8084,
+        PidLidEmail2DisplayName = 0x8090,
+        PidLidEmail2AddressType = 0x8092,
+        PidLidEmail2EmailAddress = 0x8093,
+        PidLidEmail2OriginalDisplayName = 0x8094,
+        PidLidEmail3DisplayName = 0x80A0,
+        PidLidEmail3AddressType = 0x80A2,
+        PidLidEmail3EmailAddress = 0x80A3,
+        PidLidEmail3OriginalDisplayName = 0x80A4,
     }
 }

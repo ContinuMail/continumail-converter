@@ -153,4 +153,26 @@ authoritative description of the local PSTFileFormat modifications.
   importance/priority. Also exposes `GetContact(PSTFile, NodeID)` for round-trip reads (ContinuMail,
   2026).
 
+- `ListsTablesAndProperties/Enums/PropertyID.cs`: added 25 tagged contact `PidTag*` constants
+  (ContinuMail addition 2026: contact props) — `PidTagGivenName`, `PidTagSurname`,
+  `PidTagMiddleName`, `PidTagNickname`, `PidTagCompanyName`, `PidTagTitle`,
+  `PidTagDepartmentName`, `PidTagBusinessTelephoneNumber`, `PidTagHomeTelephoneNumber`,
+  `PidTagMobileTelephoneNumber`, `PidTagBusinessFaxNumber`, `PidTagPagerTelephoneNumber`,
+  `PidTagBusinessHomePage`, `PidTagBirthday`, `PidTagHomeAddressStreet`,
+  `PidTagHomeAddressCity`, `PidTagHomeAddressStateOrProvince`, `PidTagHomeAddressPostalCode`,
+  `PidTagHomeAddressCountry`, `PidTagBusinessAddressStreet`, `PidTagBusinessAddressCity`,
+  `PidTagBusinessAddressStateOrProvince`, `PidTagBusinessAddressPostalCode`,
+  `PidTagBusinessAddressCountry`. All were absent from the upstream enum; none conflict with
+  existing names or values (ContinuMail, 2026).
+
+- `Messaging/Enums/PropertyLongID.cs`: added 12 email-address named-property LID constants
+  (ContinuMail addition 2026: contact props) — `PidLidEmail1DisplayName`,
+  `PidLidEmail1AddressType`, `PidLidEmail1EmailAddress`, `PidLidEmail1OriginalDisplayName`,
+  `PidLidEmail2DisplayName`, `PidLidEmail2AddressType`, `PidLidEmail2EmailAddress`,
+  `PidLidEmail2OriginalDisplayName`, `PidLidEmail3DisplayName`, `PidLidEmail3AddressType`,
+  `PidLidEmail3EmailAddress`, `PidLidEmail3OriginalDisplayName`. All were absent from the
+  upstream enum; none conflict with existing names or values. Used with `PSETID_Address` (already
+  added, see previous entry) to write contact email addresses as MAPI named properties
+  (ContinuMail, 2026).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
