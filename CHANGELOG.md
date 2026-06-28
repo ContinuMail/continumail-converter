@@ -6,19 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-06-28
+
+### Added
+- **The command-line converter now runs on Linux and macOS**, not just Windows. The engine is fully
+  cross-platform; prebuilt single-file CLI binaries are published for Windows, Linux, and macOS. (The
+  desktop app remains Windows-only for now.)
+
 ### Changed
-- The desktop app's conversion step is slightly faster to start: it now reuses the message total from the
+- The desktop app's conversion step is slightly faster to start: it reuses the message total from the
   scan it just ran instead of counting every mailbox a second time before converting. Behaviour and
   progress reporting are otherwise unchanged. (Direct CLI users can do the same with a new
   `convert --expected-total <n>` flag.)
 
+### Fixed
+- **Inline images that are also real attachments stay visible.** A part that was both referenced inline
+  (CID) and present as an explicit attachment was being hidden, so it could go missing from the
+  attachment list. Such parts are now kept visible; purely-inline images remain hidden as before.
+- **More accurate size/count estimates for forwarded-as-attachment messages.** The `scan` estimate no
+  longer decodes the body of an embedded (`message/rfc822`) message just to measure it — improving both
+  accuracy and scan memory use.
+- **Cancelling a conversion no longer leaves a stray temp file.** Cancelling while an attachment was
+  mid-flight could leak one temporary file; it is now disposed on cancel.
+
 ### Internal
-- CI now runs the desktop Rust unit and sidecar-integration tests (a Windows `cargo test` job), so the
-  Tauri-side contract is gated on every push/PR.
-- The CLI engine now builds, tests, and runs on Linux and macOS, gated by a CI OS matrix
-  (windows/ubuntu/macos, each leg also publishing the CLI single-file and smoke-running `scan`).
-  Removed the unused Windows-only `System.ServiceProcess.ServiceController` dependency. (No user-facing
-  change yet — the desktop app remains Windows-only; cross-platform packaging is a later step.)
+- CI runs the desktop Rust unit and sidecar-integration tests (a Windows `cargo test` job), and builds +
+  tests the engine on a Windows/Linux/macOS matrix (each leg also publishing the CLI single-file and
+  smoke-running `scan`). Removed the unused Windows-only `System.ServiceProcess.ServiceController`
+  dependency.
 
 ## [0.2.2] — 2026-06-28
 
