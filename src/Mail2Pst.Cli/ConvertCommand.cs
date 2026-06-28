@@ -101,7 +101,11 @@ internal static class ConvertCommand
                     case ProgressEvent p:
                         CliArgs.WriteJsonLine(new { type = "progress", converted = p.Converted, total = p.TotalMessages,
                             warnings = p.Warnings, skipped = p.Skipped, bytes = p.EstimatedOutputBytes,
-                            currentSource = p.CurrentSource, currentFolder = p.CurrentFolder });
+                            currentSource = p.CurrentSource, currentFolder = p.CurrentFolder,
+                            // additive, non-breaking (schemaVersion stays 1):
+                            contactsConverted = p.ContactsConverted,
+                            contactsTotal = p.ContactsTotal,
+                            phase = p.Phase });
                         break;
                     case WarningEvent w:
                         CliArgs.WriteJsonLine(new { type = "warning", source = w.Source, identifier = w.Identifier, reason = w.Reason });
@@ -148,6 +152,10 @@ internal static class ConvertCommand
                 elapsedMs = stopwatch.ElapsedMilliseconds,
                 enrichment = report.EnrichmentSummary,
                 colourPlan = colourPlan,
+                // additive contact summary fields (non-breaking; schemaVersion stays 1):
+                contactsConverted = report.ContactsConverted,
+                contactsSkipped = report.ContactsSkipped,
+                contactWarnings = report.ContactWarningCount,
             });
 
             return 0;

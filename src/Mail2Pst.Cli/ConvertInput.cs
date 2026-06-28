@@ -20,8 +20,13 @@ internal sealed record ConvertResolution(ConversionConfig? Config, string? Outpu
 /// </summary>
 internal static class ConvertInput
 {
-    private static readonly System.Collections.Generic.HashSet<string> KnownFlags =
+    // Flags that require a value token immediately after them.
+    private static readonly System.Collections.Generic.HashSet<string> ValuedFlags =
         new(StringComparer.Ordinal) { "--config", "--profile", "--output", "--expected-total" };
+
+    // Flags that are standalone (no value token consumed).
+    private static readonly System.Collections.Generic.HashSet<string> ValuelessFlags =
+        new(StringComparer.Ordinal) { "--no-contacts" };
 
     internal static ConvertResolution Resolve(string[] args)
     {
@@ -55,6 +60,10 @@ internal static class ConvertInput
             if (!Directory.Exists(profileDir))
                 return new(null, null, null, $"Profile directory not found: {profileDir}");
 
+            // --no-contacts opts out of automatic contact synthesis from discovered address books.
+            // It only applies on the profile/discovery path; explicit --config contacts are unaffected.
+            bool noContacts = args.Contains("--no-contacts", StringComparer.Ordinal);
+
             ConversionConfig? template = null;
             if (configPath is not null)
             {
@@ -67,7 +76,7 @@ internal static class ConvertInput
             try
             {
                 DiscoveryResult discovery = MailProfileDiscovery.Discover(profileDir);
-                ConversionConfig config = ConfigFromDiscovery.Build(discovery, template);
+                ConversionConfig config = ConfigFromDiscovery.Build(discovery, template, includeContacts: !noContacts);
                 return new(config, outputDir, profileDir, null, expectedTotal);
             }
             catch (Exception ex)
@@ -90,8 +99,10 @@ internal static class ConvertInput
         }
     }
 
-    // Every arg must be a known `--flag` immediately followed by its value. Rejects unknown options,
-    // stray positionals, and a flag whose value is missing (next token is another flag or end-of-args).
+    // Every arg must be either:
+    //   - a valueless known flag (accepted as-is), or
+    //   - a valued known flag immediately followed by a non-flag value token.
+    // Rejects unknown --options, stray positionals, and a valued flag whose value is missing.
     private static string? ValidateKnownArgs(string[] args)
     {
         for (int i = 0; i < args.Length; i++)
@@ -99,7 +110,9 @@ internal static class ConvertInput
             string arg = args[i];
             if (!arg.StartsWith("--", StringComparison.Ordinal))
                 return $"Unexpected argument: {arg}";
-            if (!KnownFlags.Contains(arg))
+            if (ValuelessFlags.Contains(arg))
+                continue; // no value token consumed
+            if (!ValuedFlags.Contains(arg))
                 return $"Unknown option: {arg}";
             if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 return $"Missing value for {arg}.";

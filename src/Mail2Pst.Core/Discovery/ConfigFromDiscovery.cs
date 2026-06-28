@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Config;
@@ -12,10 +13,14 @@ namespace Mail2Pst.Core.Discovery;
 /// Builds a ConversionConfig from discovery for profile-mode conversion. With no template, uses
 /// defaults. With a template, copies OPTIONS only (top-level + at most one output group's settings);
 /// the template's sources are discarded — discovery supplies the sources. Reused by the SP4c GUI.
+/// <para>When <paramref name="includeContacts"/> is true (default), discovered address books are
+/// synthesized as <see cref="ContactSourceConfig"/> entries on each output group that has no
+/// explicit template contacts. Explicit template contacts always win per group.</para>
 /// </summary>
 public static class ConfigFromDiscovery
 {
-    public static ConversionConfig Build(DiscoveryResult discovery, ConversionConfig? template)
+    public static ConversionConfig Build(DiscoveryResult discovery, ConversionConfig? template = null,
+        bool includeContacts = true)
     {
         ArgumentNullException.ThrowIfNull(discovery);
 
@@ -39,6 +44,16 @@ public static class ConfigFromDiscovery
                 group.MaxSizeMB = t.MaxSizeMB;
                 group.IncludeEmptyFolders = t.IncludeEmptyFolders;
                 group.FolderMapping = t.FolderMapping;
+
+                // Copy template contacts onto the group (template sources are discarded;
+                // template contacts are preserved so "template wins" check below works).
+                group.Contacts = (t.Contacts ?? new List<ContactSourceConfig>())
+                    .Select(c => new ContactSourceConfig
+                    {
+                        Path = c.Path,
+                        Format = c.Format,
+                        TargetFolderPath = c.TargetFolderPath,
+                    }).ToList();
             }
         }
 
@@ -56,6 +71,24 @@ public static class ConfigFromDiscovery
         config.ProfilePath = discovery.Root;   // --profile root is authoritative (ignores any template ProfilePath)
 
         config.Outputs.Add(group);
+
+        // Synthesize contact sources from discovered address books.
+        // Explicit template contacts win per group — skip synthesis if the group already has contacts.
+        if (includeContacts)
+        {
+            foreach (OutputGroupConfig output in config.Outputs)
+            {
+                if (output.Contacts.Count > 0) continue; // explicit template contacts win for this group
+                foreach (DiscoveredAddressBook book in discovery.AddressBooks)
+                    output.Contacts.Add(new ContactSourceConfig
+                    {
+                        Path = book.Path,
+                        Format = book.Format,
+                        TargetFolderPath = new[] { "Contacts", book.DisplayName },
+                    });
+            }
+        }
+
         return config;
     }
 
