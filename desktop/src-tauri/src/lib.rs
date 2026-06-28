@@ -49,15 +49,22 @@ fn scan_args(paths: &[String]) -> Vec<String> {
     args
 }
 
-// The exact CLI argument vector for a conversion run.
-fn convert_args(config_path: &str, output_dir: &str) -> Vec<String> {
-    vec![
+// The exact CLI argument vector for a conversion run. `expected_total`, when present,
+// passes the GUI's already-known message count so the engine skips its convert-time
+// boundary count pass; None preserves the count-on-demand behaviour. Some(0) is valid.
+fn convert_args(config_path: &str, output_dir: &str, expected_total: Option<i32>) -> Vec<String> {
+    let mut args = vec![
         "convert".into(),
         "--config".into(),
         config_path.into(),
         "--output".into(),
         output_dir.into(),
-    ]
+    ];
+    if let Some(n) = expected_total {
+        args.push("--expected-total".into());
+        args.push(n.to_string());
+    }
+    args
 }
 
 // Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
@@ -291,6 +298,7 @@ async fn start_convert(
     app: AppHandle,
     config: serde_json::Value,
     output_dir: String,
+    expected_total: Option<i32>,
     state: State<'_, ConvertState>,
 ) -> Result<(), String> {
     // Reject a second concurrent run.
@@ -322,7 +330,7 @@ async fn start_convert(
             let _ = std::fs::remove_file(&config_path);
             format!("sidecar not found: {e}")
         })?
-        .args(convert_args(&config_path_str, &output_dir))
+        .args(convert_args(&config_path_str, &output_dir, expected_total))
         .spawn()
         .map_err(|e| {
             let _ = std::fs::remove_file(&config_path);
@@ -736,10 +744,27 @@ mod tests {
     }
 
     #[test]
-    fn convert_args_config_and_output_flags() {
+    fn convert_args_without_expected_total_omits_flag() {
         assert_eq!(
-            convert_args("C:/tmp/cfg.json", "C:/out"),
+            convert_args("C:/tmp/cfg.json", "C:/out", None),
             vec!["convert", "--config", "C:/tmp/cfg.json", "--output", "C:/out"]
+        );
+    }
+
+    #[test]
+    fn convert_args_with_expected_total_appends_flag() {
+        assert_eq!(
+            convert_args("C:/tmp/cfg.json", "C:/out", Some(123)),
+            vec!["convert", "--config", "C:/tmp/cfg.json", "--output", "C:/out", "--expected-total", "123"]
+        );
+    }
+
+    #[test]
+    fn convert_args_with_zero_expected_total_still_appends_flag() {
+        // 0 is a valid precomputed total (empty-but-valid conversion); only None omits it.
+        assert_eq!(
+            convert_args("C:/tmp/cfg.json", "C:/out", Some(0)),
+            vec!["convert", "--config", "C:/tmp/cfg.json", "--output", "C:/out", "--expected-total", "0"]
         );
     }
 
