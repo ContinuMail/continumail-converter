@@ -117,20 +117,26 @@ public class VCardContactMapper
         var photo = v.Photos?.FirstOrDefault(p => p is not null);
         if (photo is null || photo.Value.IsEmpty) return;
 
-        byte[]? bytes     = null;
-        string  mediaType = photo.Value.MediaType ?? "image/jpeg";
-        bool    isExternal = false;
+        byte[]? bytes        = null;
+        string  mediaType    = photo.Value.MediaType ?? "image/jpeg";
+        bool    isExternal   = false;
+        bool    isTextEncoded = false;
 
         // RawData.Switch dispatches on embedded-bytes / external-URI / text-encoded
         photo.Value.Switch(
-            b   => bytes      = b,
-            _   => isExternal = true,
-            _   => isExternal = true
+            b   => bytes         = b,
+            _   => isExternal    = true,
+            _   => isTextEncoded = true
         );
 
         if (isExternal)
         {
             warnings.Add($"[{c.SourceCardId}] contact photo is an external URI; skipped");
+            return;
+        }
+        if (isTextEncoded)
+        {
+            warnings.Add($"[{c.SourceCardId}] contact photo is in an unsupported encoding; skipped");
             return;
         }
         if (bytes is null || bytes.Length == 0) return;

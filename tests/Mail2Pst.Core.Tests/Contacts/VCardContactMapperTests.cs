@@ -126,4 +126,34 @@ public class VCardContactMapperTests
         Assert.Equal("0987654321", c.MobilePhone);           // TEL;TYPE=cell → MobilePhone
         Assert.Equal("https://www.work.example.com", c.Webpage); // URL;TYPE=work → Webpage
     }
+
+    [Fact]
+    public void Map_EmailPreference_Pref1SortsBeforeUnset_RegardlessOfOrder()
+    {
+        string vcf = "BEGIN:VCARD\nVERSION:4.0\nFN:E\nEMAIL:unset@x.dk\nEMAIL;PREF=1:top@x.dk\nEND:VCARD\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+        var c = new VCardContactMapper().Map(v, "c", new System.Collections.Generic.List<string>());
+        Assert.Equal(new[] { "top@x.dk", "unset@x.dk" }, c.Emails);
+    }
+
+    [Fact]
+    public void Map_TypedPhones_FaxPagerHome_RouteToCorrectFields()
+    {
+        string vcf = "BEGIN:VCARD\nVERSION:4.0\nFN:P\n" +
+            "TEL;TYPE=fax:111\nTEL;TYPE=pager:222\nTEL;TYPE=home:333\nEND:VCARD\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+        var c = new VCardContactMapper().Map(v, "c", new System.Collections.Generic.List<string>());
+        Assert.Equal("111", c.FaxNumber);
+        Assert.Equal("222", c.PagerNumber);
+        Assert.Equal("333", c.HomePhone);
+    }
+
+    [Fact]
+    public void Map_UntypedUrl_RoutesToBusinessWebpage()
+    {
+        string vcf = "BEGIN:VCARD\nVERSION:4.0\nFN:U\nURL:https://untyped.example\nEND:VCARD\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+        var c = new VCardContactMapper().Map(v, "c", new System.Collections.Generic.List<string>());
+        Assert.Equal("https://untyped.example", c.Webpage);
+    }
 }
