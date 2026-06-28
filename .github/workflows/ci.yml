@@ -18,8 +18,18 @@ concurrency:
 
 jobs:
   build-test:
-    name: Build & test (engine)
-    runs-on: windows-latest
+    name: Build & test (engine, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -34,6 +44,30 @@ jobs:
 
       - name: Test (Release)
         run: dotnet test Mail2Pst.sln -c Release --no-build
+
+      # Prove the actual published CLI runs end-to-end on this OS, not just unit tests.
+      # Use the SAME single-file self-contained packaging shape as the desktop sidecar
+      # (PublishSingleFile + IncludeNativeLibrariesForSelfExtract, no trimming) so this also
+      # de-risks Tier 2's per-RID sidecar cross-compile. `scan` without --progress pretty-prints
+      # a multi-line JSON object, so parse the WHOLE stdout as one document. shell: pwsh
+      # (PowerShell Core) is on every GitHub runner.
+      - name: Publish-smoke scan
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          dotnet publish src/Mail2Pst.Cli -c Release -r $env:RID `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:PublishTrimmed=false `
+            -o publish-smoke
+          $exe = if ($env:RID -like 'win-*') { ".\publish-smoke\Mail2Pst.Cli.exe" } else { "./publish-smoke/Mail2Pst.Cli" }
+          $json = & $exe scan --input fixtures/sample.mbox
+          if ($LASTEXITCODE -ne 0) { throw "scan exited $LASTEXITCODE" }
+          $obj = $json | ConvertFrom-Json
+          if ($obj.type -ne "scan") { throw "Expected type=scan, got $($obj.type)" }
+          if ($obj.totals.messages -le 0) { throw "Expected positive totals.messages" }
 
   desktop-test:
     name: Test (desktop frontend)
