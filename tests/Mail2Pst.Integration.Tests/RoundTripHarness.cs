@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Parsing;
@@ -107,6 +108,41 @@ public static class RoundTripHarness
                 else if (plan.IncludeEmptyFolders)
                 {
                     EnsurePrefixes(path);
+                }
+            }
+
+            // Count contacts analogously.
+            // The writer ALWAYS pre-creates every contact folder in Begin() (unlike mail folders,
+            // which respect IncludeEmptyFolders). Mirror that: always EnsurePrefixes for every
+            // ContactMapping, then add one placeholder MailMessage per successfully-read contact
+            // (placeholder only — callers that compare message content do so for mail folders;
+            // all existing test configs have zero ContactMappings and are unaffected).
+            // A read failure throws loud (never silently excluded), matching the mail-failure policy.
+            foreach (ContactMapping cm in plan.ContactMappings)
+            {
+                IReadOnlyList<string> contactPath = cm.TargetFolderPath;
+                IAddressBookReader reader = cm.Format == AddressBookFormat.ThunderbirdMab
+                    ? (IAddressBookReader)new MorkAddressBookReader()
+                    : new SqliteAddressBookReader();
+                var book = new AddressBook
+                {
+                    DisplayName = contactPath[^1],
+                    Path = cm.Source.Path,
+                    Format = cm.Format,
+                };
+
+                // Always pre-create: the writer creates the folder regardless of whether it is empty.
+                EnsurePrefixes(contactPath);
+                string leafKey = FolderPathKey.Join(contactPath);
+
+                foreach (ContactReadResult r in reader.Read(book))
+                {
+                    if (r.Success)
+                        // Placeholder MailMessage: only the Count is compared by the validation gate.
+                        truth[leafKey].Add(new MailMessage());
+                    else
+                        throw new InvalidOperationException(
+                            $"Contact read failure while building truth for '{cm.Source.Path}': {r.Error}");
                 }
             }
         }

@@ -58,6 +58,24 @@ Microsoft .NET runtime & libraries (bundled in the self-contained CLI binaries)
   System.Text.Encoding.CodePages), licensed under the MIT License.
   License text: https://github.com/dotnet/runtime/blob/main/LICENSE.TXT
 -------------------------------------------------------------------------------
+Microsoft.Data.Sqlite / Microsoft.Data.Sqlite.Core (8.0.28)
+  Copyright (c) .NET Foundation and Contributors
+  Licensed under the MIT License.
+  License text: https://github.com/dotnet/efcore/blob/main/LICENSE.txt
+  Used to read Thunderbird SQLite address books (contacts import).
+-------------------------------------------------------------------------------
+SQLitePCLRaw.core / SQLitePCLRaw.bundle_e_sqlite3 /
+SQLitePCLRaw.lib.e_sqlite3 / SQLitePCLRaw.provider.e_sqlite3 (2.1.6)
+  Copyright (c) Zumero Systems LLC (Eric Sink)
+  Licensed under the Apache License, Version 2.0.
+  License text: https://www.apache.org/licenses/LICENSE-2.0
+  Source: https://github.com/ericsink/SQLitePCL.raw
+
+  SQLitePCLRaw.lib.e_sqlite3 bundles the SQLite amalgamation
+  (https://www.sqlite.org), which is dedicated to the public domain
+  by its authors and contributors. The SQLitePCLRaw packaging itself
+  is licensed Apache-2.0 as above.
+-------------------------------------------------------------------------------
 
 The developer/test-only tool tools/pst-validate depends on the "outlook-pst" crate by Microsoft,
 licensed MIT. The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used
