@@ -1,0 +1,19 @@
+BEGIN:VCARD
+VERSION:4.0
+N:Test;Test;Middle;;
+FN:Test Test
+NICKNAME:Test1
+EMAIL;PREF=1:test@test.dk
+EMAIL:second@test.dk
+X-CUSTOM1;VALUE=TEXT:Test Custom
+URL;TYPE=home:https://www.test.dk
+ADR:;;Teststreet;Testcity;Teststate;2000;Denmark
+TEL;VALUE=TEXT:12345678
+TZ:Europe/Copenhagen
+BDAY;VALUE=DATE:19990101
+TITLE:Test Title
+ROLE:Test Role
+ORG:Test Org;Test Unit
+PHOTO:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+UID:f098d32f-bf22-4094-905e-a0361662590a
+END:VCARD
