@@ -24,6 +24,19 @@ export function effectiveRows(
   );
 }
 
+/** Sum of messages over the rows that will actually be converted (checked, and
+ * non-empty when skipEmpty). Same `effectiveRows` predicate that backs the config,
+ * so this equals the engine's boundary count for those sources — the value passed
+ * as --expected-total. Callers pass the EXACT row set feeding their config (e.g. a
+ * single account's rows in multi-account mode), never the all-accounts row set. */
+export function expectedTotalMessages(
+  sources: SourceRow[],
+  checkedIds: Set<string>,
+  skipEmpty: boolean,
+): number {
+  return effectiveRows(sources, checkedIds, skipEmpty).reduce((n, r) => n + r.messages, 0);
+}
+
 export function calculateReviewTotals(
   sources: SourceRow[],
   checkedIds: Set<string>,

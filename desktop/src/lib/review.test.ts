@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { effectiveRows, calculateReviewTotals, sortSources, nextSort } from "./review";
+import { effectiveRows, calculateReviewTotals, sortSources, nextSort, expectedTotalMessages } from "./review";
 import type { SourceRow } from "./types";
 
 function row(over: Partial<SourceRow>): SourceRow {
@@ -105,5 +105,31 @@ describe("nextSort", () => {
   });
   it("clicking a different active column resets to ascending", () => {
     expect(nextSort("date", "desc", "name")).toEqual({ field: "name", dir: "asc" });
+  });
+});
+
+describe("expectedTotalMessages", () => {
+  const rows = [
+    row({ id: "a", path: "a.mbox", displayName: "a", messages: 5 }),
+    row({ id: "b", path: "b.mbox", displayName: "b", messages: 0 }),
+    row({ id: "c", path: "c.mbox", displayName: "c", messages: 7 }),
+  ];
+
+  it("sums messages over checked rows", () => {
+    expect(expectedTotalMessages(rows, new Set(["a", "c"]), false)).toBe(12);
+  });
+
+  it("excludes unchecked rows (the multi-account split case)", () => {
+    // Only account 'a' selected → 'c' must NOT inflate the denominator.
+    expect(expectedTotalMessages(rows, new Set(["a"]), false)).toBe(5);
+  });
+
+  it("skipEmpty does not change the sum (empty rows contribute 0)", () => {
+    expect(expectedTotalMessages(rows, new Set(["a", "b", "c"]), true)).toBe(12);
+    expect(expectedTotalMessages(rows, new Set(["a", "b", "c"]), false)).toBe(12);
+  });
+
+  it("is 0 when nothing is checked", () => {
+    expect(expectedTotalMessages(rows, new Set(), false)).toBe(0);
   });
 });
