@@ -41,48 +41,55 @@ public class SqliteAddressBookReader : IAddressBookReader
 
             foreach (string card in order)
             {
-                Dictionary<string, string> dict = cards[card];
-                var warnings = new List<string>();
-                ContactRecord? rec = null;
-
-                if (dict.TryGetValue("_vCard", out string? raw) && !string.IsNullOrWhiteSpace(raw))
+                try
                 {
-                    try
-                    {
-                        VCard? vc = Vcf.Parse(raw).FirstOrDefault();
-                        if (vc is not null)
-                            rec = _vcard.Map(vc, card, warnings);
-                        else
-                            warnings.Add($"[{book.DisplayName}#{card}] _vCard could not be parsed; using index fields");
-                    }
-                    catch (Exception ex) when (IsExpectedVCardParseError(ex))
-                    {
-                        warnings.Add($"[{book.DisplayName}#{card}] _vCard parse failed: {ex.Message}; using index fields");
-                    }
-                }
+                    Dictionary<string, string> dict = cards[card];
+                    var warnings = new List<string>();
+                    ContactRecord? rec = null;
 
-                // Fall back to EAV/index rows when the vCard path produced nothing, OR produced no
-                // minimally useful identity (no display name AND no email) — a syntactically valid but
-                // contentless blob must not erase a contact the index rows could still describe.
-                if (rec is null || (string.IsNullOrWhiteSpace(rec.DisplayName) && rec.Emails.Count == 0))
+                    if (dict.TryGetValue("_vCard", out string? raw) && !string.IsNullOrWhiteSpace(raw))
+                    {
+                        try
+                        {
+                            VCard? vc = Vcf.Parse(raw).FirstOrDefault();
+                            if (vc is not null)
+                                rec = _vcard.Map(vc, card, warnings);
+                            else
+                                warnings.Add($"[{book.DisplayName}#{card}] _vCard could not be parsed; using index fields");
+                        }
+                        catch (Exception ex) when (IsExpectedVCardParseError(ex))
+                        {
+                            warnings.Add($"[{book.DisplayName}#{card}] _vCard parse failed: {ex.Message}; using index fields");
+                        }
+                    }
+
+                    // Fall back to EAV/index rows when the vCard path produced nothing, OR produced no
+                    // minimally useful identity (no display name AND no email) — a syntactically valid but
+                    // contentless blob must not erase a contact the index rows could still describe.
+                    if (rec is null || (string.IsNullOrWhiteSpace(rec.DisplayName) && rec.Emails.Count == 0))
+                    {
+                        if (rec is not null)
+                            warnings.Add($"[{book.DisplayName}#{card}] _vCard had no usable identity; using index fields");
+                        ContactRecord eav = _eav.Map(dict, card);
+                        // prefer the richer vCard record if it had ANY data; else use EAV whole
+                        rec = (rec is not null && (rec.CompanyName ?? rec.JobTitle ?? rec.Notes) is not null) ? rec : eav;
+                        // ensure identity from EAV if the vCard lacked it
+                        if (string.IsNullOrWhiteSpace(rec.DisplayName) && !string.IsNullOrWhiteSpace(eav.DisplayName))
+                            rec.DisplayName = eav.DisplayName;
+                        if (rec.Emails.Count == 0)
+                            foreach (var e in eav.Emails) rec.Emails.Add(e);
+                    }
+
+                    // Failed only if even the fallback produced nothing usable:
+                    if (string.IsNullOrWhiteSpace(rec.DisplayName) && rec.Emails.Count == 0)
+                        results.Add(ContactReadResult.Failed($"{book.DisplayName}#{card}", "no usable contact data"));
+                    else
+                        results.Add(ContactReadResult.Ok(rec, warnings));
+                }
+                catch (Exception ex) when (ex is FormatException or InvalidOperationException)
                 {
-                    if (rec is not null)
-                        warnings.Add($"[{book.DisplayName}#{card}] _vCard had no usable identity; using index fields");
-                    ContactRecord eav = _eav.Map(dict, card);
-                    // prefer the richer vCard record if it had ANY data; else use EAV whole
-                    rec = (rec is not null && (rec.CompanyName ?? rec.JobTitle ?? rec.Notes) is not null) ? rec : eav;
-                    // ensure identity from EAV if the vCard lacked it
-                    if (string.IsNullOrWhiteSpace(rec.DisplayName) && !string.IsNullOrWhiteSpace(eav.DisplayName))
-                        rec.DisplayName = eav.DisplayName;
-                    if (rec.Emails.Count == 0)
-                        foreach (var e in eav.Emails) rec.Emails.Add(e);
+                    results.Add(ContactReadResult.Failed($"{book.DisplayName}#{card}", ex.Message));
                 }
-
-                // Failed only if even the fallback produced nothing usable:
-                if (string.IsNullOrWhiteSpace(rec.DisplayName) && rec.Emails.Count == 0)
-                    results.Add(ContactReadResult.Failed($"{book.DisplayName}#{card}", "no usable contact data"));
-                else
-                    results.Add(ContactReadResult.Ok(rec, warnings));
             }
         }
         return results;
