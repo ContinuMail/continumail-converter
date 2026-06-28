@@ -138,4 +138,11 @@ authoritative description of the local PSTFileFormat modifications.
     `<Reference>` in the non-building upstream `PSTFileFormat.csproj` (the legacy old-style
     project file, not part of the Mail2Pst build) was also cleared for consistency.
 
+- `PropertySetGuid.cs`: added `PSETID_Address = {00062004-0000-0000-C000-000000000046}` after
+  `PSETID_Appointment` (ContinuMail addition 2026: contacts property set, required for
+  `PidLidEmail1EmailAddress` / `PidLidEmail2EmailAddress` / `PidLidEmail3EmailAddress` and
+  all other contact-address LIDs). Proved working by a write/reopen/read round-trip test
+  via `PropertyNameToIDMap.ObtainIDFromName` + `PropertyContext.SetStringProperty` (see
+  `tests/Mail2Pst.Core.Tests/PSTFileFormat/NumericNamedPropertyTests.cs`).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
