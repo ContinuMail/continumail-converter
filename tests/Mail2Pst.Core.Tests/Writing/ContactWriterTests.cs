@@ -89,9 +89,10 @@ public class ContactWriterTests
         // A birthday given in a +13:00 zone must keep its calendar date.
         var bday = new DateTimeOffset(1990, 5, 20, 0, 0, 0, TimeSpan.FromHours(13));
         var record = new ContactRecord { DisplayName = "Dee", Birthday = bday };
-        DateTime stored = RoundTrip(record, (pst, folder) =>
-            FirstContact(pst, folder).PC.GetDateTimeProperty(PropertyID.PidTagBirthday).Value);
-        Assert.Equal(20, stored.Day);
-        Assert.Equal(5, stored.Month);
+        DateTime? stored = RoundTrip(record, (pst, folder) =>
+            FirstContact(pst, folder).PC.GetDateTimeProperty(PropertyID.PidTagBirthday));
+        Assert.NotNull(stored);
+        Assert.Equal(20, stored.Value.Day);
+        Assert.Equal(5, stored.Value.Month);
     }
 }

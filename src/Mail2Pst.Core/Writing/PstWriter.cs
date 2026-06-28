@@ -148,7 +148,7 @@ public class PstWriter
             (string? currentSource, string? currentFolder, long estimatedOutputBytes) =
                 WriteMailPhase(queue, partManager, throttler, report, cancellationToken, memoryObserver);
 
-            WriteContactPhase(partManager, contacts, totalMessages, report, onProgress, cancellationToken);
+            WriteContactPhase(partManager, contacts, totalMessages, estimatedOutputBytes, report, onProgress, cancellationToken);
 
             partManager.Finish();
             throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
@@ -281,7 +281,7 @@ public class PstWriter
     // (Phase="contacts"); mail Converted/Total/Warnings/Skipped are preserved via the same report
     // accessors the mail phase reads.
     private void WriteContactPhase(PstPartManager partManager, IReadOnlyList<PlannedContact> contacts,
-        int mailTotal, ConversionReport report, Action<ConversionProgressEvent>? onProgress,
+        int mailTotal, long mailEstimatedOutputBytes, ConversionReport report, Action<ConversionProgressEvent>? onProgress,
         CancellationToken cancellationToken)
     {
         int contactsTotal = contacts.Count;
@@ -305,7 +305,7 @@ public class PstWriter
                 Skipped: report.SkippedCount,
                 CurrentSource: planned.Contact.SourceCardId,
                 CurrentFolder: FolderPathDisplay.Join(planned.TargetFolderPath),
-                EstimatedOutputBytes: 0,
+                EstimatedOutputBytes: mailEstimatedOutputBytes,
                 ContactsConverted: report.ContactsConverted,
                 ContactsTotal: contactsTotal,
                 Phase: "contacts"));

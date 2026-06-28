@@ -273,9 +273,6 @@ internal sealed class PstPartManager
         return fullPath;
     }
 
-    private PSTFolder GetOrCreateFolder(IReadOnlyList<string> path) =>
-        GetOrCreateFolder(path, FolderItemTypeName.Note);
-
     private PSTFolder GetOrCreateFolder(IReadOnlyList<string> path, FolderItemTypeName itemType)
     {
         if (path.Count == 0)

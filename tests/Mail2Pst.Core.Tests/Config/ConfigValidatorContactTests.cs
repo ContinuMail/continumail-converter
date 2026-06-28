@@ -41,6 +41,28 @@ public class ConfigValidatorContactTests
     }
 
     [Fact]
+    public void Validate_NullSources_WithContact_DoesNotThrow()
+    {
+        // Regression: explicit "sources": null with a contact source must not NRE.
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new()
+                {
+                    Name = "Contacts",
+                    Sources = null!, // intentional: simulates JSON-deserialized null (regression guard)
+                    Contacts = new List<ContactSourceConfig>
+                    {
+                        new() { Path = "abook.sqlite", Format = "thunderbird-sqlite" },
+                    },
+                },
+            },
+        };
+        ConfigValidator.Validate(config); // must not throw NRE
+    }
+
+    [Fact]
     public void Validate_UnknownContactFormat_Throws()
     {
         var config = new ConversionConfig

@@ -52,7 +52,7 @@ public static class ConfigValidator
                     FolderNameValidator.ValidatePath(contact.TargetFolderPath);
             }
 
-            foreach (SourceConfig source in output.Sources)
+            foreach (SourceConfig source in output.Sources ?? new List<SourceConfig>())
             {
                 // Empty path is a config mistake that would otherwise crash with an
                 // uncaught ArgumentException. A *missing* file is intentionally left to
