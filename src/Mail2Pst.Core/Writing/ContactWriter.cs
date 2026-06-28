@@ -29,6 +29,8 @@ public class ContactWriter
         SetIf(msg, PropertyID.PidTagBusinessFaxNumber, c.FaxNumber);
         SetIf(msg, PropertyID.PidTagPagerTelephoneNumber, c.PagerNumber);
         SetIf(msg, PropertyID.PidTagBusinessHomePage, c.Webpage);
+        SetIf(msg, PropertyID.PidTagProfession, c.Profession);
+        SetIf(msg, PropertyID.PidTagPersonalHomePage, c.PersonalHomePage);
 
         WriteAddress(msg, c.HomeAddress,
             PropertyID.PidTagHomeAddressStreet, PropertyID.PidTagHomeAddressCity,
@@ -47,9 +49,48 @@ public class ContactWriter
 
         WriteEmails(file, msg, c.Emails);
 
+        if (c.Photo is { Bytes.Length: > 0 } photo)
+            WriteContactPhoto(file, msg, photo);
+
         msg.SaveChanges();
         folder.AddMessage(msg);
     }
+
+    private static void WriteContactPhoto(PSTFile file, ContactMessage msg, ContactPhoto photo)
+    {
+        string mime = string.IsNullOrWhiteSpace(photo.MediaType) ? "image/jpeg" : photo.MediaType;
+        string ext = ExtFromMediaType(mime);
+        string name = "ContactPicture" + ext;
+
+        // EXACT mirror of PstWriter.WriteAttachment's create/persist shape:
+        msg.CreateSubnodeBTreeIfNotExist();
+        AttachmentObject att = AttachmentObject.CreateNewAttachmentObject(file, msg.SubnodeBTree);
+        att.PC.SetStringProperty(PropertyID.PidTagAttachLongFilename, name);
+        att.PC.SetStringProperty(PropertyID.PidTagAttachFilename, name);
+        att.PC.SetStringProperty(PropertyID.PidTagDisplayName, name);
+        att.PC.SetStringProperty(PropertyID.PidTagAttachExtension, ext);
+        att.PC.SetStringProperty(PropertyID.PidTagAttachMimeTag, mime);
+        att.PC.SetInt32Property(PropertyID.PidTagAttachMethod, (int)AttachMethod.ByValue);
+        att.PC.SetBytesProperty(PropertyID.PidTagAttachData, photo.Bytes);
+        att.PC.SetInt32Property(PropertyID.PidTagAttachSize, photo.Bytes.Length);
+        att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentContactPhoto, true);
+        att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentHidden, false);
+        att.SaveChanges(msg.SubnodeBTree);   // REQUIRED — flushes the attachment to the subnode B-tree
+        msg.AddAttachment(att);              // sets MSGFLAG_HASATTACH automatically — leave it (contacts aren't mail)
+
+        PropertyID hasPic = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName((PropertyLongID)0x8015, PropertySetGuid.PSETID_Address)); // PidLidHasPicture
+        msg.PC.SetBooleanProperty(hasPic, true);
+    }
+
+    private static string ExtFromMediaType(string mediaType) => (mediaType ?? "").Trim().ToLowerInvariant() switch
+    {
+        "image/png" => ".png",
+        "image/gif" => ".gif",
+        "image/bmp" => ".bmp",
+        "image/tiff" => ".tiff",
+        _ => ".jpg",   // image/jpeg and any unknown fall back to .jpg
+    };
 
     private static void WriteEmails(PSTFile file, ContactMessage msg, List<string> emails)
     {

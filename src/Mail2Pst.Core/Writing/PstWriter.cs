@@ -318,8 +318,8 @@ public class PstWriter
         }
     }
 
-    // A contact is far smaller than a mail message and has no attachments in MVP.
-    private static long EstimateContactSize(ContactRecord c) => 2048;
+    // A contact is far smaller than a mail message; add photo bytes when present.
+    private static long EstimateContactSize(ContactRecord c) => 2048 + (c.Photo?.Bytes.Length ?? 0);
 
     private static string GetPlainTextBody(MailMessage message)
     {
