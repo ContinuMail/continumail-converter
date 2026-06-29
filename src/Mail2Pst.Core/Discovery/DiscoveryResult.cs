@@ -30,6 +30,26 @@ public sealed class DiscoveredAddressBook
     public string Format { get; set; } = string.Empty; // "thunderbird-sqlite" | "thunderbird-mab"
 }
 
+public sealed class DiscoveredCalendarSource
+{
+    public string CalId { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public string StoreKind { get; init; } = string.Empty; // e.g. "local" | "caldav"
+    public string StorePath { get; init; } = string.Empty;
+    public string CalendarType { get; init; } = string.Empty; // "calendar" | "task" | "both"
+    public bool IsVisibleInThunderbird { get; init; }
+    public int EventCount { get; init; }
+    public int TaskCount { get; init; }
+    public IReadOnlyList<string> DefaultCalendarFolderPath { get; init; } = System.Array.Empty<string>();
+    public IReadOnlyList<string> DefaultTaskFolderPath { get; init; } = System.Array.Empty<string>();
+}
+
+public sealed class CalendarDiscoveryResult
+{
+    public List<DiscoveredCalendarSource> Calendars { get; init; } = new();
+    public List<DiscoveryWarning> Warnings { get; init; } = new();
+}
+
 public sealed record DiscoveryResult(
     string Root, string Layout,
     IReadOnlyList<DiscoveredSource> Sources,
@@ -39,4 +59,5 @@ public sealed record DiscoveryResult(
 {
     public IReadOnlyList<Account> Accounts { get; init; } = System.Array.Empty<Account>();
     public List<DiscoveredAddressBook> AddressBooks { get; init; } = new();
+    public List<DiscoveredCalendarSource> Calendars { get; init; } = new();
 }
