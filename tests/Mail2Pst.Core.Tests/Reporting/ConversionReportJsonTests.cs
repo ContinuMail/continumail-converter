@@ -27,6 +27,34 @@ public class ConversionReportJsonTests
     }
 
     [Fact]
+    public void ToJson_WithAllItemTypes_SerializesContactAppointmentTaskCounters()
+    {
+        var report = new ConversionReport();
+        // mail
+        report.RecordConverted();
+        // contacts
+        report.RecordContactConverted();
+        report.RecordContactConverted();
+        report.RecordContactSkipped("abook.sqlite", "unresolvable name");
+        // appointments
+        report.RecordAppointmentConverted();
+        report.RecordAppointmentConverted();
+        report.RecordAppointmentConverted();
+        // tasks
+        report.RecordTaskConverted();
+
+        string json = report.ToJson();
+        using var doc = JsonDocument.Parse(json);
+        JsonElement root = doc.RootElement;
+
+        Assert.Equal(1, root.GetProperty("converted").GetInt32());
+        Assert.Equal(2, root.GetProperty("contactsConverted").GetInt32());
+        Assert.Equal(1, root.GetProperty("contactsSkipped").GetInt32());
+        Assert.Equal(3, root.GetProperty("appointmentsConverted").GetInt32());
+        Assert.Equal(1, root.GetProperty("tasksConverted").GetInt32());
+    }
+
+    [Fact]
     public void ToJson_WithSkipAndWarning_SerializesEntries()
     {
         var report = new ConversionReport();

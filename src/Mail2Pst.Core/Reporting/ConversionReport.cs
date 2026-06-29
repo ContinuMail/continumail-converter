@@ -196,6 +196,9 @@ public class ConversionReport
         return JsonSerializer.Serialize(new
         {
             converted = ConvertedCount,
+            contactsConverted = ContactsConverted,
+            contactsSkipped = ContactsSkipped,
+            contactWarnings = ContactWarningCount,
             appointmentsConverted = AppointmentsConverted,
             appointmentsSkipped = AppointmentsSkipped,
             appointmentWarnings = AppointmentWarningCount,
