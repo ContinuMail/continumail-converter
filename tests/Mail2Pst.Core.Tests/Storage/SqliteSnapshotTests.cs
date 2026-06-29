@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
 using System.IO;
-using Mail2Pst.Core.Contacts;
+using Mail2Pst.Core.Storage;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
-namespace Mail2Pst.Core.Tests.Contacts;
+namespace Mail2Pst.Core.Tests.Storage;
 
 public class SqliteSnapshotTests
 {

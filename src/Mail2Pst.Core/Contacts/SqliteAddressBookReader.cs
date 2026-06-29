@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using FolkerKinzel.VCards;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.Storage;
 using Microsoft.Data.Sqlite;
 
 namespace Mail2Pst.Core.Contacts;

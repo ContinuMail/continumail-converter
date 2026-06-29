@@ -5,7 +5,7 @@ using System;
 using System.IO;
 using Microsoft.Data.Sqlite;
 
-namespace Mail2Pst.Core.Contacts;
+namespace Mail2Pst.Core.Storage;
 
 /// <summary>
 /// Opens a Thunderbird SQLite address book for read. Tries a read-only connection on the
