@@ -24,9 +24,9 @@ public class PstPartManagerContactTests
                 writeMessage: (f, fo, m) => { },
                 writeContact: (f, fo, c) => writer.WriteContact(f, fo, c));
             var contactFolder = new List<string> { "Contacts", "Personal Address Book" };
-            // IMPORTANT: pre-create via the CONTACT folder list (two-arg Begin), else the leaf is made
-            // IPF.Note first and WriteContact would (correctly) throw a collision.
-            mgr.Begin(Array.Empty<IReadOnlyList<string>>(), new[] { (IReadOnlyList<string>)contactFolder });
+            // IMPORTANT: pre-create as Contact type, else the leaf is made IPF.Note first and
+            // WriteContact would (correctly) throw a collision.
+            mgr.Begin(new[] { new FolderToPrecreate(contactFolder, FolderItemTypeName.Contact) });
             mgr.WriteContact(contactFolder, new ContactRecord { DisplayName = "Eve" });
             mgr.OnWritten(256);
             mgr.Finish();

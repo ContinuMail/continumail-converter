@@ -132,16 +132,15 @@ public class PstWriter
         ExceptionDispatchInfo? faultCapture = null;
         try
         {
-            // Pre-create a folder for every mapped source when IncludeEmptyFolders, so an
-            // empty source still appears as an empty folder (part 1 only — see spec inv. 6).
-            // Both branches yield IReadOnlyList<string>[] at runtime (.ToArray() / Array.Empty),
-            // giving the conditional a clean common type that satisfies IReadOnlyList<IReadOnlyList<string>>.
-            IReadOnlyList<IReadOnlyList<string>> emptyFolders = plan.IncludeEmptyFolders
-                ? plan.SourceMappings.Select(m => m.TargetFolderPath).ToArray()
-                : Array.Empty<IReadOnlyList<string>>();
-            // Two-arg Begin pre-creates contact folders too, so an EMPTY address book still
-            // gets its IPF.Contact folder.
-            partManager.Begin(emptyFolders, contactFolders);
+            // Pre-create all folders via the typed inventory so every source type gets the
+            // correct leaf container class and an empty source still appears as an empty folder.
+            var precreate = new List<FolderToPrecreate>();
+            if (plan.IncludeEmptyFolders)
+                foreach (var m in plan.SourceMappings)
+                    precreate.Add(new FolderToPrecreate(m.TargetFolderPath, FolderItemTypeName.Note));
+            foreach (IReadOnlyList<string> contactFolder in contactFolders)
+                precreate.Add(new FolderToPrecreate(contactFolder, FolderItemTypeName.Contact));
+            partManager.Begin(precreate);
 
             // Phase 1: mail. Phase 2: contacts — BOTH inside this try and the same open-store
             // lifecycle, so cancel/fatal cleanup (below) covers contacts as well.
