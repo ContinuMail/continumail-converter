@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Ical.Net.DataTypes;
 using IcalCalendar = Ical.Net.Calendar;
 
@@ -56,6 +57,20 @@ public sealed record ParsedAlarm(
     DateTime? AbsoluteTimeUtc,
     string? Related,
     string? Description);
+
+// ---------------------------------------------------------------------------
+// Domain type for parsed attachment data.
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Represents a parsed ATTACH property.  Exactly one of <see cref="Uri"/> or
+/// <see cref="InlineData"/> is non-null.
+/// </summary>
+public sealed record ParsedAttachment(
+    string? Uri,
+    byte[]? InlineData,
+    string? FileName,
+    string? FormatType);
 
 // ---------------------------------------------------------------------------
 // ICalTextParser — first slice: ParseRecurrence.
@@ -237,6 +252,111 @@ public static class ICalTextParser
             Description:     alarm.Description);
 
         return ParseResult<ParsedAlarm>.Ok(parsed);
+    }
+
+    /// <summary>
+    /// Parses a single raw ATTACH property line and classifies the attachment
+    /// as a URI link, inline binary (ENCODING=BASE64;VALUE=BINARY), or a
+    /// <c>data:</c> URI decoded to inline bytes.
+    /// Returns <c>Value=null</c> with a warning when loading or classification fails.
+    /// </summary>
+    public static ParseResult<ParsedAttachment> ParseAttachment(string attachLine)
+    {
+        Ical.Net.CalendarComponents.CalendarEvent? evt;
+        try
+        {
+            var cal = IcalCalendar.Load(IcalParseSupport.WrapVevent(attachLine));
+            evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+        }
+        catch (Exception ex)
+        {
+            return ParseResult<ParsedAttachment>.Fail($"ATTACH parse failed: {ex.Message}");
+        }
+
+        if (evt is null)
+            return ParseResult<ParsedAttachment>.Fail("ATTACH: no VEVENT found after wrapping.");
+
+        if (evt.Attachments is null || evt.Attachments.Count == 0)
+            return ParseResult<ParsedAttachment>.Fail("ATTACH: no ATTACH property found in VEVENT.");
+
+        var att = evt.Attachments[0];
+
+        var fileName   = att.Parameters?.Get("FILENAME");
+        var formatType = att.FormatType;
+
+        try
+        {
+            // Case 1: inline binary — Ical.Net decoded ENCODING=BASE64;VALUE=BINARY into att.Data.
+            if (att.Data is { Length: > 0 })
+            {
+                return ParseResult<ParsedAttachment>.Ok(
+                    new ParsedAttachment(null, att.Data, fileName, formatType));
+            }
+
+            // Case 2: data: URI — Ical.Net leaves the raw URI in att.Uri without decoding.
+            var uriStr = att.Uri?.ToString();
+            if (uriStr is not null &&
+                uriStr.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                // Format: data:[<mediatype>][;base64],<data>
+                var commaIdx = uriStr.IndexOf(',');
+                if (commaIdx < 0)
+                    return ParseResult<ParsedAttachment>.Fail($"ATTACH: malformed data: URI (no comma): {uriStr}");
+
+                var meta    = uriStr.Substring(0, commaIdx);   // e.g. "data:text/plain;base64"
+                var payload = uriStr.Substring(commaIdx + 1);  // e.g. "aGk="
+
+                // Extract media type from the meta segment (strip leading "data:").
+                var metaBody = meta.Length > "data:".Length
+                    ? meta.Substring("data:".Length)
+                    : string.Empty;
+                // metaBody is e.g. "text/plain;base64" — the media type is everything before the first ";"
+                var semicolonIdx = metaBody.IndexOf(';');
+                var mediaType    = semicolonIdx >= 0
+                    ? metaBody.Substring(0, semicolonIdx)
+                    : metaBody;
+
+                // Use the data: media type as FormatType when Ical.Net didn't provide one.
+                var resolvedFormatType = string.IsNullOrEmpty(formatType) && !string.IsNullOrEmpty(mediaType)
+                    ? mediaType
+                    : formatType;
+
+                byte[] inlineData;
+                if (meta.Contains("base64", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        inlineData = Convert.FromBase64String(payload);
+                    }
+                    catch (FormatException ex)
+                    {
+                        return ParseResult<ParsedAttachment>.Fail(
+                            $"ATTACH: invalid base64 in data: URI: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    // Percent-decoded UTF-8 text payload.
+                    inlineData = Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
+                }
+
+                return ParseResult<ParsedAttachment>.Ok(
+                    new ParsedAttachment(null, inlineData, fileName, resolvedFormatType));
+            }
+
+            // Case 3: remote/external URI.
+            if (uriStr is not null)
+            {
+                return ParseResult<ParsedAttachment>.Ok(
+                    new ParsedAttachment(uriStr, null, fileName, formatType));
+            }
+
+            return ParseResult<ParsedAttachment>.Fail("ATTACH: no data, no URI — unrecognised attachment.");
+        }
+        catch (Exception ex)
+        {
+            return ParseResult<ParsedAttachment>.Fail($"ATTACH classification failed: {ex.Message}");
+        }
     }
 
     // -----------------------------------------------------------------------
