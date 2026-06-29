@@ -83,6 +83,16 @@ SQLitePCLRaw.lib.e_sqlite3 / SQLitePCLRaw.provider.e_sqlite3 (2.1.6)
   by its authors and contributors. The SQLitePCLRaw packaging itself
   is licensed Apache-2.0 as above.
 -------------------------------------------------------------------------------
+Ical.Net (5.2.2)
+  Copyright (c) Rian Stockbower and contributors
+  Licensed under the MIT License.
+  License text: https://github.com/ical-org/ical.net/blob/main/license.md
+  Used to parse Thunderbird calendar iCal fragments (recurrence/attendees/alarms/attachments).
+
+  Transitive dependencies (verified via `dotnet list ... --include-transitive`):
+  NodaTime (3.2.2) — Copyright (c) The Noda Time Authors — Apache License 2.0
+  License text: https://www.apache.org/licenses/LICENSE-2.0
+-------------------------------------------------------------------------------
 FolkerKinzel.VCards (8.1.1) and its transitive dependencies:
   FolkerKinzel.DataUrls (2.0.4), FolkerKinzel.Helpers (1.1.0),
   FolkerKinzel.MimeTypes (5.5.0), FolkerKinzel.Strings (9.4.1)
