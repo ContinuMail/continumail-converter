@@ -63,7 +63,7 @@ public sealed class RawEvent
     public string? Title { get; set; }
     public int? Flags { get; set; }
     public int? EventStatus { get; set; }
-    public string? RecurrenceId { get; set; }
+    public long? RecurrenceId { get; set; }
     public string? RecurrenceIdTz { get; set; }
     public long? TimeCreated { get; set; }
     public long? LastModified { get; set; }
@@ -102,7 +102,7 @@ public sealed class RawTodo
     public int? Privacy { get; set; }
     public string? IcalStatus { get; set; }
     public int? Flags { get; set; }
-    public string? RecurrenceId { get; set; }
+    public long? RecurrenceId { get; set; }
     public string? RecurrenceIdTz { get; set; }
     public long? TimeCreated { get; set; }
     public long? LastModified { get; set; }
