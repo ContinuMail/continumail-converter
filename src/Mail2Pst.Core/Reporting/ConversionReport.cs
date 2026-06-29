@@ -19,6 +19,12 @@ public class ConversionReport
     private int _contactsConverted;
     private int _contactsSkipped;
     private int _contactWarningCount;
+    private int _appointmentsConverted;
+    private int _appointmentsSkipped;
+    private int _appointmentWarningCount;
+    private int _tasksConverted;
+    private int _tasksSkipped;
+    private int _taskWarningCount;
     private readonly List<SkippedMessage> _skipped = new();
     private readonly List<SkippedMessage> _warnings = new();
     private readonly List<string> _outputFiles = new();
@@ -35,6 +41,17 @@ public class ConversionReport
     public int ContactsConverted => Volatile.Read(ref _contactsConverted);
     public int ContactsSkipped => Volatile.Read(ref _contactsSkipped);
     public int ContactWarningCount => Volatile.Read(ref _contactWarningCount);
+
+    public int AppointmentsConverted => Volatile.Read(ref _appointmentsConverted);
+    public int AppointmentsSkipped => Volatile.Read(ref _appointmentsSkipped);
+    public int AppointmentWarningCount => Volatile.Read(ref _appointmentWarningCount);
+    public int TasksConverted => Volatile.Read(ref _tasksConverted);
+    public int TasksSkipped => Volatile.Read(ref _tasksSkipped);
+    public int TaskWarningCount => Volatile.Read(ref _taskWarningCount);
+
+    /// <summary>All written item types — the count PstOutputVerifier expects across all parts.</summary>
+    public int TotalWrittenItems =>
+        ConvertedCount + ContactsConverted + AppointmentsConverted + TasksConverted;
 
     // Cheap, lock-protected counts for the hot path (progress ticks) that don't
     // need to copy the whole list.
@@ -77,6 +94,29 @@ public class ConversionReport
     public void RecordContactWarning(string message)
     {
         Interlocked.Increment(ref _contactWarningCount);
+        AddWarning(message);
+    }
+
+    public void RecordAppointmentConverted() => Interlocked.Increment(ref _appointmentsConverted);
+    public void RecordAppointmentSkipped(string source, string error)
+    {
+        Interlocked.Increment(ref _appointmentsSkipped);
+        AddWarning($"Appointment skipped [{source}]: {error}");
+    }
+    public void RecordAppointmentWarning(string message)
+    {
+        Interlocked.Increment(ref _appointmentWarningCount);
+        AddWarning(message);
+    }
+    public void RecordTaskConverted() => Interlocked.Increment(ref _tasksConverted);
+    public void RecordTaskSkipped(string source, string error)
+    {
+        Interlocked.Increment(ref _tasksSkipped);
+        AddWarning($"Task skipped [{source}]: {error}");
+    }
+    public void RecordTaskWarning(string message)
+    {
+        Interlocked.Increment(ref _taskWarningCount);
         AddWarning(message);
     }
 
@@ -156,6 +196,12 @@ public class ConversionReport
         return JsonSerializer.Serialize(new
         {
             converted = ConvertedCount,
+            appointmentsConverted = AppointmentsConverted,
+            appointmentsSkipped = AppointmentsSkipped,
+            appointmentWarnings = AppointmentWarningCount,
+            tasksConverted = TasksConverted,
+            tasksSkipped = TasksSkipped,
+            taskWarnings = TaskWarningCount,
             skipped = skipped.Select(s => new { source = s.SourcePath, identifier = s.Identifier, reason = s.Reason }),
             warnings = warnings.Select(w => new { source = w.SourcePath, identifier = w.Identifier, reason = w.Reason }),
             enrichment = EnrichmentSummary,
@@ -173,6 +219,8 @@ public class ConversionReport
 
         var builder = new StringBuilder();
         builder.AppendLine($"Converted: {ConvertedCount}");
+        builder.AppendLine($"Appointments: {AppointmentsConverted}");
+        builder.AppendLine($"Tasks: {TasksConverted}");
         builder.AppendLine($"Skipped: {skipped.Length}");
 
         foreach (SkippedMessage skip in skipped)
