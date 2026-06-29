@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Mail2Pst.Core.Tests.Cli;
@@ -113,5 +114,66 @@ public class DiscoverCommandE2ETests
             Assert.Equal(1, root.GetProperty("pairing").GetProperty("pairedMsfCount").GetInt32());
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Discover_Profile_EmitsCalendarsArray()
+    {
+        // Build a minimal Thunderbird profile: Mail/LocalFolders triggers "thunderbird-profile"
+        // layout which calls DiscoverCalendars. A prefs.js registry entry + a local.sqlite row
+        // produce one DiscoveredCalendarSource. The test asserts it surfaces in the emitted JSON.
+        string profile = Path.Combine(Path.GetTempPath(), "m2p-cal-e2e-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(profile, "Mail", "Local Folders"));
+        Directory.CreateDirectory(Path.Combine(profile, "calendar-data"));
+        try
+        {
+            File.WriteAllText(Path.Combine(profile, "prefs.js"),
+                "user_pref(\"calendar.registry.CAL1.name\", \"Work\");\n" +
+                "user_pref(\"calendar.registry.CAL1.type\", \"storage\");\n" +
+                "user_pref(\"calendar.registry.CAL1.calendar-main-in-composite\", true);\n",
+                new UTF8Encoding(false));
+
+            MakeCalStore(Path.Combine(profile, "calendar-data", "local.sqlite"), "CAL1", addEvent: true);
+
+            (int exit, string stdout, string stderr) = RunCli($"discover --input \"{profile}\"");
+            Assert.True(exit == 0, $"expected exit 0, got {exit}. stderr: {stderr}");
+
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement root = doc.RootElement;
+            Assert.Equal("discovery", root.GetProperty("type").GetString());
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+
+            JsonElement calendars = root.GetProperty("calendars");
+            Assert.Equal(1, calendars.GetArrayLength());
+            JsonElement cal = calendars.EnumerateArray().Single();
+            Assert.Equal("CAL1", cal.GetProperty("calId").GetString());
+            Assert.Equal("Work", cal.GetProperty("displayName").GetString());
+        }
+        finally
+        {
+            // Clear SQLite connection pool so the file lock is released on Windows before cleanup.
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(profile, true);
+        }
+    }
+
+    // Minimal cal store (mirrors DiscoverCalendarsTests.MakeCalStore).
+    private static void MakeCalStore(string path, string calId, bool addEvent = true)
+    {
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        void X(string sql) { using var cmd = conn.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
+        X("CREATE TABLE cal_events (cal_id TEXT,id TEXT,time_created INTEGER,last_modified INTEGER,title TEXT,priority INTEGER,privacy TEXT,ical_status TEXT,flags INTEGER,event_start INTEGER,event_end INTEGER,event_stamp INTEGER,event_start_tz TEXT,event_end_tz TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,alarm_last_ack INTEGER,offline_journal INTEGER);");
+        X("CREATE TABLE cal_todos (cal_id TEXT,id TEXT,time_created INTEGER,last_modified INTEGER,title TEXT,priority INTEGER,privacy TEXT,ical_status TEXT,flags INTEGER,todo_entry INTEGER,todo_due INTEGER,todo_completed INTEGER,todo_complete INTEGER,todo_entry_tz TEXT,todo_due_tz TEXT,todo_completed_tz TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,alarm_last_ack INTEGER,todo_stamp INTEGER,offline_journal INTEGER);");
+        X("CREATE TABLE cal_recurrence (item_id TEXT,cal_id TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_attendees (item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,cal_id TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_alarms (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_attachments (item_id TEXT,cal_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_relations (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_properties (item_id TEXT,key TEXT,value BLOB,recurrence_id INTEGER,recurrence_id_tz TEXT,cal_id TEXT);");
+        X("CREATE TABLE cal_parameters (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,key1 TEXT,key2 TEXT,value TEXT);");
+        if (addEvent)
+            X($"INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,recurrence_id) " +
+              $"VALUES ('{calId}','ev1','Test Event',0,1782810000000000,1782811800000000,NULL);");
     }
 }

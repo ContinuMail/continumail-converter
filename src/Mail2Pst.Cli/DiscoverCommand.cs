@@ -60,6 +60,15 @@ internal static class DiscoverCommand
                     unpairedMboxCount = r.Pairing.UnpairedMboxCount,
                     orphanMsfCount = r.Pairing.OrphanMsfCount,
                 },
+                calendars = r.Calendars.Select(c => new
+                {
+                    calId = c.CalId, displayName = c.DisplayName, storeKind = c.StoreKind,
+                    storePath = c.StorePath, calendarType = c.CalendarType,
+                    isVisibleInThunderbird = c.IsVisibleInThunderbird,
+                    eventCount = c.EventCount, taskCount = c.TaskCount,
+                    defaultCalendarFolderPath = c.DefaultCalendarFolderPath,
+                    defaultTaskFolderPath = c.DefaultTaskFolderPath,
+                }),
             };
             Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
             return 0;
