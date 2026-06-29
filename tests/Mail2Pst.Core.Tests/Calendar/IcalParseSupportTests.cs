@@ -63,4 +63,16 @@ public class IcalParseSupportTests
         Assert.Contains("END:VEVENT", ics);
         Assert.Contains("END:VCALENDAR", ics);
     }
+
+    [Fact]
+    public void Unfold_joins_three_continuation_lines()
+        // A value folded across three lines — all three segments join with no separator.
+        => Assert.Equal("DESCRIPTION:abcdef",
+            IcalParseSupport.UnfoldIcalLines("DESCRIPTION:ab\r\n cd\r\n ef"));
+
+    [Fact]
+    public void Unfold_handles_fold_at_value_start()
+        // Fold immediately after the colon: value starts on the continuation line.
+        => Assert.Equal("DESCRIPTION:value",
+            IcalParseSupport.UnfoldIcalLines("DESCRIPTION:\r\n value"));
 }

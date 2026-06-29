@@ -115,47 +115,46 @@ public static class ICalTextParser
         // Strip the "RRULE:" prefix to get the bare rule body.
         var ruleBody = rruleLine.Substring("RRULE:".Length);
 
-        RecurrencePattern rr;
         try
         {
-            rr = new RecurrencePattern(ruleBody);
+            var rr = new RecurrencePattern(ruleBody);
+
+            var freq = MapFrequency(rr.Frequency);
+
+            var byDay = new List<ParsedByDay>(rr.ByDay?.Count ?? 0);
+            if (rr.ByDay is not null)
+            {
+                foreach (var wd in rr.ByDay)
+                {
+                    int? offset = wd.Offset == int.MinValue ? null : wd.Offset;
+                    byDay.Add(new ParsedByDay(wd.DayOfWeek, offset));
+                }
+            }
+
+            var byMonth    = (IReadOnlyList<int>)(rr.ByMonth    is { Count: > 0 } bm  ? bm  : Array.Empty<int>());
+            var byMonthDay = (IReadOnlyList<int>)(rr.ByMonthDay is { Count: > 0 } bmd ? bmd : Array.Empty<int>());
+
+            DateTime? untilUtc = rr.Until is not null ? rr.Until.AsUtc : null;
+
+            var recurrence = new ParsedRecurrence(
+                Frequency:    freq,
+                RawFrequency: rr.Frequency.ToString(),
+                Interval:     rr.Interval,
+                Count:        rr.Count ?? 0,
+                UntilUtc:     untilUtc,
+                ByDay:        byDay,
+                ByMonth:      byMonth,
+                ByMonthDay:   byMonthDay,
+                ExDates:      exDates,
+                RDates:       rDates);
+
+            return ParseResult<ParsedRecurrence>.Ok(recurrence);
         }
         catch (Exception ex)
         {
             return ParseResult<ParsedRecurrence>.Fail(
                 $"RRULE parse failed: {ex.Message} (rule: {ruleBody})");
         }
-
-        var freq = MapFrequency(rr.Frequency);
-
-        var byDay = new List<ParsedByDay>(rr.ByDay?.Count ?? 0);
-        if (rr.ByDay is not null)
-        {
-            foreach (var wd in rr.ByDay)
-            {
-                int? offset = wd.Offset == int.MinValue ? null : wd.Offset;
-                byDay.Add(new ParsedByDay(wd.DayOfWeek, offset));
-            }
-        }
-
-        var byMonth    = (IReadOnlyList<int>)(rr.ByMonth    is { Count: > 0 } bm  ? bm  : Array.Empty<int>());
-        var byMonthDay = (IReadOnlyList<int>)(rr.ByMonthDay is { Count: > 0 } bmd ? bmd : Array.Empty<int>());
-
-        DateTime? untilUtc = rr.Until is not null ? rr.Until.AsUtc : null;
-
-        var recurrence = new ParsedRecurrence(
-            Frequency:    freq,
-            RawFrequency: rr.Frequency.ToString(),
-            Interval:     rr.Interval,
-            Count:        rr.Count ?? 0,
-            UntilUtc:     untilUtc,
-            ByDay:        byDay,
-            ByMonth:      byMonth,
-            ByMonthDay:   byMonthDay,
-            ExDates:      exDates,
-            RDates:       rDates);
-
-        return ParseResult<ParsedRecurrence>.Ok(recurrence);
     }
 
     /// <summary>
@@ -212,46 +211,45 @@ public static class ICalTextParser
     /// </summary>
     public static ParseResult<ParsedAlarm> ParseAlarm(string valarmBlock)
     {
-        Ical.Net.CalendarComponents.CalendarEvent? evt;
         try
         {
             var cal = IcalCalendar.Load(IcalParseSupport.WrapVevent(valarmBlock));
-            evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+            var evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+
+            if (evt is null)
+                return ParseResult<ParsedAlarm>.Fail("VALARM: no VEVENT found after wrapping.");
+
+            if (evt.Alarms is null || evt.Alarms.Count == 0)
+                return ParseResult<ParsedAlarm>.Fail("VALARM: alarm list is empty.");
+
+            var alarm = evt.Alarms[0];
+
+            // Trigger.Related is a TriggerRelation enum (Start/End); normalise to
+            // uppercase to match the raw iCal convention ("START"/"END").
+            string? related = alarm.Trigger is null
+                ? null
+                : alarm.Trigger.Related.ToString().ToUpperInvariant();
+
+            // Trigger.Duration is Ical.Net.DataTypes.Duration (struct).
+            // ToTimeSpanUnspecified() converts weeks/days/hours/minutes/seconds without
+            // needing a CalDateTime anchor (safe for alarm offsets which never use months/years).
+            TimeSpan? relativeOffset = alarm.Trigger?.Duration is { } dur
+                ? dur.ToTimeSpanUnspecified()
+                : (TimeSpan?)null;
+
+            var parsed = new ParsedAlarm(
+                Action:          alarm.Action,
+                RelativeOffset:  relativeOffset,
+                AbsoluteTimeUtc: alarm.Trigger?.DateTime?.AsUtc,
+                Related:         related,
+                Description:     alarm.Description);
+
+            return ParseResult<ParsedAlarm>.Ok(parsed);
         }
         catch (Exception ex)
         {
             return ParseResult<ParsedAlarm>.Fail($"VALARM parse failed: {ex.Message}");
         }
-
-        if (evt is null)
-            return ParseResult<ParsedAlarm>.Fail("VALARM: no VEVENT found after wrapping.");
-
-        if (evt.Alarms is null || evt.Alarms.Count == 0)
-            return ParseResult<ParsedAlarm>.Fail("VALARM: alarm list is empty.");
-
-        var alarm = evt.Alarms[0];
-
-        // Trigger.Related is a TriggerRelation enum (Start/End); normalise to
-        // uppercase to match the raw iCal convention ("START"/"END").
-        string? related = alarm.Trigger is null
-            ? null
-            : alarm.Trigger.Related.ToString().ToUpperInvariant();
-
-        // Trigger.Duration is Ical.Net.DataTypes.Duration (struct).
-        // ToTimeSpanUnspecified() converts weeks/days/hours/minutes/seconds without
-        // needing a CalDateTime anchor (safe for alarm offsets which never use months/years).
-        TimeSpan? relativeOffset = alarm.Trigger?.Duration is { } dur
-            ? dur.ToTimeSpanUnspecified()
-            : (TimeSpan?)null;
-
-        var parsed = new ParsedAlarm(
-            Action:          alarm.Action,
-            RelativeOffset:  relativeOffset,
-            AbsoluteTimeUtc: alarm.Trigger?.DateTime?.AsUtc,
-            Related:         related,
-            Description:     alarm.Description);
-
-        return ParseResult<ParsedAlarm>.Ok(parsed);
     }
 
     /// <summary>
@@ -287,7 +285,7 @@ public static class ICalTextParser
         try
         {
             // Case 1: inline binary — Ical.Net decoded ENCODING=BASE64;VALUE=BINARY into att.Data.
-            if (att.Data is { Length: > 0 })
+            if (att.Data is not null)
             {
                 return ParseResult<ParsedAttachment>.Ok(
                     new ParsedAttachment(null, att.Data, fileName, formatType));

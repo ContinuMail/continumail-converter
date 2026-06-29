@@ -32,12 +32,22 @@ public class ParseAttachmentTests
         Assert.Null(a.Uri);
         Assert.Equal("hi", Encoding.UTF8.GetString(a.InlineData!));
         Assert.Equal("n.txt", a.FileName);
+        Assert.Equal("text/plain", a.FormatType);
     }
 
     [Fact]
-    public void Malformed_attach_null_value_implies_warning_no_throw()
+    public void Data_uri_without_base64_is_decoded_as_utf8()
+    {
+        var a = ICalTextParser.ParseAttachment("ATTACH:data:text/plain,hello").Value!;
+        Assert.Null(a.Uri);
+        Assert.Equal("hello", Encoding.UTF8.GetString(a.InlineData!));
+    }
+
+    [Fact]
+    public void Malformed_attach_returns_null_value_and_warning()
     {
         var r = ICalTextParser.ParseAttachment("ATTACH;:::"); // must not throw
-        if (r.Value is null) Assert.NotEmpty(r.Warnings);    // contract: a failed parse carries a warning
+        Assert.Null(r.Value);
+        Assert.NotEmpty(r.Warnings);
     }
 }

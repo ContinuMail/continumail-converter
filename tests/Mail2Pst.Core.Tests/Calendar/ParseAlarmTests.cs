@@ -36,4 +36,12 @@ public class ParseAlarmTests
         var a = ICalTextParser.ParseAlarm("BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260701T070000Z\r\nEND:VALARM").Value!;
         Assert.NotNull(a.AbsoluteTimeUtc);
     }
+
+    [Fact]
+    public void Description_is_preserved()
+    {
+        var a = ICalTextParser.ParseAlarm(
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Reminder text\r\nEND:VALARM").Value!;
+        Assert.Equal("Reminder text", a.Description);
+    }
 }

@@ -27,6 +27,7 @@ public class ParseRecurrenceTests
     }
 
     [Theory]
+    [InlineData("RRULE:FREQ=DAILY", ParsedFrequency.Daily)]
     [InlineData("RRULE:FREQ=MONTHLY;BYDAY=2MO;COUNT=5", ParsedFrequency.Monthly)]
     [InlineData("RRULE:FREQ=YEARLY;BYMONTH=5;BYMONTHDAY=23", ParsedFrequency.Yearly)]
     [InlineData("RRULE:FREQ=WEEKLY;UNTIL=20261231T235959Z", ParsedFrequency.Weekly)]
@@ -57,6 +58,13 @@ public class ParseRecurrenceTests
         var r = ICalTextParser.ParseRecurrence(new[]{"EXDATE:20260706"});
         Assert.Null(r.Value);
         Assert.Empty(r.Warnings);
+    }
+
+    [Fact]
+    public void Weekly_byday_plain_has_null_offset()
+    {
+        var v = ICalTextParser.ParseRecurrence(new[]{"RRULE:FREQ=WEEKLY;BYDAY=MO"}).Value!;
+        Assert.Null(v.ByDay.Single().Offset);
     }
 
     [Fact]
