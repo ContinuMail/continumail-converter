@@ -35,6 +35,48 @@ public class DiscoverCalendarsTests
               $"VALUES ('{calId}','td1','Test Todo',0,1782810000000000,1782820000000000,0,NULL);");
     }
 
+    // Both-stores: same cal_id present in local.sqlite AND cache.sqlite.
+    // registry type="storage" -> local wins; type="caldav" -> cache wins.
+    [Theory]
+    [InlineData("storage", "local",  "cache store ignored")]
+    [InlineData("caldav",  "cache",  "local store ignored")]
+    public void DiscoverCalendars_BothStores_RegistryTypeControlsWinner(
+        string calType, string expectedStore, string warningSnippet)
+    {
+        string profile = Path.Combine(Path.GetTempPath(), $"m2p-both-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(profile);
+        string calDataDir = Path.Combine(profile, "calendar-data");
+        Directory.CreateDirectory(calDataDir);
+        try
+        {
+            // Register BOTH with the supplied type; synthetic/reserved data only.
+            File.WriteAllText(Path.Combine(profile, "prefs.js"),
+                $"user_pref(\"calendar.registry.BOTH.name\", \"Work\");\n" +
+                $"user_pref(\"calendar.registry.BOTH.type\", \"{calType}\");\n" +
+                $"user_pref(\"calendar.registry.BOTH.calendar-main-in-composite\", true);\n");
+
+            // Insert the same cal_id into BOTH stores so both-stores branch is taken.
+            MakeCalStore(Path.Combine(calDataDir, "local.sqlite"), "BOTH", addEvent: true);
+            MakeCalStore(Path.Combine(calDataDir, "cache.sqlite"), "BOTH", addEvent: true);
+
+            var res = MailProfileDiscovery.DiscoverCalendars(profile);
+
+            // Calendar must appear exactly once (no duplication).
+            var cal = Assert.Single(res.Calendars, c => c.CalId == "BOTH");
+
+            // Registry-driven store preference.
+            Assert.Equal(expectedStore, cal.StoreKind);
+
+            // Chosen store path must point at the winning file.
+            string expectedFile = expectedStore == "local" ? "local.sqlite" : "cache.sqlite";
+            Assert.Equal(expectedFile, Path.GetFileName(cal.StorePath), StringComparer.OrdinalIgnoreCase);
+
+            // A warning about the ignored store must be emitted.
+            Assert.Contains(res.Warnings, w => w.Message.Contains("BOTH") && w.Message.Contains(warningSnippet));
+        }
+        finally { Directory.Delete(profile, true); }
+    }
+
     [Fact]
     public void DiscoverCalendars_RegistryPlusOrphan()
     {
