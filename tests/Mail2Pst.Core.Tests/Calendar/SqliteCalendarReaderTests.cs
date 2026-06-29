@@ -25,7 +25,7 @@ public class SqliteCalendarReaderTests
         X("CREATE TABLE cal_properties (item_id TEXT,key TEXT,value BLOB,recurrence_id INTEGER,recurrence_id_tz TEXT,cal_id TEXT);");
         X("CREATE TABLE cal_parameters (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,key1 TEXT,key2 TEXT,value TEXT);");
         // CAL / E1: master + override
-        X("INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,event_start_tz,recurrence_id) VALUES ('CAL','E1','Standup',0,1782810000000000,1782811800000000,'Europe/Copenhagen',NULL);");
+        X("INSERT INTO cal_events (cal_id,id,title,flags,privacy,event_start,event_end,event_start_tz,recurrence_id) VALUES ('CAL','E1','Standup',0,'PRIVATE',1782810000000000,1782811800000000,'Europe/Copenhagen',NULL);");
         X("INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,event_start_tz,recurrence_id) VALUES ('CAL','E1','Standup moved',0,1782896400000000,1782898200000000,'Europe/Copenhagen',1782896400000000);");
         X("INSERT INTO cal_recurrence (item_id,cal_id,icalString) VALUES ('E1','CAL','RRULE:FREQ=DAILY');");
         X("INSERT INTO cal_attendees (item_id,cal_id,icalString) VALUES ('E1','CAL','ATTENDEE;CN=A:mailto:a@example.com');");
@@ -53,6 +53,7 @@ public class SqliteCalendarReaderTests
             RawEventGroup grp = Assert.Single(cal.EventGroups);
             Assert.NotNull(grp.Master);
             Assert.Equal("Standup", grp.Master!.Title);
+            Assert.Equal("PRIVATE", grp.Master!.Privacy);          // iCal CLASS field round-trips as string
             Assert.Single(grp.Overrides);                          // exactly one override
             Assert.Equal(2, grp.Master.Attendees.Count);           // NOT 4/8 — no cartesian blow-up
             Assert.Equal(2, grp.Master.Alarms.Count);

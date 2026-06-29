@@ -74,7 +74,7 @@ public sealed class RawEvent
     public string? Categories { get; set; }
     public string? Url { get; set; }
     public int? Priority { get; set; }
-    public int? Privacy { get; set; }
+    public string? Privacy { get; set; }
     public int? Sequence { get; set; }
     public string? IcalStatus { get; set; }
 
@@ -99,7 +99,7 @@ public sealed class RawTodo
     public string? Id { get; set; }
     public string? Title { get; set; }
     public int? Priority { get; set; }
-    public int? Privacy { get; set; }
+    public string? Privacy { get; set; }
     public string? IcalStatus { get; set; }
     public int? Flags { get; set; }
     public long? RecurrenceId { get; set; }

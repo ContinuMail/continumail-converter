@@ -52,7 +52,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
         {
             using var cmd = c.CreateCommand();
             cmd.CommandText =
-                "SELECT cal_id, id, title, priority, ical_status, flags, " +
+                "SELECT cal_id, id, title, priority, privacy, ical_status, flags, " +
                 "event_start, event_end, event_start_tz, event_end_tz, " +
                 "recurrence_id, recurrence_id_tz, time_created, last_modified " +
                 "FROM cal_events";
@@ -61,6 +61,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
             int oId       = rdr.GetOrdinal("id");
             int oTitle    = rdr.GetOrdinal("title");
             int oPriority = rdr.GetOrdinal("priority");
+            int oPrivacy  = rdr.GetOrdinal("privacy");
             int oStatus   = rdr.GetOrdinal("ical_status");
             int oFlags    = rdr.GetOrdinal("flags");
             int oStart    = rdr.GetOrdinal("event_start");
@@ -76,7 +77,11 @@ public sealed class SqliteCalendarReader : ICalendarReader
             {
                 string? calId = rdr.IsDBNull(oCalId) ? null : rdr.GetString(oCalId);
                 string? id    = rdr.IsDBNull(oId)    ? null : rdr.GetString(oId);
-                if (calId is null || id is null) continue;
+                if (calId is null || id is null)
+                {
+                    outp.Warnings.Add("event row skipped: null cal_id or id");
+                    continue;
+                }
                 try
                 {
                     long?   rid   = rdr.IsDBNull(oRid)   ? null : rdr.GetInt64(oRid);
@@ -91,6 +96,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
                         Id             = id,
                         Title          = rdr.IsDBNull(oTitle)    ? null : rdr.GetString(oTitle),
                         Priority       = rdr.IsDBNull(oPriority) ? null : rdr.GetInt32(oPriority),
+                        Privacy        = rdr.IsDBNull(oPrivacy)  ? null : rdr.GetString(oPrivacy),
                         IcalStatus     = rdr.IsDBNull(oStatus)   ? null : rdr.GetString(oStatus),
                         Flags          = rdr.IsDBNull(oFlags)    ? null : rdr.GetInt32(oFlags),
                         EventStart     = rdr.IsDBNull(oStart)    ? null : rdr.GetInt64(oStart),
@@ -138,7 +144,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
         {
             using var cmd = c.CreateCommand();
             cmd.CommandText =
-                "SELECT cal_id, id, title, priority, ical_status, flags, " +
+                "SELECT cal_id, id, title, priority, privacy, ical_status, flags, " +
                 "todo_entry, todo_due, todo_completed, todo_complete, " +
                 "todo_entry_tz, todo_due_tz, todo_completed_tz, " +
                 "recurrence_id, recurrence_id_tz, time_created, last_modified " +
@@ -148,6 +154,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
             int oId          = rdr.GetOrdinal("id");
             int oTitle       = rdr.GetOrdinal("title");
             int oPriority    = rdr.GetOrdinal("priority");
+            int oPrivacy     = rdr.GetOrdinal("privacy");
             int oStatus      = rdr.GetOrdinal("ical_status");
             int oFlags       = rdr.GetOrdinal("flags");
             int oEntry       = rdr.GetOrdinal("todo_entry");
@@ -166,7 +173,11 @@ public sealed class SqliteCalendarReader : ICalendarReader
             {
                 string? calId = rdr.IsDBNull(oCalId) ? null : rdr.GetString(oCalId);
                 string? id    = rdr.IsDBNull(oId)    ? null : rdr.GetString(oId);
-                if (calId is null || id is null) continue;
+                if (calId is null || id is null)
+                {
+                    outp.Warnings.Add("todo row skipped: null cal_id or id");
+                    continue;
+                }
                 try
                 {
                     long?   rid   = rdr.IsDBNull(oRid)   ? null : rdr.GetInt64(oRid);
@@ -181,6 +192,7 @@ public sealed class SqliteCalendarReader : ICalendarReader
                         Id              = id,
                         Title           = rdr.IsDBNull(oTitle)       ? null : rdr.GetString(oTitle),
                         Priority        = rdr.IsDBNull(oPriority)    ? null : rdr.GetInt32(oPriority),
+                        Privacy         = rdr.IsDBNull(oPrivacy)     ? null : rdr.GetString(oPrivacy),
                         IcalStatus      = rdr.IsDBNull(oStatus)      ? null : rdr.GetString(oStatus),
                         Flags           = rdr.IsDBNull(oFlags)       ? null : rdr.GetInt32(oFlags),
                         TodoEntry       = rdr.IsDBNull(oEntry)       ? null : rdr.GetInt64(oEntry),
