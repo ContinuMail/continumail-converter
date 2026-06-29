@@ -142,7 +142,7 @@ public class ConversionRunner
             // it propagates out of Run to the CLI's fatal error path. Runs only here, on the
             // fully-successful path: cancellation throws out of the loop above and never reaches
             // this line, and the writer's own fatal aborts have already propagated.
-            PstOutputVerifier.Verify(report.OutputFiles, report.ConvertedCount + report.ContactsConverted);
+            PstOutputVerifier.Verify(report.OutputFiles, report.TotalWrittenItems);
         }
         catch (OperationCanceledException)
         {

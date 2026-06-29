@@ -105,7 +105,11 @@ internal static class ConvertCommand
                             // additive, non-breaking (schemaVersion stays 1):
                             contactsConverted = p.ContactsConverted,
                             contactsTotal = p.ContactsTotal,
-                            phase = p.Phase });
+                            phase = p.Phase,
+                            appointmentsConverted = p.AppointmentsConverted,
+                            appointmentsTotal = p.AppointmentsTotal,
+                            tasksConverted = p.TasksConverted,
+                            tasksTotal = p.TasksTotal });
                         break;
                     case WarningEvent w:
                         CliArgs.WriteJsonLine(new { type = "warning", source = w.Source, identifier = w.Identifier, reason = w.Reason });
@@ -156,6 +160,13 @@ internal static class ConvertCommand
                 contactsConverted = report.ContactsConverted,
                 contactsSkipped = report.ContactsSkipped,
                 contactWarnings = report.ContactWarningCount,
+                // additive appointment/task summary fields (non-breaking; schemaVersion stays 1):
+                appointmentsConverted = report.AppointmentsConverted,
+                appointmentsSkipped = report.AppointmentsSkipped,
+                appointmentWarnings = report.AppointmentWarningCount,
+                tasksConverted = report.TasksConverted,
+                tasksSkipped = report.TasksSkipped,
+                taskWarnings = report.TaskWarningCount,
             });
 
             return 0;
