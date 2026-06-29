@@ -51,6 +51,8 @@ public sealed record RawParameter(
 // Raw event — maps 1:1 to cal_events columns + side collections.
 // ---------------------------------------------------------------------------
 
+/// <summary>Carries raw cal_events COLUMNS only; iCal-level fields (description, location,
+/// organizer, categories…) live in Properties/Attendees and are resolved in PR3b.</summary>
 public sealed class RawEvent
 {
     // Core identity / scheduling
@@ -62,20 +64,12 @@ public sealed class RawEvent
     public string? EventEndTz { get; set; }
     public string? Title { get; set; }
     public int? Flags { get; set; }
-    public int? EventStatus { get; set; }
     public long? RecurrenceId { get; set; }
     public string? RecurrenceIdTz { get; set; }
     public long? TimeCreated { get; set; }
     public long? LastModified { get; set; }
-    public string? Alarm { get; set; }
-    public string? Organizer { get; set; }
-    public string? Description { get; set; }
-    public string? Location { get; set; }
-    public string? Categories { get; set; }
-    public string? Url { get; set; }
     public int? Priority { get; set; }
     public string? Privacy { get; set; }
-    public int? Sequence { get; set; }
     public string? IcalStatus { get; set; }
 
     // Side collections (default to empty list)
@@ -92,6 +86,8 @@ public sealed class RawEvent
 // Raw todo — maps 1:1 to cal_todos columns + side collections.
 // ---------------------------------------------------------------------------
 
+/// <summary>Carries raw cal_todos COLUMNS only; iCal-level fields (description, location,
+/// organizer, categories…) live in Properties/Attendees and are resolved in PR3b.</summary>
 public sealed class RawTodo
 {
     // Core identity
