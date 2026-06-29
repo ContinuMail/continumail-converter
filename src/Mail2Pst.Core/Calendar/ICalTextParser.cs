@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using Ical.Net.DataTypes;
+using IcalCalendar = Ical.Net.Calendar;
 
 namespace Mail2Pst.Core.Calendar;
 
@@ -34,6 +35,27 @@ public sealed record ParsedRecurrence(
     IReadOnlyList<int> ByMonthDay,
     IReadOnlyList<ParsedDateList> ExDates,
     IReadOnlyList<ParsedDateList> RDates);
+
+// ---------------------------------------------------------------------------
+// Domain types for attendees and alarms.
+// ---------------------------------------------------------------------------
+
+/// <summary>One participant (attendee or organizer) from a VEVENT.</summary>
+public sealed record ParsedAttendee(
+    string? CommonName,
+    string? Email,
+    string? Role,
+    string? ParticipationStatus,
+    string? CuType,
+    bool IsOrganizer);
+
+/// <summary>Parsed VALARM for a VEVENT.</summary>
+public sealed record ParsedAlarm(
+    string? Action,
+    TimeSpan? RelativeOffset,
+    DateTime? AbsoluteTimeUtc,
+    string? Related,
+    string? Description);
 
 // ---------------------------------------------------------------------------
 // ICalTextParser — first slice: ParseRecurrence.
@@ -121,9 +143,152 @@ public static class ICalTextParser
         return ParseResult<ParsedRecurrence>.Ok(recurrence);
     }
 
+    /// <summary>
+    /// Parses ATTENDEE and ORGANIZER lines from a flat list of iCal property lines.
+    /// All lines are wrapped into one VEVENT and loaded together so that attendees
+    /// and the organizer coexist in one calendar event.  On load failure the method
+    /// falls back to loading each line individually, emitting a warning per failure.
+    /// The returned <c>Value</c> is never null — it may be an empty or partial list.
+    /// </summary>
+    public static ParseResult<IReadOnlyList<ParsedAttendee>> ParseAttendees(IReadOnlyList<string> icalLines)
+    {
+        var warnings = new List<string>();
+        var result   = new List<ParsedAttendee>();
+
+        // Attempt: load all lines in one VEVENT so organizer + attendees coexist.
+        var combined = string.Join("\r\n", icalLines);
+        try
+        {
+            var cal = IcalCalendar.Load(IcalParseSupport.WrapVevent(combined));
+            var evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+            if (evt is not null)
+                ExtractAttendeesFromEvent(evt, result);
+        }
+        catch (Exception ex)
+        {
+            warnings.Add($"Combined ATTENDEE/ORGANIZER load failed, falling back to per-line: {ex.Message}");
+
+            // Per-line fallback — collect whatever parses.
+            foreach (var line in icalLines)
+            {
+                try
+                {
+                    var cal = IcalCalendar.Load(IcalParseSupport.WrapVevent(line));
+                    var evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+                    if (evt is not null)
+                        ExtractAttendeesFromEvent(evt, result);
+                }
+                catch (Exception lineEx)
+                {
+                    warnings.Add($"Attendee line parse failed: {lineEx.Message} (line: {line})");
+                }
+            }
+        }
+
+        return new ParseResult<IReadOnlyList<ParsedAttendee>>(result, warnings);
+    }
+
+    /// <summary>
+    /// Parses a raw VALARM block (BEGIN:VALARM … END:VALARM) into a
+    /// <see cref="ParsedAlarm"/>.  The block is wrapped in a VEVENT so that
+    /// relative triggers resolve correctly.
+    /// Returns <c>Value=null</c> with a warning when loading fails or the
+    /// alarm list is empty.
+    /// </summary>
+    public static ParseResult<ParsedAlarm> ParseAlarm(string valarmBlock)
+    {
+        Ical.Net.CalendarComponents.CalendarEvent? evt;
+        try
+        {
+            var cal = IcalCalendar.Load(IcalParseSupport.WrapVevent(valarmBlock));
+            evt = cal?.Events.Count > 0 ? cal.Events[0] : null;
+        }
+        catch (Exception ex)
+        {
+            return ParseResult<ParsedAlarm>.Fail($"VALARM parse failed: {ex.Message}");
+        }
+
+        if (evt is null)
+            return ParseResult<ParsedAlarm>.Fail("VALARM: no VEVENT found after wrapping.");
+
+        if (evt.Alarms is null || evt.Alarms.Count == 0)
+            return ParseResult<ParsedAlarm>.Fail("VALARM: alarm list is empty.");
+
+        var alarm = evt.Alarms[0];
+
+        // Trigger.Related is a TriggerRelation enum (Start/End); normalise to
+        // uppercase to match the raw iCal convention ("START"/"END").
+        string? related = alarm.Trigger is null
+            ? null
+            : alarm.Trigger.Related.ToString().ToUpperInvariant();
+
+        // Trigger.Duration is Ical.Net.DataTypes.Duration (struct).
+        // ToTimeSpanUnspecified() converts weeks/days/hours/minutes/seconds without
+        // needing a CalDateTime anchor (safe for alarm offsets which never use months/years).
+        TimeSpan? relativeOffset = alarm.Trigger?.Duration is { } dur
+            ? dur.ToTimeSpanUnspecified()
+            : (TimeSpan?)null;
+
+        var parsed = new ParsedAlarm(
+            Action:          alarm.Action,
+            RelativeOffset:  relativeOffset,
+            AbsoluteTimeUtc: alarm.Trigger?.DateTime?.AsUtc,
+            Related:         related,
+            Description:     alarm.Description);
+
+        return ParseResult<ParsedAlarm>.Ok(parsed);
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Extracts attendees and the organizer from a calendar event, appending
+    /// <see cref="ParsedAttendee"/> entries to <paramref name="target"/>.
+    /// </summary>
+    private static void ExtractAttendeesFromEvent(
+        Ical.Net.CalendarComponents.CalendarEvent evt,
+        List<ParsedAttendee> target)
+    {
+        if (evt.Attendees is not null)
+        {
+            foreach (var att in evt.Attendees)
+            {
+                target.Add(new ParsedAttendee(
+                    CommonName:          att.CommonName,
+                    Email:               ExtractEmail(att.Value),
+                    Role:                att.Role,
+                    ParticipationStatus: att.ParticipationStatus,
+                    CuType:              att.Parameters?.Get("CUTYPE"),
+                    IsOrganizer:         false));
+            }
+        }
+
+        if (evt.Organizer is not null)
+        {
+            target.Add(new ParsedAttendee(
+                CommonName:          evt.Organizer.CommonName,
+                Email:               ExtractEmail(evt.Organizer.Value),
+                Role:                null,
+                ParticipationStatus: null,
+                CuType:              null,
+                IsOrganizer:         true));
+        }
+    }
+
+    /// <summary>
+    /// Strips a leading <c>mailto:</c> scheme (case-insensitive) and
+    /// percent-decodes the remainder to get a plain e-mail address.
+    /// </summary>
+    private static string? ExtractEmail(Uri? uri)
+    {
+        if (uri is null) return null;
+        var s = uri.ToString();
+        if (s.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
+            s = s.Substring("mailto:".Length);
+        return Uri.UnescapeDataString(s);
+    }
 
     /// <summary>
     /// Parses a single EXDATE or RDATE line into a <see cref="ParsedDateList"/>.
