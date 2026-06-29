@@ -731,6 +731,8 @@ namespace PSTFileFormat
                     {
                         case FolderItemTypeName.Note:
                             return new MailFolder(node);
+                        case FolderItemTypeName.Appointment:
+                            return new CalendarFolder(node);
                         default:
                             return new PSTFolder(node);
                     }
