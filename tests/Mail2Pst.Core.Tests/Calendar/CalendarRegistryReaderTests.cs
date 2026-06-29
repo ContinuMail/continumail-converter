@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+﻿// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Linq;
 using Mail2Pst.Core.Calendar;
@@ -9,7 +9,7 @@ namespace Mail2Pst.Core.Tests.Calendar;
 public class CalendarRegistryReaderTests
 {
     private const string Prefs = """
-        user_pref("calendar.registry.4ad842d0.name", "Ferie æøå");
+        user_pref("calendar.registry.4ad842d0.name", "Ferie \u00e6\u00f8\u00e5");
         user_pref("calendar.registry.4ad842d0.type", "storage");
         user_pref("calendar.registry.4ad842d0.uri", "moz-storage-calendar://");
         user_pref("calendar.registry.4ad842d0.calendar-main-in-composite", true);
@@ -25,7 +25,7 @@ public class CalendarRegistryReaderTests
         Assert.Equal(2, entries.Count);
 
         var home = entries.Single(e => e.CalId == "4ad842d0");
-        Assert.Equal("Ferie æøå", home.DisplayName);   // \uXXXX unescaped via PrefsJsEscape
+        Assert.Equal("Ferie \u00e6\u00f8\u00e5", home.DisplayName);   // \uXXXX unescaped via PrefsJsEscape
         Assert.Equal("storage", home.CalendarType);
         Assert.True(home.VisibleInThunderbird);
 
