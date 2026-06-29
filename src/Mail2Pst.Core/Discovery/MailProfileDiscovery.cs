@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Discovery;
@@ -138,12 +139,147 @@ public static class MailProfileDiscovery
 
         var addressBooks = DiscoverAddressBooks(prefsRoot ?? root).ToList();
 
+        var calendarResult = DiscoverCalendars(prefsRoot ?? root);
+        warnings.AddRange(calendarResult.Warnings);
+
         return new DiscoveryResult(root, layout, sources, warnings, skipped,
             new DiscoveryPairingSummary(paired, unpaired, orphan))
         {
             Accounts = accounts,
             AddressBooks = addressBooks,
+            Calendars = calendarResult.Calendars,
         };
+    }
+
+    /// <summary>
+    /// Discovers calendars for a Thunderbird profile directory.  Joins the prefs.js registry
+    /// (a hint for name/type/visibility) with actual per-cal_id row counts read from
+    /// <c>calendar-data/local.sqlite</c> and <c>calendar-data/cache.sqlite</c>.  Unregistered
+    /// cal_ids that have rows get a synthesized display name and a warning.  Skips
+    /// <c>deleted.sqlite</c>.
+    /// </summary>
+    public static CalendarDiscoveryResult DiscoverCalendars(string profileDir)
+    {
+        var result = new CalendarDiscoveryResult();
+
+        // Registry: cal_id -> entry (name, type, visibility). Missing file -> empty.
+        string prefsPath = Path.Combine(profileDir, "prefs.js");
+        var registry = CalendarRegistryReader.Read(prefsPath)
+            .ToDictionary(e => e.CalId, StringComparer.Ordinal);
+
+        // Read each store that exists; skip deleted.sqlite.
+        string calDataDir = Path.Combine(profileDir, "calendar-data");
+        string localPath  = Path.Combine(calDataDir, "local.sqlite");
+        string cachePath  = Path.Combine(calDataDir, "cache.sqlite");
+
+        var localData = new Dictionary<string, RawCalendarRead>(StringComparer.Ordinal);
+        var cacheData = new Dictionary<string, RawCalendarRead>(StringComparer.Ordinal);
+
+        var reader = new SqliteCalendarReader();
+
+        if (File.Exists(localPath))
+        {
+            CalendarReadResult localResult = reader.Read(localPath);
+            foreach (string w in localResult.Warnings)
+                result.Warnings.Add(new DiscoveryWarning("calendar-reader-warning", localPath, null, null, null, null, w));
+            foreach (RawCalendarRead cal in localResult.Calendars)
+                localData[cal.CalId] = cal;
+        }
+
+        if (File.Exists(cachePath))
+        {
+            CalendarReadResult cacheResult = reader.Read(cachePath);
+            foreach (string w in cacheResult.Warnings)
+                result.Warnings.Add(new DiscoveryWarning("calendar-reader-warning", cachePath, null, null, null, null, w));
+            foreach (RawCalendarRead cal in cacheResult.Calendars)
+                cacheData[cal.CalId] = cal;
+        }
+
+        // Union all cal_ids that actually have rows.
+        var allCalIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string id in localData.Keys) allCalIds.Add(id);
+        foreach (string id in cacheData.Keys) allCalIds.Add(id);
+
+        foreach (string calId in allCalIds)
+        {
+            bool inLocal = localData.ContainsKey(calId);
+            bool inCache = cacheData.ContainsKey(calId);
+
+            // Both-stores rule: pick the store the registry expects; warn that the other is ignored.
+            string chosenKind;
+            string chosenPath;
+            RawCalendarRead chosenRead;
+
+            if (inLocal && inCache)
+            {
+                // type=="storage" -> local; anything else (caldav, ics, …) -> cache.
+                bool preferLocal = !registry.TryGetValue(calId, out CalendarRegistryEntry? reg)
+                    || string.Equals(reg.CalendarType, "storage", StringComparison.OrdinalIgnoreCase);
+                if (preferLocal)
+                {
+                    chosenKind = "local"; chosenPath = localPath; chosenRead = localData[calId];
+                    result.Warnings.Add(new DiscoveryWarning("calendar-both-stores-ignored", cachePath,
+                        null, null, null, null,
+                        $"Calendar {calId} found in both local and cache stores; cache store ignored."));
+                }
+                else
+                {
+                    chosenKind = "cache"; chosenPath = cachePath; chosenRead = cacheData[calId];
+                    result.Warnings.Add(new DiscoveryWarning("calendar-both-stores-ignored", localPath,
+                        null, null, null, null,
+                        $"Calendar {calId} found in both local and cache stores; local store ignored."));
+                }
+            }
+            else if (inLocal)
+            {
+                chosenKind = "local"; chosenPath = localPath; chosenRead = localData[calId];
+            }
+            else
+            {
+                chosenKind = "cache"; chosenPath = cachePath; chosenRead = cacheData[calId];
+            }
+
+            // Name / type / visibility from registry, or synthesize for unregistered cal_ids.
+            string displayName;
+            string calendarType;
+            bool visible;
+            if (registry.TryGetValue(calId, out CalendarRegistryEntry? entry))
+            {
+                displayName  = entry.DisplayName;
+                calendarType = entry.CalendarType;
+                visible      = entry.VisibleInThunderbird;
+            }
+            else
+            {
+                displayName  = "Calendar " + calId[..Math.Min(8, calId.Length)];
+                calendarType = "";
+                visible      = false;
+                result.Warnings.Add(new DiscoveryWarning("unregistered-calendar", chosenPath,
+                    null, null, null, null,
+                    $"Unregistered calendar {calId} imported from {chosenKind} store."));
+            }
+
+            int eventCount = chosenRead.EventGroups.Count;
+            int taskCount  = chosenRead.TodoGroups.Count;
+
+            result.Calendars.Add(new DiscoveredCalendarSource
+            {
+                CalId                    = calId,
+                DisplayName              = displayName,
+                StoreKind                = chosenKind,
+                StorePath                = chosenPath,
+                CalendarType             = calendarType,
+                IsVisibleInThunderbird   = visible,
+                EventCount               = eventCount,
+                TaskCount                = taskCount,
+                DefaultCalendarFolderPath = new[] { "Calendars", displayName },
+                DefaultTaskFolderPath    = taskCount > 0
+                    ? new[] { "Tasks", displayName }
+                    : Array.Empty<string>(),
+            });
+        }
+
+        return result;
     }
 
     public static IEnumerable<DiscoveredAddressBook> DiscoverAddressBooks(string profileDir)
