@@ -24,7 +24,7 @@ public class TimeZoneResolverTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("floating")]
-    public void Floating_is_floating_no_warning(string input)
+    public void Floating_is_floating_no_warning(string? input)
     {
         var r = TimeZoneResolver.Resolve(input);
         Assert.True(r.IsFloating);
@@ -42,8 +42,31 @@ public class TimeZoneResolverTests
     [Fact]
     public void Microsoft_utc_maps_to_utc()
     {
-        var r = TimeZoneResolver.Resolve("BEGIN:VTIMEZONE\r\nTZID:tzone://Microsoft/Utc\r\nEND:VTIMEZONE\r\n");
+        const string block = "BEGIN:VTIMEZONE\r\nTZID:tzone://Microsoft/Utc\r\nEND:VTIMEZONE\r\n";
+        var r = TimeZoneResolver.Resolve(block);
         Assert.Equal(TimeZoneInfo.Utc.Id, r.Zone!.Id);
+        // OriginalId must be the full inline block, not the extracted TZID.
+        Assert.StartsWith("BEGIN:VTIMEZONE", r.OriginalId);
+    }
+
+    [Fact]
+    public void No_tz_description_raw_is_floating_with_warning()
+    {
+        // Raw "(no TZ description)" string — not wrapped in a VTIMEZONE block.
+        var r = TimeZoneResolver.Resolve("(no TZ description)");
+        Assert.True(r.IsFloating);
+        Assert.NotNull(r.Warning);
+    }
+
+    [Fact]
+    public void Unresolvable_microsoft_tz_in_vtimezone_yields_warning_and_preserves_name()
+    {
+        const string block = "BEGIN:VTIMEZONE\r\nTZID:tzone://Microsoft/Made-Up-Zone\r\nEND:VTIMEZONE\r\n";
+        var r = TimeZoneResolver.Resolve(block);
+        Assert.Null(r.Zone);
+        Assert.NotNull(r.Warning);
+        // The stripped name after "tzone://Microsoft/" must be preserved in ResolvedId.
+        Assert.Equal("Made-Up-Zone", r.ResolvedId);
     }
 
     [Fact]
