@@ -495,4 +495,16 @@ public class CalendarTaskMapperTests
         Assert.Contains("[Thunderbird alarm not converted:", task.Body);
         Assert.Contains("TRIGGER", task.Body);
     }
+
+    // -----------------------------------------------------------------------
+    // Pending: recurring-task support (PR7)
+    // These skipped tests are placeholders that track the work deferred to PR7.
+    // Remove the Skip attribute and implement when the recurrence writer lands.
+    // -----------------------------------------------------------------------
+
+    [Fact(Skip = "Recurring tasks land in PR7 (recurrence + exceptions); tracked by this skipped test.")]
+    public void Recurring_task_is_written_with_recurrence_pattern() { /* TODO PR7 */ }
+
+    [Fact(Skip = "Recurring tasks land in PR7 (recurrence + exceptions); tracked by this skipped test.")]
+    public void Recurring_task_with_exception_override_is_written_correctly() { /* TODO PR7 */ }
 }

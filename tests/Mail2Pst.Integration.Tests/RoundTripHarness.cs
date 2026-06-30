@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core;
+using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Mapping;
@@ -143,6 +144,35 @@ public static class RoundTripHarness
                     else
                         throw new InvalidOperationException(
                             $"Contact read failure while building truth for '{cm.Source.Path}': {r.Error}");
+                }
+            }
+
+            // Count tasks analogously.
+            // The writer ALWAYS pre-creates every task folder in Begin() (same as contacts),
+            // so an empty calendar still yields an IPF.Task folder. Mirror that: always
+            // EnsurePrefixes for every TaskMapping, then add one placeholder MailMessage per
+            // task that CalendarTaskMapper.Map would actually write (non-null result only —
+            // so recurring/skipped todos don't inflate the expected count).
+            foreach (TaskMapping tm in plan.TaskMappings)
+            {
+                IReadOnlyList<string> taskPath = tm.TargetFolderPath;
+                EnsurePrefixes(taskPath);
+                string taskLeafKey = FolderPathKey.Join(taskPath);
+
+                CalendarReadResult calRead = new SqliteCalendarReader().Read(tm.Source.StorePath);
+
+                IEnumerable<RawCalendarRead> cals = string.IsNullOrEmpty(tm.Source.CalId)
+                    ? calRead.Calendars
+                    : calRead.Calendars.Where(c => c.CalId == tm.Source.CalId);
+
+                foreach (RawCalendarRead cal in cals)
+                {
+                    foreach (RawTodoGroup group in cal.TodoGroups)
+                    {
+                        TaskRecord? mapped = CalendarTaskMapper.Map(group, out _);
+                        if (mapped is not null)
+                            truth[taskLeafKey].Add(new MailMessage());
+                    }
                 }
             }
         }
