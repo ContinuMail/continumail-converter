@@ -252,6 +252,20 @@ public class CalendarTaskMapperTests
         Assert.Equal("Personal",    task.Categories[2]);
     }
 
+    [Fact]
+    public void Categories_DropsXMozPrefixedTokens()
+    {
+        // X-MOZ-* tokens are Mozilla-internal and must be stripped from CATEGORIES.
+        var group = SimpleGroup(t =>
+            t.Properties.Add(new RawProperty("CATEGORIES", Utf8("Work,X-MOZ-SNOOZE-TIME,Personal"), null, null)));
+        var task = CalendarTaskMapper.Map(group, out _);
+
+        Assert.NotNull(task);
+        Assert.Equal(2, task.Categories.Count);
+        Assert.Equal("Work",     task.Categories[0]);
+        Assert.Equal("Personal", task.Categories[1]);
+    }
+
     // -----------------------------------------------------------------------
     // Reminder — relative TRIGGER with RELATED=START
     // -----------------------------------------------------------------------
@@ -449,5 +463,36 @@ public class CalendarTaskMapperTests
         Assert.NotNull(task.ReminderTime);
         Assert.Equal(new DateTimeOffset(2026, 8, 1, 7, 0, 0, TimeSpan.Zero), task.ReminderTime!.Value);
         Assert.Empty(warnings);
+    }
+
+    // -----------------------------------------------------------------------
+    // Reminder — VALARM parse failure → no reminder + warning + body preserved
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Alarm_ParseFailure_NoReminderAndWarningAndBodyPreserved()
+    {
+        // A "VALARM block" without a BEGIN:VALARM/END:VALARM envelope is stored by
+        // Thunderbird as bare iCal text.  ICalTextParser.ParseAlarm wraps it in a
+        // VEVENT; because there is no nested VALARM component, Ical.Net produces
+        // evt.Alarms.Count == 0, which ParseAlarm maps to Fail (Value=null + warning).
+        // The raw TRIGGER line in the block must then be preserved in the task body.
+        var group = SimpleGroup(t =>
+        {
+            t.TodoEntry = MicrosFor(2026, 8, 1);
+            // Bare text: has a TRIGGER line but no BEGIN:VALARM wrapper.
+            t.Alarms.Add(new RawSideText(
+                "TRIGGER:-PT15M\r\nX-SYNTHETIC-PROPERTY:failsafe"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.False(task.ReminderSet);
+        Assert.Null(task.ReminderTime);
+        Assert.True(warnings.Count > 0, "Expected at least one warning for parse failure");
+        Assert.NotNull(task.Body);
+        Assert.Contains("[Thunderbird alarm not converted:", task.Body);
+        Assert.Contains("TRIGGER", task.Body);
     }
 }

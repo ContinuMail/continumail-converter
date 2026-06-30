@@ -122,7 +122,11 @@ public static class CalendarTaskMapper
                     }
                 }
             }
-            // If alarmResult.Value is null, parse failed; warnings already added; preserve trigger if we can
+            else
+            {
+                // Parse failed; warnings already added above; preserve raw trigger in body.
+                AppendRawTriggerToBody(t, rawBlock);
+            }
         }
 
         return t;
@@ -151,7 +155,8 @@ public static class CalendarTaskMapper
         foreach (var part in parts)
         {
             var cat = part.Replace("\\,", ",").Trim();
-            if (!string.IsNullOrEmpty(cat))
+            if (!string.IsNullOrEmpty(cat) &&
+                !cat.StartsWith("X-MOZ-", StringComparison.OrdinalIgnoreCase))
                 result.Add(cat);
         }
         return result;
