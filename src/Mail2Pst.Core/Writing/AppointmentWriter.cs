@@ -90,9 +90,12 @@ public sealed class AppointmentWriter
         WriteReminder(file, appt, a);
 
         // Recurring-specific: apply recurrence pattern to the master.
-        // ApplyDeletions (Task 4) and ApplyExceptions (Task 5) extend this block.
+        // ApplyExceptions (Task 5) extends this block.
         if (appt is RecurringAppointment ra)
+        {
             ApplyRecurrence(ra, a.Recurrence!, durationMinutes);
+            ApplyDeletions(ra, a, out _);   // populates ra.DeletedInstanceDates; Task 5 will capture the out set
+        }
 
         WriteAttendees(file, appt, a);   // recipients + organizer + meeting state (no-op when no attendees)
 
@@ -206,6 +209,36 @@ public sealed class AppointmentWriter
 
         // Note: yearly Month is NOT set here — YearlyRecurrencePatternStructure has no Month field;
         // Outlook derives it from the start date via FirstDateTime. s.Month is for cardinality checks only.
+    }
+
+    // -----------------------------------------------------------------------
+    // Deletion helpers (Task 4)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Populates <see cref="RecurringAppointment.DeletedInstanceDates"/> from
+    /// <see cref="AppointmentRecord.DeletedOccurrences"/> (EXDATE lines).
+    /// De-duplicates via <paramref name="deletedDates"/>: Task 5 passes the same set to
+    /// <c>ApplyExceptions</c> so an EXDATE and an override on the same day don't create two entries.
+    /// </summary>
+    private static void ApplyDeletions(RecurringAppointment ra, AppointmentRecord a,
+        out HashSet<DateTime> deletedDates)
+    {
+        deletedDates = new HashSet<DateTime>();
+        foreach (var d in a.DeletedOccurrences)
+            AddDeletedDate(ra, deletedDates, d.OriginalStartLocal.Date);
+    }
+
+    /// <summary>
+    /// Adds a single zone-local day-start to <see cref="RecurringAppointment.DeletedInstanceDates"/>,
+    /// guarded by <paramref name="seen"/> to prevent duplicates.
+    /// The date is stored with <see cref="DateTimeKind.Unspecified"/> so the vendored serializer
+    /// writes it verbatim as a zone-local wall-clock value (confirmed Task 0).
+    /// </summary>
+    private static void AddDeletedDate(RecurringAppointment ra, HashSet<DateTime> seen, DateTime localDate)
+    {
+        DateTime key = DateTime.SpecifyKind(localDate, DateTimeKind.Unspecified);
+        if (seen.Add(key)) ra.DeletedInstanceDates.Add(key);
     }
 
     /// <summary>Converts a <see cref="DayOfWeek"/> array to a bitfield mask for weekly recurrence.</summary>

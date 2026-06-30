@@ -197,6 +197,28 @@ public class AppointmentWriterRecurrenceTests
         Assert.NotNull(tzStruct);
     }
 
+    // -----------------------------------------------------------------------
+    // Task 4: EXDATE deleted occurrences
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A single EXDATE (deleted occurrence) must produce exactly one entry in
+    /// <c>DeletedInstanceDates</c> on the PidLidAppointmentRecur blob, set to the
+    /// zone-local day-start (date only, Kind=Unspecified).
+    /// </summary>
+    [Fact]
+    public void Exdate_adds_one_deleted_instance()
+    {
+        var rec = WeeklyRecord();
+        rec.DeletedOccurrences = new[] { new RecurrenceInstanceId(
+            new DateTime(2026, 7, 8, 1, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 8, 1, 0, 0, DateTimeKind.Unspecified), "UTC", false) };
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+        Assert.Single(s.DeletedInstanceDates);
+        Assert.Equal(new DateTime(2026, 7, 8), s.DeletedInstanceDates[0].Date);
+    }
+
     /// <summary>
     /// Regression test for the zone-before-start ordering fix.
     ///
