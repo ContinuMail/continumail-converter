@@ -26,4 +26,9 @@ public sealed class AppointmentRecord
 
     public AppointmentAttendee? Organizer { get; set; }
     public IReadOnlyList<AppointmentAttendee> Attendees { get; set; } = Array.Empty<AppointmentAttendee>();
+
+    public string? OriginatingTimeZoneId { get; set; }   // canonical IANA/Olson id (event_start_tz)
+    public RecurrenceSpec? Recurrence { get; set; }
+    public IReadOnlyList<RecurrenceInstanceId> DeletedOccurrences { get; set; } = Array.Empty<RecurrenceInstanceId>();
+    public IReadOnlyList<AppointmentException> Exceptions { get; set; } = Array.Empty<AppointmentException>();
 }
