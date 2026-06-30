@@ -114,7 +114,7 @@ public sealed class AppointmentWriter
         {
             appt.PC.SetBytesProperty(PropertyID.PidTagHtml, Encoding.UTF8.GetBytes(a.BodyHtml));
             appt.PC.SetInt32Property(PropertyID.PidTagNativeBody, 3);
-            appt.InternetCodepage = 65001;
+            // InternetCodepage=65001 already set unconditionally at the top of WriteAppointment.
             if (string.IsNullOrEmpty(plain))
                 plain = PstWriter.HtmlToPlainText(a.BodyHtml);
         }

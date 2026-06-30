@@ -442,7 +442,7 @@ public class PstWriter
     // A task is small; body is plain text (UTF-16 in PST → 2 bytes/char).
     private static long EstimateTaskSize(TaskRecord t) => 2048 + (t.Body?.Length ?? 0) * 2;
 
-    // An appointment: fixed overhead + plain body (UTF-16) + HTML body (UTF-8 bytes).
+    // An appointment: fixed overhead + plain body (UTF-16, 2 bytes/char) + HTML body (2× char count — conservative upper bound for split sizing, not UTF-8).
     private static long EstimateAppointmentSize(AppointmentRecord a) =>
         2048 + (a.Body?.Length ?? 0) * 2 + (a.BodyHtml?.Length ?? 0) * 2;
 

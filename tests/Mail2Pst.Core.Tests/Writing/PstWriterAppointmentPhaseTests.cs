@@ -89,6 +89,7 @@ public class PstWriterAppointmentPhaseTests
                 PSTFolder workFolder = calRoot.FindChildFolder("Work");
                 Assert.NotNull(workFolder);
                 Assert.Equal("IPF.Appointment", workFolder.ContainerClass);
+                Assert.IsType<CalendarFolder>(workFolder);
                 Assert.Equal(0, report.AppointmentsConverted);
             }
             finally { f?.CloseFile(); }

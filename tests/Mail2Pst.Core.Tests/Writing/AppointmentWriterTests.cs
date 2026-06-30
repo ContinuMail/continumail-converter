@@ -109,6 +109,8 @@ public class AppointmentWriterTests
 
         RoundTripAppointment(a, (_, appt) =>
         {
+            Assert.Equal("Timed with TZ", appt.Subject);
+
             // PidLidAppointmentStartWhole must round-trip as the original UTC instant.
             Assert.Equal(start, appt.StartDTUtc);
 

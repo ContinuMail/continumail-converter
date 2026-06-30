@@ -151,7 +151,9 @@ public class ConversionRunner
                     {
                         r = new SqliteCalendarReader().Read(storePath);
                         calendarReadCache[key] = r;
-                        // Record store-level warnings once (not per-mapping).
+                        // Record store-level warnings once (not per-mapping). For a store backing BOTH a task
+                        // and an appointment mapping, warnings are recorded via the first caller (task loop) —
+                        // the appointment loop skips the cache miss branch entirely. Intentional, not a bug.
                         foreach (string warn in r.Warnings)
                             recordStoreWarning(warn);
                     }

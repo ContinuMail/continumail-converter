@@ -266,6 +266,29 @@ public class CalendarEventMapperTests
         Assert.Equal(warnings1.Count, warnings2.Count);
     }
 
+    [Fact]
+    public void AllDayEvent_NoEndDate_EndUtcIsExactly24hAfterStartUtc()
+    {
+        // Non-DST zone (UTC): all-day with null end → EndUtc − StartUtc must equal exactly 24 h.
+        var startMicros = MicrosFor(2026, 7, 15, 0, 0);
+
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Exact Day Event";
+            e.Flags        = 4; // EVENT_ALLDAY
+            e.EventStart   = startMicros;
+            e.EventStartTz = "UTC";
+            e.EventEnd     = null; // missing end → fallback to one-day boundary
+            e.EventEndTz   = "UTC";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.True(appt.IsAllDay);
+        Assert.Equal(TimeSpan.FromHours(24), appt.EndUtc - appt.StartUtc);
+    }
+
     // -----------------------------------------------------------------------
     // All-day event with unresolved timezone → TimeZone=Utc + warn
     // -----------------------------------------------------------------------
@@ -377,16 +400,52 @@ public class CalendarEventMapperTests
     }
 
     [Fact]
-    public void BusyStatus_Default_Returns2()
+    public void BusyStatus_Default_TimedEvent_Returns2()
     {
         var group = SimpleGroup(e =>
         {
             e.IcalStatus = null;
+            // no TRANSP property; Flags=0 → timed event
+        });
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.Equal(2, appt.BusyStatus);
+    }
+
+    [Fact]
+    public void BusyStatus_AllDay_NoTransp_NoStatus_Returns0_Free()
+    {
+        // All-day event with no TRANSP and no TENTATIVE → Free (0), not Busy.
+        var group = SimpleGroup(e =>
+        {
+            e.Flags        = 4; // EVENT_ALLDAY
+            e.EventStartTz = "UTC";
+            e.IcalStatus   = null;
             // no TRANSP property
         });
         var appt = CalendarEventMapper.Map(group, out _);
 
         Assert.NotNull(appt);
+        Assert.True(appt.IsAllDay);
+        Assert.Equal(0, appt.BusyStatus);
+    }
+
+    [Fact]
+    public void BusyStatus_AllDay_OpaqueTransp_Returns2_Busy()
+    {
+        // All-day event WITH explicit TRANSP=OPAQUE → Busy (2); explicit wins over all-day default.
+        var group = SimpleGroup(e =>
+        {
+            e.Flags        = 4; // EVENT_ALLDAY
+            e.EventStartTz = "UTC";
+            e.IcalStatus   = null;
+            e.Properties.Add(new RawProperty("TRANSP", Utf8("OPAQUE"), null, null));
+        });
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.True(appt.IsAllDay);
         Assert.Equal(2, appt.BusyStatus);
     }
 

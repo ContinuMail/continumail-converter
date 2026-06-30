@@ -220,7 +220,8 @@ public class MappingEngineAppointmentTests
                             StorePath = "/p/local.sqlite",
                             CalId = "home",
                             IncludeAppointments = false,
-                            // IncludeTasks also false — bypass validator; engine skips both
+                            // IncludeTasks not set (defaults to false); this test only asserts
+                            // that no appointment mapping is produced when IncludeAppointments=false.
                         },
                     },
                 },

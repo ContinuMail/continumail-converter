@@ -115,9 +115,15 @@ public static class CalendarEventMapper
                     0, 0, 0, DateTimeKind.Unspecified);
             }
 
-            // If end <= start (in local) or end is null → one-day boundary
+            // If end <= start (in local) or end is null → one-day boundary (DST-aware: next local midnight in tz).
             if (endLocalMidnight is null || endLocalMidnight.Value <= startLocalMidnight)
-                appt.EndUtc = appt.StartUtc.AddDays(1);
+            {
+                var startLocalDate2 = TimeZoneInfo.ConvertTimeFromUtc(appt.StartUtc, tz).Date;
+                var nextLocalMidnight = new DateTime(
+                    startLocalDate2.Year, startLocalDate2.Month, startLocalDate2.Day,
+                    0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
+                appt.EndUtc = TimeZoneInfo.ConvertTimeToUtc(nextLocalMidnight, tz);
+            }
             else
                 appt.EndUtc = TimeZoneInfo.ConvertTimeToUtc(endLocalMidnight.Value, tz);
         }
@@ -162,15 +168,19 @@ public static class CalendarEventMapper
         appt.Categories = cats is not null ? SplitCategories(cats) : Array.Empty<string>();
 
         // BusyStatus (explicit precedence)
-        // 1. TENTATIVE status → 1
+        // 1. TENTATIVE status → 1 (Tentative)
         // 2. TRANSP=TRANSPARENT → 0 (Free)
-        // 3. default → 2 (Busy)
+        // 3. TRANSP=OPAQUE → 2 (Busy) — explicit wins over all-day default
+        // 4. no explicit TRANSP → all-day defaults to 0 (Free); timed defaults to 2 (Busy)
+        var transp = PropValue(master, "TRANSP");
         if (string.Equals(master.IcalStatus, "TENTATIVE", StringComparison.OrdinalIgnoreCase))
             appt.BusyStatus = 1;
-        else if (string.Equals(PropValue(master, "TRANSP"), "TRANSPARENT", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(transp, "TRANSPARENT", StringComparison.OrdinalIgnoreCase))
             appt.BusyStatus = 0;
-        else
+        else if (string.Equals(transp, "OPAQUE", StringComparison.OrdinalIgnoreCase))
             appt.BusyStatus = 2;
+        else
+            appt.BusyStatus = isAllDay ? 0 : 2; // all-day events default to Free; timed events default to Busy
 
         // Importance from iCal PRIORITY
         appt.Importance = master.Priority switch
