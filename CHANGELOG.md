@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (incl. Private), importance, body (plain **and** HTML), categories, and reminder. Events are included
   automatically when you convert a profile; a `--no-appointments` flag opts out. _Recurring events,
   attendees, and attachments are deferred to later releases._
+- **Meeting attendees now convert to PST appointment recipients.** Events with attendees become proper
+  Outlook meetings (`IPM.Appointment` with meeting-request state). Required, optional, and resource
+  attendees map to the correct MAPI recipient types (To/Cc/Bcc); the organizer is recorded in the
+  organizer field and as an organizer-copy recipient row. Per-attendee PARTSTAT (accepted/declined/tentative
+  etc.) maps to both `PidLidResponseStatus` and the track-status column on each recipient row.
+  Attendee-free events remain plain appointments (no meeting state, no extra properties).
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
@@ -47,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   busy/free, `PidLidPrivate` coupling, HTML/ALTREP body) was pinned against a real Outlook appointment
   export; timezones resolve cross-platform without the Win32 registry. The independent `pst-validate`
   round-trip gate now covers `IPF.Appointment` folder counts.
+- Meeting attendee pipeline: `AppointmentAttendee`/`AttendeeKind`/`AttendeeResponse` model from
+  `cal_attendees` rows; `AppointmentWriter.WriteAttendees` sets recipient rows (`MAPI_TO`/`CC`/`BCC`),
+  organizer fields, meeting-request object type/subtype, and per-recipient track-status via a vendored
+  `PidLidResponseStatus` registration. Case-insensitive email dedup (attendees vs organizer). Attendee-only
+  events with no valid email are skipped with a warning; organizer-only events (zero attendees) remain
+  plain appointments. Received-meeting response status is deferred (requires identity resolution).
 
 ## [0.2.3] — 2026-06-28
 
