@@ -181,6 +181,40 @@ public static class RoundTripHarness
                     }
                 }
             }
+
+            // Count appointments analogously.
+            // The writer ALWAYS pre-creates every appointment folder in Begin() (same as contacts/tasks),
+            // so an empty calendar still yields an IPM.Appointment folder. Mirror that: always
+            // EnsurePrefixes for every AppointmentMapping, then add one placeholder MailMessage per
+            // appointment that CalendarEventMapper.Map would actually write (non-null result only —
+            // so recurring/skipped events don't inflate the expected count).
+            foreach (AppointmentMapping am in plan.AppointmentMappings)
+            {
+                IReadOnlyList<string> apptPath = am.TargetFolderPath;
+                // Always pre-create the folder (mirrors runner's Begin() which pre-creates appointment folders).
+                EnsurePrefixes(apptPath);
+                string apptLeafKey = FolderPathKey.Join(apptPath);
+
+                // Mirror ConversionRunner.ReadStore: an unreadable store warns + continues with 0 appointments.
+                // BuildTruth mirrors that by catching the same exception types and yielding count 0.
+                CalendarReadResult calRead;
+                try { calRead = new SqliteCalendarReader().Read(am.Source.StorePath); }
+                catch (Exception ex) when (ex is IOException or SqliteException) { continue; }
+
+                IEnumerable<RawCalendarRead> apptCals = string.IsNullOrEmpty(am.Source.CalId)
+                    ? calRead.Calendars
+                    : calRead.Calendars.Where(c => c.CalId == am.Source.CalId);
+
+                foreach (RawCalendarRead cal in apptCals)
+                {
+                    foreach (RawEventGroup group in cal.EventGroups)
+                    {
+                        AppointmentRecord? mapped = CalendarEventMapper.Map(group, out _);
+                        if (mapped is not null)
+                            truth[apptLeafKey].Add(new MailMessage());
+                    }
+                }
+            }
         }
         return truth;
     }
