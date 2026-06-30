@@ -146,14 +146,6 @@ public class AppointmentWriterRecurrenceTests
     [Fact]
     public void Recurring_with_Bangkok_tz_writes_tz_definition_blobs()
     {
-        // Skip on platforms where IANA→Windows TZ mapping is unavailable.
-        // .NET 6+ on Linux with globalization invariant mode cannot map IANA ids.
-        if (!TimeZoneInfo.TryConvertIanaIdToWindowsId("Asia/Bangkok", out _))
-        {
-            // On this platform the zone resolution would fall back to UTC — the blob
-            // will still be present (UTC TZ blobs), so we just assert non-null below.
-        }
-
         var rec = BangkokRecord();
         var (count, blob, appt) = WriteAndReadAppointment(rec);
         Assert.Equal(1, count);
@@ -203,5 +195,56 @@ public class AppointmentWriterRecurrenceTests
         // UTC zone definition blobs must be present (SetOriginalTimeZone(UTC) was called).
         byte[]? tzStruct = appt.PC.GetBytesProperty(PropertyNames.PidLidTimeZoneStruct);
         Assert.NotNull(tzStruct);
+    }
+
+    /// <summary>
+    /// Regression test for the zone-before-start ordering fix.
+    ///
+    /// <para>
+    /// <c>RecurringAppointment.StartDTUtc</c> setter (inside <c>SetStartAndDuration</c>) computes
+    /// <c>PidLidClipStart</c> as local-midnight in <c>this.OriginalTimeZone</c>.  Before the fix,
+    /// <c>SetOriginalTimeZone</c> was called AFTER <c>SetStartAndDuration</c>, so on a UTC CI host
+    /// <c>ClipStart</c> was midnight-UTC rather than midnight in the event's zone — the wrong date
+    /// for events where start-of-day differs between the event zone and UTC.
+    /// </para>
+    /// <para>
+    /// Scenario: Bangkok (UTC+7) recurring appointment, <c>StartUtc = 2026-07-01T02:00:00Z</c>
+    /// (= 09:00 Bangkok local).  Bangkok local-midnight = 2026-07-01T00:00:00+07:00 = 2026-06-30T17:00:00Z.
+    /// After the fix <c>ClipStart</c> must be <c>2026-06-30T17:00:00Z</c>;
+    /// before the fix it would be <c>2026-07-01T00:00:00Z</c> on any UTC host.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Recurring_Bangkok_ClipStart_is_event_zone_midnight_not_utc_midnight()
+    {
+        var rec = new AppointmentRecord
+        {
+            Subject               = "Bangkok ClipStart regression",
+            StartUtc              = new DateTime(2026, 7, 1, 2, 0, 0, DateTimeKind.Utc),  // 09:00 Bangkok
+            EndUtc                = new DateTime(2026, 7, 1, 2, 30, 0, DateTimeKind.Utc),
+            OriginatingTimeZoneId = "Asia/Bangkok",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = AppointmentRecurrenceFrequency.Daily,
+                Interval              = 1,
+                DaysOfWeek            = Array.Empty<DayOfWeek>(),
+                EndKind               = RecurrenceEndKind.NoEnd,
+                FirstStartUtc         = new DateTime(2026, 7, 1, 2, 0, 0, DateTimeKind.Utc),
+                FirstStartLocal       = new DateTime(2026, 7, 1, 9, 0, 0),   // UTC+7
+                OriginatingTimeZoneId = "Asia/Bangkok",
+            },
+        };
+
+        DateTime? clipStart = null;
+        WriteAndReadAppointment(rec, (_, appt) =>
+        {
+            clipStart = appt.PC.GetDateTimeProperty(PropertyNames.PidLidClipStart);
+            return appt;
+        });
+
+        Assert.NotNull(clipStart);
+        // Bangkok midnight for the 2026-07-01 event date = 2026-06-30T17:00:00Z.
+        // Before the fix (zone applied AFTER SetStartAndDuration) this would be 2026-07-01T00:00:00Z on a UTC host.
+        Assert.Equal(new DateTime(2026, 6, 30, 17, 0, 0, DateTimeKind.Utc), clipStart!.Value.ToUniversalTime());
     }
 }
