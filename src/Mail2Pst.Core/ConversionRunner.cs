@@ -35,7 +35,7 @@ public class ConversionRunner
         _writer = new PstWriter(checkIntervalMessages, progressIntervalMessages);
     }
 
-    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null, int precomputedTotalMessages = -1, bool skipTasks = false)
+    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null, int precomputedTotalMessages = -1, bool skipTasks = false, bool skipAppointments = false)
     {
         // Validate the config up front (output names, duplicates, sizes, sources)
         // so problems fail loudly before any output file is created.
@@ -91,9 +91,10 @@ public class ConversionRunner
             onProgress(new ScanEvent(total));
         }
 
-        // Track whether the "tasks disabled by --no-tasks" warning has already been emitted
-        // so we emit it exactly once even when multiple output groups carry task mappings.
+        // Track whether the "X disabled by --no-X" warning has already been emitted
+        // so each is emitted exactly once even when multiple output groups carry those mappings.
         bool noTasksWarned = false;
+        bool noAppointmentsWarned = false;
 
         try
         {
@@ -137,6 +138,26 @@ public class ConversionRunner
                     }
                 }
 
+                // Shared per-plan calendar read cache: reads each SQLite store at most once
+                // regardless of whether it is accessed by the task loop, the appointment loop,
+                // or both. Cross-platform key: normalize path; on Windows fold case.
+                var calendarReadCache = new Dictionary<string, CalendarReadResult>(
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
+                CalendarReadResult ReadCalendarStore(string storePath, Action<string> recordStoreWarning)
+                {
+                    string key = Path.GetFullPath(storePath);
+                    if (!calendarReadCache.TryGetValue(key, out var r))
+                    {
+                        r = new SqliteCalendarReader().Read(storePath);
+                        calendarReadCache[key] = r;
+                        // Record store-level warnings once (not per-mapping).
+                        foreach (string warn in r.Warnings)
+                            recordStoreWarning(warn);
+                    }
+                    return r;
+                }
+
                 // Assemble tasks for this output group.
                 var plannedTasks = new List<PlannedTask>();
                 var taskFolders = new List<IReadOnlyList<string>>();
@@ -148,30 +169,11 @@ public class ConversionRunner
                 }
                 else if (!skipTasks && plan.TaskMappings.Count > 0)
                 {
-                    // Cache: read each calendar store at most once per output group.
-                    // Cross-platform key: normalize path; on Windows fold case (FS is case-insensitive).
-                    var calendarReadCache = new Dictionary<string, CalendarReadResult>(
-                        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-
-                    CalendarReadResult ReadStore(string storePath)
-                    {
-                        string key = Path.GetFullPath(storePath);
-                        if (!calendarReadCache.TryGetValue(key, out var r))
-                        {
-                            r = new SqliteCalendarReader().Read(storePath);
-                            calendarReadCache[key] = r;
-                            // Record store-level warnings once (not per-mapping).
-                            foreach (string warn in r.Warnings)
-                                report.RecordTaskWarning(warn);
-                        }
-                        return r;
-                    }
-
                     foreach (TaskMapping tm in plan.TaskMappings)
                     {
                         taskFolders.Add(tm.TargetFolderPath);
                         CalendarReadResult read;
-                        try { read = ReadStore(tm.Source.StorePath); }
+                        try { read = ReadCalendarStore(tm.Source.StorePath, w => report.RecordTaskWarning(w)); }
                         catch (Exception ex) when (ex is IOException or SqliteException)
                         {
                             report.RecordTaskWarning($"Calendar store skipped [{tm.Source.StorePath}]: {ex.Message}");
@@ -210,7 +212,61 @@ public class ConversionRunner
                     }
                 }
 
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
+                // Assemble appointments for this output group.
+                var plannedAppointments = new List<PlannedAppointment>();
+                var appointmentFolders = new List<IReadOnlyList<string>>();
+
+                if (skipAppointments && plan.AppointmentMappings.Count > 0 && !noAppointmentsWarned)
+                {
+                    report.RecordAppointmentWarning("appointments disabled by --no-appointments");
+                    noAppointmentsWarned = true;
+                }
+                else if (!skipAppointments && plan.AppointmentMappings.Count > 0)
+                {
+                    foreach (AppointmentMapping am in plan.AppointmentMappings)
+                    {
+                        appointmentFolders.Add(am.TargetFolderPath);
+                        CalendarReadResult read;
+                        try { read = ReadCalendarStore(am.Source.StorePath, w => report.RecordAppointmentWarning(w)); }
+                        catch (Exception ex) when (ex is IOException or SqliteException)
+                        {
+                            report.RecordAppointmentWarning($"Calendar store skipped [{am.Source.StorePath}]: {ex.Message}");
+                            continue;
+                        }
+
+                        // Filter to the specified calendar (or all calendars when CalId is empty).
+                        IEnumerable<RawCalendarRead> cals = string.IsNullOrEmpty(am.Source.CalId)
+                            ? read.Calendars
+                            : read.Calendars.Where(c => c.CalId == am.Source.CalId);
+
+                        foreach (RawCalendarRead cal in cals)
+                        {
+                            foreach (RawEventGroup group in cal.EventGroups)
+                            {
+                                AppointmentRecord? mapped = CalendarEventMapper.Map(group, out IReadOnlyList<string> warns);
+                                foreach (string w in warns)
+                                    report.RecordAppointmentWarning(w);
+                                if (mapped is null)
+                                {
+                                    // Map returned null; the first warning (if any) describes the reason.
+                                    report.RecordAppointmentSkipped(
+                                        am.Source.StorePath,
+                                        warns.Count > 0 ? warns[0] : "unmappable event");
+                                }
+                                else
+                                {
+                                    plannedAppointments.Add(new PlannedAppointment
+                                    {
+                                        Appointment = mapped,
+                                        TargetFolderPath = am.TargetFolderPath,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
                 report.AddOutputFiles(outputFiles);
             }
 
