@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carrying subject, start/due/completed dates, status, percent-complete, priority, sensitivity (incl.
   Private), reminder, body, and categories. Tasks are included automatically when you convert a profile;
   a `--no-tasks` flag opts out. _Recurring tasks are deferred to a later release._
+- **Thunderbird calendar events now convert to PST.** Non-recurring events from a Thunderbird calendar
+  store (`local.sqlite`/`cache.sqlite`) become Outlook appointments (`IPM.Appointment`) in a per-calendar
+  Calendar folder, carrying subject, start/end with **timezone**, **all-day**, location, busy/free, sensitivity
+  (incl. Private), importance, body (plain **and** HTML), categories, and reminder. Events are included
+  automatically when you convert a profile; a `--no-appointments` flag opts out. _Recurring events,
+  attendees, and attachments are deferred to later releases._
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
@@ -34,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reminders, date-only start/due, the completed-task recipe, `PidLidPrivate` coupling, percent as
   `PtypFloating64`, `Keywords` categories) was pinned against a real Outlook task export. The independent
   `pst-validate` round-trip gate now covers `IPF.Task` folder counts.
+- New appointment pipeline (`AppointmentRecord` model, `CalendarEventMapper` over the SQLite calendar
+  reader, an `AppointmentWriter` driving the vendored `SingleAppointment` MS-OXOCAL substrate) added as a
+  distinct write phase reusing the shared precreation / size-split / checkpoint / reporting machinery. The
+  MAPI recipe (timezone-definition blobs, all-day local-midnight semantics, minutes-before reminder delta,
+  busy/free, `PidLidPrivate` coupling, HTML/ALTREP body) was pinned against a real Outlook appointment
+  export; timezones resolve cross-platform without the Win32 registry. The independent `pst-validate`
+  round-trip gate now covers `IPF.Appointment` folder counts.
 
 ## [0.2.3] — 2026-06-28
 
