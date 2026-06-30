@@ -13,6 +13,8 @@ namespace PSTFileFormat
         public static readonly Guid PSETID_Appointment = new Guid("{00062002-0000-0000-C000-000000000046}");
         // ContinuMail addition 2026: PSETID_Address (contacts)
         public static readonly Guid PSETID_Address = new Guid("{00062004-0000-0000-C000-000000000046}");
+        // ContinuMail addition 2026: PSETID_Task (tasks)
+        public static readonly Guid PSETID_Task = new Guid("{00062003-0000-0000-C000-000000000046}");
         public static readonly Guid PSETID_Meeting = new Guid("{6ED8DA90-450B-101B-98DA-00AA003F1305}");
     }
 }
