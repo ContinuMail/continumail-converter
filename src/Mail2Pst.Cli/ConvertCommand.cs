@@ -115,7 +115,7 @@ internal static class ConvertCommand
                         CliArgs.WriteJsonLine(new { type = "warning", source = w.Source, identifier = w.Identifier, reason = w.Reason });
                         break;
                 }
-            }, cts.Token, precomputedTotalMessages: resolved.ExpectedTotal);
+            }, cts.Token, precomputedTotalMessages: resolved.ExpectedTotal, skipTasks: resolved.NoTasks);
 
             stopwatch.Stop();
 

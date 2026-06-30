@@ -9,8 +9,10 @@ using Mail2Pst.Core.Discovery;
 namespace Mail2Pst.Cli;
 
 /// <summary>Resolved convert inputs, or a user-facing Error string. Pure (no signals/conversion).
-/// <paramref name="ExpectedTotal"/> is an optional precomputed message count (-1 = count on demand).</summary>
-internal sealed record ConvertResolution(ConversionConfig? Config, string? OutputDir, string? InputLabel, string? Error, int ExpectedTotal = -1);
+/// <paramref name="ExpectedTotal"/> is an optional precomputed message count (-1 = count on demand).
+/// <paramref name="NoTasks"/> reflects the <c>--no-tasks</c> flag; the runner uses this to skip task
+/// assembly even for explicit-config mode where synthesis was never attempted.</summary>
+internal sealed record ConvertResolution(ConversionConfig? Config, string? OutputDir, string? InputLabel, string? Error, int ExpectedTotal = -1, bool NoTasks = false);
 
 /// <summary>
 /// Resolves `convert` arguments into a ConversionConfig (or an error), supporting --config (existing),
@@ -26,7 +28,7 @@ internal static class ConvertInput
 
     // Flags that are standalone (no value token consumed).
     private static readonly System.Collections.Generic.HashSet<string> ValuelessFlags =
-        new(StringComparer.Ordinal) { "--no-contacts" };
+        new(StringComparer.Ordinal) { "--no-contacts", "--no-tasks" };
 
     internal static ConvertResolution Resolve(string[] args)
     {
@@ -64,6 +66,10 @@ internal static class ConvertInput
             // It only applies on the profile/discovery path; explicit --config contacts are unaffected.
             bool noContacts = args.Contains("--no-contacts", StringComparer.Ordinal);
 
+            // --no-tasks opts out of task synthesis in discovery mode and instructs the runner
+            // to skip task mappings entirely in explicit-config mode.
+            bool noTasks = args.Contains("--no-tasks", StringComparer.Ordinal);
+
             ConversionConfig? template = null;
             if (configPath is not null)
             {
@@ -76,8 +82,9 @@ internal static class ConvertInput
             try
             {
                 DiscoveryResult discovery = MailProfileDiscovery.Discover(profileDir);
-                ConversionConfig config = ConfigFromDiscovery.Build(discovery, template, includeContacts: !noContacts);
-                return new(config, outputDir, profileDir, null, expectedTotal);
+                ConversionConfig config = ConfigFromDiscovery.Build(discovery, template,
+                    includeContacts: !noContacts, includeTasks: !noTasks);
+                return new(config, outputDir, profileDir, null, expectedTotal, NoTasks: noTasks);
             }
             catch (Exception ex)
             {
@@ -86,12 +93,14 @@ internal static class ConvertInput
         }
 
         // --config only (existing behaviour).
+        // --no-tasks still applies here: the runner ignores task mappings even for explicit configs.
+        bool noTasksExplicit = args.Contains("--no-tasks", StringComparer.Ordinal);
         if (!File.Exists(configPath!))
             return new(null, null, null, $"Config not found: {configPath}");
         try
         {
             ConversionConfig config = ConfigLoader.Load(configPath!);
-            return new(config, outputDir, configPath, null, expectedTotal);
+            return new(config, outputDir, configPath, null, expectedTotal, NoTasks: noTasksExplicit);
         }
         catch (Exception ex)
         {

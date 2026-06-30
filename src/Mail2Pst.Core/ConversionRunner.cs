@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Diagnostics;
@@ -34,7 +35,7 @@ public class ConversionRunner
         _writer = new PstWriter(checkIntervalMessages, progressIntervalMessages);
     }
 
-    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null, int precomputedTotalMessages = -1)
+    public ConversionReport Run(ConversionConfig config, string outputDirectory, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null, int precomputedTotalMessages = -1, bool skipTasks = false)
     {
         // Validate the config up front (output names, duplicates, sizes, sources)
         // so problems fail loudly before any output file is created.
@@ -90,6 +91,10 @@ public class ConversionRunner
             onProgress(new ScanEvent(total));
         }
 
+        // Track whether the "tasks disabled by --no-tasks" warning has already been emitted
+        // so we emit it exactly once even when multiple output groups carry task mappings.
+        bool noTasksWarned = false;
+
         try
         {
             foreach (PstOutputPlan plan in plans)
@@ -132,7 +137,80 @@ public class ConversionRunner
                     }
                 }
 
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
+                // Assemble tasks for this output group.
+                var plannedTasks = new List<PlannedTask>();
+                var taskFolders = new List<IReadOnlyList<string>>();
+
+                if (skipTasks && plan.TaskMappings.Count > 0 && !noTasksWarned)
+                {
+                    report.RecordTaskWarning("tasks disabled by --no-tasks");
+                    noTasksWarned = true;
+                }
+                else if (!skipTasks && plan.TaskMappings.Count > 0)
+                {
+                    // Cache: read each calendar store at most once per output group.
+                    // Cross-platform key: normalize path; on Windows fold case (FS is case-insensitive).
+                    var calendarReadCache = new Dictionary<string, CalendarReadResult>(
+                        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
+                    CalendarReadResult ReadStore(string storePath)
+                    {
+                        string key = Path.GetFullPath(storePath);
+                        if (!calendarReadCache.TryGetValue(key, out var r))
+                        {
+                            r = new SqliteCalendarReader().Read(storePath);
+                            calendarReadCache[key] = r;
+                            // Record store-level warnings once (not per-mapping).
+                            foreach (string warn in r.Warnings)
+                                report.RecordTaskWarning(warn);
+                        }
+                        return r;
+                    }
+
+                    foreach (TaskMapping tm in plan.TaskMappings)
+                    {
+                        taskFolders.Add(tm.TargetFolderPath);
+                        CalendarReadResult read;
+                        try { read = ReadStore(tm.Source.StorePath); }
+                        catch (Exception ex) when (ex is IOException or SqliteException)
+                        {
+                            report.RecordTaskWarning($"Calendar store skipped [{tm.Source.StorePath}]: {ex.Message}");
+                            continue;
+                        }
+
+                        // Filter to the specified calendar (or all calendars when CalId is empty).
+                        IEnumerable<RawCalendarRead> cals = string.IsNullOrEmpty(tm.Source.CalId)
+                            ? read.Calendars
+                            : read.Calendars.Where(c => c.CalId == tm.Source.CalId);
+
+                        foreach (RawCalendarRead cal in cals)
+                        {
+                            foreach (RawTodoGroup group in cal.TodoGroups)
+                            {
+                                TaskRecord? mapped = CalendarTaskMapper.Map(group, out IReadOnlyList<string> warns);
+                                foreach (string w in warns)
+                                    report.RecordTaskWarning(w);
+                                if (mapped is null)
+                                {
+                                    // Map returned null; the first warning (if any) describes the reason.
+                                    report.RecordTaskSkipped(
+                                        tm.Source.StorePath,
+                                        warns.Count > 0 ? warns[0] : "unmappable task");
+                                }
+                                else
+                                {
+                                    plannedTasks.Add(new PlannedTask
+                                    {
+                                        Task = mapped,
+                                        TargetFolderPath = tm.TargetFolderPath,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
                 report.AddOutputFiles(outputFiles);
             }
 

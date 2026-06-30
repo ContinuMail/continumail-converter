@@ -16,11 +16,15 @@ namespace Mail2Pst.Core.Discovery;
 /// <para>When <paramref name="includeContacts"/> is true (default), discovered address books are
 /// synthesized as <see cref="ContactSourceConfig"/> entries on each output group that has no
 /// explicit template contacts. Explicit template contacts always win per group.</para>
+/// <para>When <paramref name="includeTasks"/> is true (default), discovered calendars with
+/// <see cref="DiscoveredCalendarSource.TaskCount"/> &gt; 0 are synthesized as
+/// <see cref="CalendarSourceConfig"/> entries on each output group that has no explicit
+/// template calendars. Explicit template calendars always win per group.</para>
 /// </summary>
 public static class ConfigFromDiscovery
 {
     public static ConversionConfig Build(DiscoveryResult discovery, ConversionConfig? template = null,
-        bool includeContacts = true)
+        bool includeContacts = true, bool includeTasks = true)
     {
         ArgumentNullException.ThrowIfNull(discovery);
 
@@ -86,6 +90,28 @@ public static class ConfigFromDiscovery
                         Format = book.Format,
                         TargetFolderPath = new[] { "Contacts", book.DisplayName },
                     });
+            }
+        }
+
+        // Synthesize calendar/task sources from discovered calendars that carry tasks.
+        // Explicit template calendars win per group — skip synthesis if the group already has calendars.
+        if (includeTasks)
+        {
+            foreach (OutputGroupConfig output in config.Outputs)
+            {
+                if (output.Calendars.Count > 0) continue; // explicit template calendars win for this group
+                foreach (DiscoveredCalendarSource src in discovery.Calendars)
+                {
+                    if (src.TaskCount <= 0) continue;
+                    output.Calendars.Add(new CalendarSourceConfig
+                    {
+                        StorePath = src.StorePath,
+                        CalId = src.CalId,
+                        IncludeTasks = true,
+                        IncludeAppointments = false,
+                        TaskFolderPath = src.DefaultTaskFolderPath.ToArray(),
+                    });
+                }
             }
         }
 
