@@ -19,6 +19,7 @@ namespace PSTFileFormat
         PidLidTaskEstimatedEffort = 0x00008111,   // Int32
         PidLidTaskVersion = 0x00008112,           // Int32
         PidLidTaskState = 0x00008113,             // Int32
+        PidLidTaskDateCompleted = 0x0000810F,     // DateTime  // ContinuMail addition 2026
         PidLidTaskComplete = 0x0000811C,          // Boolean
         PidLidTaskAssigner = 0x00008121,          // String
         PidLidTaskOrdinal = 0x00008123,           // Int32
