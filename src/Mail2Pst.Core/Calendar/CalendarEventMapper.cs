@@ -93,8 +93,10 @@ public static class CalendarEventMapper
             var tz = resolvedZone ?? TimeZoneInfo.Utc;
 
             // Convert UTC instant to local date in tz
+            if (startOffset is null)
+                w.Add($"all-day event '{title}': missing start — using sentinel date");
             var startLocalDate = TimeZoneInfo.ConvertTimeFromUtc(
-                startOffset?.UtcDateTime ?? DateTime.UtcNow, tz).Date;
+                startOffset?.UtcDateTime ?? default, tz).Date;
 
             // Build local midnight
             var startLocalMidnight = new DateTime(

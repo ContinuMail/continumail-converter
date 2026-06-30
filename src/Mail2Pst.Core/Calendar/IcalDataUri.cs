@@ -72,7 +72,7 @@ internal static class IcalDataUri
             bytes = Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
             return true;
         }
-        catch
+        catch (UriFormatException)
         {
             return false;
         }

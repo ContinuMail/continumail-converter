@@ -175,8 +175,8 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.Null(appt.TimeZone);
-        // TimeZoneResolver emits "no TZ description" + mapper adds floating/unresolved warning
-        Assert.True(warnings.Count >= 1, "Expected at least one warning for no-TZ event");
+        // Exactly two warnings: resolver emits "no TZ description", mapper adds "floating/unresolved timezone"
+        Assert.Equal(2, warnings.Count);
         Assert.Contains("floating/unresolved timezone", string.Join(" ", warnings));
     }
 
@@ -232,6 +232,38 @@ public class CalendarEventMapperTests
         Assert.True(appt.IsAllDay);
         Assert.Equal(new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc), appt.StartUtc);
         Assert.Equal(new DateTime(2026, 7, 16, 0, 0, 0, DateTimeKind.Utc), appt.EndUtc);
+    }
+
+    [Fact]
+    public void AllDayEvent_NullEventStart_UsesSentinelDateAndWarns()
+    {
+        // All-day event where EventStart is null → must not use DateTime.UtcNow
+        // (non-deterministic). Should fall back to default(DateTime) and warn.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Sentinel Holiday";
+            e.Flags        = 4; // EVENT_ALLDAY
+            e.EventStart   = null;
+            e.EventStartTz = "UTC";
+            e.EventEnd     = null;
+            e.EventEndTz   = "UTC";
+        });
+
+        var appt1 = CalendarEventMapper.Map(group, out var warnings1);
+        var appt2 = CalendarEventMapper.Map(group, out var warnings2);
+
+        Assert.NotNull(appt1);
+        Assert.True(appt1.IsAllDay);
+
+        // Sentinel date — default(DateTime) round-tripped through UTC midnight
+        Assert.Equal(default(DateTime), appt1.StartUtc);
+
+        // Warning emitted for missing start
+        Assert.Contains(warnings1, w => w.Contains("missing start"));
+
+        // Deterministic: two calls produce identical output
+        Assert.Equal(appt1.StartUtc, appt2.StartUtc);
+        Assert.Equal(warnings1.Count, warnings2.Count);
     }
 
     // -----------------------------------------------------------------------
