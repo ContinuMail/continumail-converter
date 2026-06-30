@@ -796,6 +796,16 @@ public static class CalendarEventMapper
         }
 
         spec.LastInstanceStartUtc = ComputeLastInstanceUtc(spec);
+
+        // Defensive guard: ComputeLastInstanceUtc failed (near-unreachable path — requires
+        // Ical.Net to throw during COUNT enumeration). Degrade to single occurrence rather
+        // than silently producing an unbounded series via the NoEnd sentinel.
+        if (spec.EndKind == RecurrenceEndKind.Count && spec.LastInstanceStartUtc is null)
+        {
+            w.Add($"recurrence COUNT could not be resolved; wrote first occurrence only: '{appt.Subject}'");
+            return;
+        }
+
         appt.Recurrence = spec;
 
         // Map EXDATEs to deleted-occurrence identities.
