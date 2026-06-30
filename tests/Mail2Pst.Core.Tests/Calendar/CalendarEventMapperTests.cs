@@ -644,8 +644,8 @@ public class CalendarEventMapperTests
         {
             e.Title        = "Weekly Review";
             e.Flags        = 4; // EVENT_ALLDAY
-            e.EventStart   = MicrosFor(2026, 7, 14, 0, 0); // Monday
-            e.EventEnd     = MicrosFor(2026, 7, 15, 0, 0);
+            e.EventStart   = MicrosFor(2026, 7, 13, 0, 0); // Monday 2026-07-13
+            e.EventEnd     = MicrosFor(2026, 7, 14, 0, 0);
             e.EventStartTz = "UTC";
             e.EventEndTz   = "UTC";
             e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4"));
