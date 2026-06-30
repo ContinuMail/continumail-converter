@@ -185,4 +185,6 @@ authoritative description of the local PSTFileFormat modifications.
   the earlier ContinuMail batch; verified against MS-OXPROPS specification and a real Outlook
   contact PST with embedded photo).
 
+- Round-tripped recipient track status (`PidTagRecipientTrackStatus`) via `MessageRecipient.ResponseStatus` (written in `AddRecipient`, read in `GetRecipient`), and registered `PidLidResponseStatus` (0x8218, PSETID_Appointment) for meeting recipients (ContinuMail, 2026).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

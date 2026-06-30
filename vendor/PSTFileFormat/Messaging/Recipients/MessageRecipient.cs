@@ -18,6 +18,7 @@ namespace PSTFileFormat
         public string EmailAddress;
         public bool IsOrganizer;
         public RecipientType RecipientType = RecipientType.To; // default preserves prior behavior
+        public int ResponseStatus = 0; // PidTagRecipientTrackStatus; 0 = none/unknown (default, backward-compat)
 
         public MessageRecipient()
         {

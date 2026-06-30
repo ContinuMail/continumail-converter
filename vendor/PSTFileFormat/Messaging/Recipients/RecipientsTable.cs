@@ -29,12 +29,16 @@ namespace PSTFileFormat
                 RecipientFlags recipientFlags = (RecipientFlags)GetInt32Property(rowIndex, PropertyID.PidTagRecipientFlags);
                 result.IsOrganizer = ((recipientFlags & RecipientFlags.MeetingOrganizer) > 0);
             }
+            if (ContainsPropertyColumn(PropertyID.PidTagRecipientTrackStatus, PropertyTypeName.PtypInteger32))
+            {
+                result.ResponseStatus = GetInt32Property(rowIndex, PropertyID.PidTagRecipientTrackStatus) ?? 0;
+            }
             return result;
         }
 
         public void AddRecipient(PSTFile file, MessageRecipient recipient)
         {
-            AddRecipient(file, recipient.DisplayName, recipient.EmailAddress, recipient.IsOrganizer, recipient.RecipientType);
+            AddRecipient(file, recipient.DisplayName, recipient.EmailAddress, recipient.IsOrganizer, recipient.RecipientType, recipient.ResponseStatus);
         }
 
         public void AddRecipient(PSTFile file, string displayName, string emailAddress, bool isOrganizer)
@@ -43,6 +47,11 @@ namespace PSTFileFormat
         }
 
         public void AddRecipient(PSTFile file, string displayName, string emailAddress, bool isOrganizer, RecipientType recipientType)
+        {
+            AddRecipient(file, displayName, emailAddress, isOrganizer, recipientType, 0);
+        }
+
+        public void AddRecipient(PSTFile file, string displayName, string emailAddress, bool isOrganizer, RecipientType recipientType, int responseStatus)
         {
             // http://social.msdn.microsoft.com/Forums/en-US/os_binaryfile/thread/a5f9c653-40f5-4638-85d3-00c54607d984/
             // dwRowID must be > 0:
@@ -57,14 +66,14 @@ namespace PSTFileFormat
             SetInt32Property(rowIndex, PropertyID.PidTagDisplayType, 0);
 
             SetStringProperty(rowIndex, PropertyID.PidTagRecipientDisplayName, displayName);
-            
+
             int recipientFlags = (int)RecipientFlags.SendableAttendee;
             if (isOrganizer)
             {
                 recipientFlags |= (int)RecipientFlags.MeetingOrganizer;
             }
             SetInt32Property(rowIndex, PropertyID.PidTagRecipientFlags, recipientFlags);
-            SetInt32Property(rowIndex, PropertyID.PidTagRecipientTrackStatus, 0);
+            SetInt32Property(rowIndex, PropertyID.PidTagRecipientTrackStatus, responseStatus);
 
             byte[] recipientEntryID = RecipientEntryID.GetEntryID(displayName, emailAddress).GetBytes();
             SetBytesProperty(rowIndex, PropertyID.PidTagEntryId, recipientEntryID);

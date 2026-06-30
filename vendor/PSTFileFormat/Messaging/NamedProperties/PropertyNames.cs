@@ -33,6 +33,7 @@ namespace PSTFileFormat
         public static readonly PropertyName PidLidBusyStatus = new PropertyName(PropertyLongID.PidLidBusyStatus, PropertySetGuid.PSETID_Appointment);
         public static readonly PropertyName PidLidFInvited = new PropertyName(PropertyLongID.PidLidFInvited, PropertySetGuid.PSETID_Appointment);
         public static readonly PropertyName PidLidAppointmentStateFlags = new PropertyName(PropertyLongID.PidLidAppointmentStateFlags, PropertySetGuid.PSETID_Appointment);
+        public static readonly PropertyName PidLidResponseStatus = new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment);
         public static readonly PropertyName PidLidAppointmentRecur = new PropertyName(PropertyLongID.PidLidAppointmentRecur, PropertySetGuid.PSETID_Appointment);
         public static readonly PropertyName PidLidTimeZoneDescription = new PropertyName(PropertyLongID.PidLidTimeZoneDescription, PropertySetGuid.PSETID_Appointment);
         public static readonly PropertyName PidLidTimeZoneStruct = new PropertyName(PropertyLongID.PidLidTimeZoneStruct, PropertySetGuid.PSETID_Appointment);
