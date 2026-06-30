@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Writing;
 using PSTFileFormat;
@@ -115,6 +116,27 @@ public class AppointmentWriterRecurrenceTests
             OriginatingTimeZoneId = "Asia/Bangkok",
         },
     };
+
+    /// <summary>
+    /// All-day weekly event on Monday starting 2026-07-14 (UTC midnight boundaries, flags=4).
+    /// Used as input to <see cref="CalendarEventMapper.Map"/> so that PR5's all-day normalisation
+    /// (midnight boundaries / IsAllDay flag) is applied before writing.
+    /// </summary>
+    private static RawEventGroup AllDayWeeklyGroup()
+    {
+        var ev = new RawEvent
+        {
+            Id           = "allday-weekly-001@example.com",
+            Title        = "All-Day Weekly Review",
+            EventStart   = new DateTimeOffset(2026, 7, 14, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() * 1000L,
+            EventStartTz = "UTC",
+            EventEnd     = new DateTimeOffset(2026, 7, 15, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() * 1000L,
+            EventEndTz   = "UTC",
+            Flags        = 4, // EVENT_ALLDAY
+        };
+        ev.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4"));
+        return new RawEventGroup { Master = ev };
+    }
 
     // -----------------------------------------------------------------------
     // Tests
@@ -396,5 +418,41 @@ public class AppointmentWriterRecurrenceTests
         // Bangkok midnight for the 2026-07-01 event date = 2026-06-30T17:00:00Z.
         // Before the fix (zone applied AFTER SetStartAndDuration) this would be 2026-07-01T00:00:00Z on a UTC host.
         Assert.Equal(new DateTime(2026, 6, 30, 17, 0, 0, DateTimeKind.Utc), clipStart!.Value.ToUniversalTime());
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 7: all-day recurring writer test
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// An all-day weekly event (flags=4) mapped through <see cref="CalendarEventMapper.Map"/>
+    /// must produce both a recurrence blob (<c>PidLidAppointmentRecur</c>) and
+    /// <c>PidLidAppointmentSubType == true</c> (all-day) on the written item.
+    ///
+    /// The record is built via the mapper so that PR5's all-day normalisation (midnight
+    /// boundaries, IsAllDay flag) is applied before the writer sees it — mirroring what the
+    /// production pipeline does. Named-prop reads happen inside the inspect callback while
+    /// the PST file is still open (lazy-load gotcha).
+    /// </summary>
+    [Fact]
+    public void AllDay_weekly_recurring_writes_subtype_and_blob()
+    {
+        // Build the record through the mapper so that all-day normalisation applies.
+        var g = AllDayWeeklyGroup();
+        var rec = CalendarEventMapper.Map(g, out _);
+        Assert.True(rec!.IsAllDay, "mapper must set IsAllDay from flags=4");
+        Assert.NotNull(rec.Recurrence);
+
+        bool isAllDayEvent = false;
+        var (count, blob, _) = WriteAndReadAppointment(rec, (_, appt) =>
+        {
+            // IsAllDayEvent wraps PidLidAppointmentSubType (PT_BOOLEAN) — read while file is open.
+            isAllDayEvent = appt.IsAllDayEvent;
+            return appt;
+        });
+
+        Assert.Equal(1, count);
+        Assert.NotNull(blob);   // PidLidAppointmentRecur must be present
+        Assert.True(isAllDayEvent, "PidLidAppointmentSubType must be true for an all-day recurring appointment");
     }
 }

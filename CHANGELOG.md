@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   organizer field and as an organizer-copy recipient row. Per-attendee PARTSTAT (accepted/declined/tentative
   etc.) maps to both `PidLidResponseStatus` and the track-status column on each recipient row.
   Attendee-free events remain plain appointments (no meeting state, no extra properties).
+- **Recurring appointments now convert to PST.** Daily, weekly, monthly, and yearly recurrence rules
+  from Thunderbird calendar events become proper Outlook recurring appointments (`IPM.Appointment`)
+  with a `PidLidAppointmentRecur` blob. EXDATE-deleted occurrences are encoded as deleted-instance
+  dates. Overridden occurrences become embedded exception attachments (modified instances).
+  Timezone definitions (IANA → Windows mapping) are written to `PidLidTimeZoneStruct` and
+  `PidLidAppointmentTimeZoneDefinitionStartDisplay` so Outlook displays occurrences in the correct
+  local time. All-day recurring events carry both a recurrence blob and `PidLidAppointmentSubType`.
+  Unsupported patterns (BYSETPOS, multi-RRULE, etc.) degrade gracefully to a single occurrence with
+  a warning rather than being skipped.
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
