@@ -15,46 +15,6 @@ public class TaskWriterTests
     // Round-trip infrastructure (mirrors ContactWriterTests / TaskMessageFactoryTests)
     // ---------------------------------------------------------------------------
 
-    private static MessageObject RoundTripTask(TaskRecord record)
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"m2p-tw-{Guid.NewGuid():N}.pst");
-        PSTFile? pst = null;
-        try
-        {
-            PSTFile.CreateEmptyStore(path);
-
-            try
-            {
-                pst = new PSTFile(path, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
-                pst.BeginSavingChanges();
-                PSTFolder folder = pst.TopOfPersonalFolders.CreateChildFolder("Tasks", FolderItemTypeName.Task);
-                new TaskWriter().WriteTask(pst, folder, record);
-                folder.SaveChanges();
-                pst.EndSavingChanges();
-            }
-            finally { pst?.CloseFile(); pst = null; }
-
-            // Re-open read-only, load the first task, detach from file lifecycle.
-            // We close and delete the file in the outer finally, but MessageObject references
-            // remain valid after CloseFile (data is in-memory). Store the PSTFile reference
-            // so named-property lookups can use the same NameToIDMap that was written.
-            pst = new PSTFile(path, FileAccess.Read);
-            PSTFolder readFolder = pst.TopOfPersonalFolders.FindChildFolder("Tasks");
-            MessageObject msg = readFolder.GetMessage(0);
-            // Reload via TaskMessage to ensure full PC hydration (mirrors FirstTask helper).
-            return TaskMessage.GetTask(pst, msg.NodeID);
-        }
-        catch
-        {
-            pst?.CloseFile();
-            File.Delete(path);
-            throw;
-        }
-        // NOTE: pst is intentionally left open; we close + delete inside each test via the
-        // wrapper below that owns the lifecycle. Tests that need pst for named-prop lookups
-        // use the overload below.
-    }
-
     /// <summary>
     /// Full round-trip: write, close, reopen; expose both the open PSTFile (for named-prop
     /// ID lookups) and the first MessageObject, then invoke <paramref name="read"/>, close,

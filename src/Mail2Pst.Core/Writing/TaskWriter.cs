@@ -29,7 +29,8 @@ public class TaskWriter
         msg.PC.SetInt32Property(PropertyID.PidTagSensitivity, t.Sensitivity);
 
         // Private flag (Task 0 batch 2): a Private task sets BOTH PidTagSensitivity=2 AND
-        // PidLidPrivate=true (PSETID_Common 0x8506).
+        // PidLidPrivate=true (PSETID_Common 0x8506). PidLidPrivate is coupled to Sensitivity==2 only;
+        // CONFIDENTIAL (3) intentionally does NOT set it — this matches Outlook ground truth.
         SetNamedBool(file, msg, PropertyLongID.PidLidPrivate, PropertySetGuid.PSETID_Common, t.Sensitivity == 2);
 
         // Task named props (PSETID_Task unless noted)
@@ -39,6 +40,8 @@ public class TaskWriter
         SetNamedInt(file, msg, PropertyLongID.PidLidTaskOwnership, PropertySetGuid.PSETID_Task, 0);  // 0 = not assigned
         SetNamedInt(file, msg, PropertyLongID.PidLidTaskMode,      PropertySetGuid.PSETID_Common, 0); // 0 = not assigned
 
+        // Intentional seam: start/due are written date-only (UTC midnight via SetNamedDateOnly) while
+        // reminders (below) are written as absolute instants — this matches Outlook ground truth.
         if (t.StartDate is { } sd)
             SetNamedDateOnly(file, msg, PropertyLongID.PidLidTaskStartDate, PropertySetGuid.PSETID_Task, sd);
         if (t.DueDate is { } dd)

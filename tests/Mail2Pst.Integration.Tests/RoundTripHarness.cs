@@ -8,6 +8,7 @@ using System.Linq;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Config;
+using Microsoft.Data.Sqlite;
 using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
@@ -156,10 +157,15 @@ public static class RoundTripHarness
             foreach (TaskMapping tm in plan.TaskMappings)
             {
                 IReadOnlyList<string> taskPath = tm.TargetFolderPath;
+                // Always pre-create the folder (mirrors runner's Begin() which pre-creates task folders).
                 EnsurePrefixes(taskPath);
                 string taskLeafKey = FolderPathKey.Join(taskPath);
 
-                CalendarReadResult calRead = new SqliteCalendarReader().Read(tm.Source.StorePath);
+                // Mirror ConversionRunner.ReadStore: an unreadable store warns + continues with 0 tasks.
+                // BuildTruth mirrors that by catching the same exception types and yielding count 0.
+                CalendarReadResult calRead;
+                try { calRead = new SqliteCalendarReader().Read(tm.Source.StorePath); }
+                catch (Exception ex) when (ex is IOException or SqliteException) { continue; }
 
                 IEnumerable<RawCalendarRead> cals = string.IsNullOrEmpty(tm.Source.CalId)
                     ? calRead.Calendars
