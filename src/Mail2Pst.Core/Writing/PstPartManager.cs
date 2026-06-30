@@ -31,6 +31,7 @@ internal sealed class PstPartManager
     private readonly int _checkIntervalMessages;
     private readonly Action<PSTFile, PSTFolder, MailMessage> _writeMessage;
     private readonly Action<PSTFile, PSTFolder, ContactRecord> _writeContact;
+    private readonly Action<PSTFile, PSTFolder, TaskRecord> _writeTask;
     private readonly long _emptyStoreSize;
 
     private readonly List<string> _outputFiles = new();
@@ -46,7 +47,8 @@ internal sealed class PstPartManager
     public PstPartManager(string groupName, string outputDirectory,
         long maxSizeBytes, int checkIntervalMessages,
         Action<PSTFile, PSTFolder, MailMessage> writeMessage,
-        Action<PSTFile, PSTFolder, ContactRecord> writeContact)
+        Action<PSTFile, PSTFolder, ContactRecord> writeContact,
+        Action<PSTFile, PSTFolder, TaskRecord>? writeTask = null)
     {
         _groupName = groupName;
         _outputDirectory = outputDirectory;
@@ -54,6 +56,7 @@ internal sealed class PstPartManager
         _checkIntervalMessages = checkIntervalMessages;
         _writeMessage = writeMessage;
         _writeContact = writeContact;
+        _writeTask = writeTask ?? ((_, _, _) => { });
         // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
         // copy is retired. The initial on-disk size is the constant empty-store size.
         _emptyStoreSize = PSTFile.EmptyStoreSizeBytes;
@@ -124,6 +127,13 @@ internal sealed class PstPartManager
     {
         PSTFolder folder = GetOrCreateFolder(path, FolderItemTypeName.Contact);
         _writeContact(_file!, folder, contact);
+        _dirtyFolders.Add(folder);
+    }
+
+    public void WriteTask(IReadOnlyList<string> path, TaskRecord task)
+    {
+        PSTFolder folder = GetOrCreateFolder(path, FolderItemTypeName.Task);
+        _writeTask(_file!, folder, task);
         _dirtyFolders.Add(folder);
     }
 

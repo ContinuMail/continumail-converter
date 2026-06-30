@@ -77,10 +77,21 @@ public class PstWriter
 
     public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages, string outputDirectory, ConversionReport report, int totalMessages = -1, Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default, DurableMemoryObserver? memoryObserver = null)
         => WritePlan(plan, messages, Array.Empty<PlannedContact>(), Array.Empty<IReadOnlyList<string>>(),
+                     Array.Empty<PlannedTask>(), Array.Empty<IReadOnlyList<string>>(),
                      outputDirectory, report, totalMessages, onProgress, cancellationToken, memoryObserver);
 
     public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages,
         IReadOnlyList<PlannedContact> contacts, IReadOnlyList<IReadOnlyList<string>> contactFolders,
+        string outputDirectory, ConversionReport report, int totalMessages = -1,
+        Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default,
+        DurableMemoryObserver? memoryObserver = null)
+        => WritePlan(plan, messages, contacts, contactFolders,
+                     Array.Empty<PlannedTask>(), Array.Empty<IReadOnlyList<string>>(),
+                     outputDirectory, report, totalMessages, onProgress, cancellationToken, memoryObserver);
+
+    public List<string> WritePlan(PstOutputPlan plan, IEnumerable<PlannedMessage> messages,
+        IReadOnlyList<PlannedContact> contacts, IReadOnlyList<IReadOnlyList<string>> contactFolders,
+        IReadOnlyList<PlannedTask> tasks, IReadOnlyList<IReadOnlyList<string>> taskFolders,
         string outputDirectory, ConversionReport report, int totalMessages = -1,
         Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default,
         DurableMemoryObserver? memoryObserver = null)
@@ -90,10 +101,12 @@ public class PstWriter
         _activeCancellationToken = cancellationToken;
 
         var contactWriter = new ContactWriter();
+        var taskWriter = new TaskWriter();
         var partManager = new PstPartManager(
             plan.Name, outputDirectory, plan.MaxSizeBytes, _checkIntervalMessages,
             writeMessage: (file, folder, message) => WriteMessageCore(file, folder, message),
-            writeContact: (file, folder, contact) => contactWriter.WriteContact(file, folder, contact));
+            writeContact: (file, folder, contact) => contactWriter.WriteContact(file, folder, contact),
+            writeTask: (file, folder, task) => taskWriter.WriteTask(file, folder, task));
         var throttler = new ProgressThrottler(onProgress, totalMessages);
 
         // Producer thread parses MIME (CPU-bound); this consumer writes PST (I/O-bound).
@@ -140,6 +153,8 @@ public class PstWriter
                     precreate.Add(new FolderToPrecreate(m.TargetFolderPath, FolderItemTypeName.Note));
             foreach (IReadOnlyList<string> contactFolder in contactFolders)
                 precreate.Add(new FolderToPrecreate(contactFolder, FolderItemTypeName.Contact));
+            foreach (IReadOnlyList<string> taskFolder in taskFolders)
+                precreate.Add(new FolderToPrecreate(taskFolder, FolderItemTypeName.Task));
             partManager.Begin(precreate);
 
             // Phase 1: mail. Phase 2: contacts — BOTH inside this try and the same open-store
@@ -148,6 +163,8 @@ public class PstWriter
                 WriteMailPhase(queue, partManager, throttler, report, cancellationToken, memoryObserver);
 
             WriteContactPhase(partManager, contacts, totalMessages, estimatedOutputBytes, report, onProgress, cancellationToken);
+
+            WriteTaskPhase(partManager, tasks, totalMessages, estimatedOutputBytes, report, onProgress, cancellationToken);
 
             partManager.Finish();
             throttler.Emit(report, currentSource, currentFolder, estimatedOutputBytes);
@@ -317,8 +334,52 @@ public class PstWriter
         }
     }
 
+    // Task phase: runs after the contact phase inside the SAME open-store lifecycle, reusing the
+    // part manager's split/checkpoint machinery. Task folders are pre-created in Begin so an
+    // empty calendar still yields an IPF.Task folder. Emits additive task progress (Phase="tasks").
+    private void WriteTaskPhase(PstPartManager partManager, IReadOnlyList<PlannedTask> tasks,
+        int mailTotal, long mailEstimatedOutputBytes, ConversionReport report, Action<ConversionProgressEvent>? onProgress,
+        CancellationToken cancellationToken)
+    {
+        int tasksTotal = tasks.Count;
+        foreach (PlannedTask planned in tasks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long size = EstimateTaskSize(planned.Task);
+            if (partManager.ShouldSplitBefore(size)) partManager.FlushAndSplit();
+            try
+            {
+                partManager.WriteTask(planned.TargetFolderPath, planned.Task);
+                report.RecordTaskConverted();
+            }
+            catch (ConfigValidationException) { throw; } // collision = fatal
+            partManager.OnWritten(size);
+            // Additive task progress: mail Converted/Total stay as-is (phase="tasks").
+            onProgress?.Invoke(new ProgressEvent(
+                Converted: report.ConvertedCount,
+                TotalMessages: mailTotal,
+                Warnings: report.WarningCount,
+                Skipped: report.SkippedCount,
+                CurrentSource: planned.Task.SourceId,
+                CurrentFolder: FolderPathDisplay.Join(planned.TargetFolderPath),
+                EstimatedOutputBytes: mailEstimatedOutputBytes,
+                TasksConverted: report.TasksConverted,
+                TasksTotal: tasksTotal,
+                Phase: "tasks"));
+            if (partManager.CheckpointDue)
+            {
+                partManager.Flush();
+                partManager.TrySplitOrResumeAfterFlush();
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
     // A contact is far smaller than a mail message; add photo bytes when present.
     private static long EstimateContactSize(ContactRecord c) => 2048 + (c.Photo?.Bytes.Length ?? 0);
+
+    // A task is small; body is plain text (UTF-16 in PST → 2 bytes/char).
+    private static long EstimateTaskSize(TaskRecord t) => 2048 + (t.Body?.Length ?? 0) * 2;
 
     private static string GetPlainTextBody(MailMessage message)
     {
