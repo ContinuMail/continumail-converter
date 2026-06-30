@@ -55,21 +55,24 @@ public sealed class AppointmentWriter
         int importance  = a.Importance  is >= 0 and <= 2  ? a.Importance  : 1;
         int sensitivity = a.Sensitivity is 0 or 2 or 3   ? a.Sensitivity : 0;
 
-        // SetStartAndDuration writes PidLidAppointmentStartWhole / EndWhole + Clip + Common.
-        int durationMinutes = (int)Math.Max(0, Math.Round((a.EndUtc - a.StartUtc).TotalMinutes));
-        appt.SetStartAndDuration(a.StartUtc, durationMinutes);
-
-        // PidLidAppointmentSubType — set BEFORE timezone blob so Outlook reads all-day correctly.
-        appt.IsAllDayEvent = a.IsAllDay;
-
-        // Resolve a writable zone.
+        // Resolve and apply timezone BEFORE SetStartAndDuration.
+        // RecurringAppointment.StartDTUtc setter computes PidLidClipStart using this.OriginalTimeZone;
+        // if the zone is applied AFTER, ClipStart is computed in the host's local zone (wrong on any
+        // host whose local zone ≠ the event zone). SingleAppointment is unaffected (its ClipStart
+        // setter does not use OriginalTimeZone), so this reorder is safe for both paths.
         //   - Single appointments: null = floating/unresolved → skip SetOriginalTimeZone (no Win32 call).
         //   - Recurring appointments: MUST be non-null — SaveChanges() falls back to Win32
         //     TimeZoneInfo.Local when OriginalTimeZone is unset, breaking cross-platform builds.
         //     UTC is always a safe fallback for the blob's KeyName.
         TimeZoneInfo? zone = ResolveWindowsZone(a) ?? (a.Recurrence is null ? null : TimeZoneInfo.Utc);
         if (zone is not null)
-            appt.SetOriginalTimeZone(zone);
+            appt.SetOriginalTimeZone(zone);   // MUST precede SetStartAndDuration (RecurringAppointment ClipStart depends on the zone)
+
+        // SetStartAndDuration writes PidLidAppointmentStartWhole / EndWhole + Clip + Common.
+        int durationMinutes = (int)Math.Max(0, Math.Round((a.EndUtc - a.StartUtc).TotalMinutes));
+        appt.SetStartAndDuration(a.StartUtc, durationMinutes);
+
+        appt.IsAllDayEvent = a.IsAllDay;
 
         if (!string.IsNullOrEmpty(a.Location)) appt.Location = a.Location;
         appt.BusyStatus = (BusyStatus)busy;
