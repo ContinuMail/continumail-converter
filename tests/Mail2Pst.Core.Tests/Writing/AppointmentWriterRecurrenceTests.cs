@@ -219,6 +219,76 @@ public class AppointmentWriterRecurrenceTests
         Assert.Equal(new DateTime(2026, 7, 8), s.DeletedInstanceDates[0].Date);
     }
 
+    // -----------------------------------------------------------------------
+    // Task 5: overridden occurrences (modified instances / embedded attachments)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns the number of attachments on the written appointment, read while the PST file is still
+    /// open (AttachmentTable is lazily loaded from the file via the subnode tree — accessing it after
+    /// CloseFile throws ObjectDisposedException).
+    /// </summary>
+    private static int ReopenAttachmentCount(AppointmentRecord rec)
+    {
+        int count = 0;
+        WriteAndReadAppointment(rec, (_, appt) => { count = appt.AttachmentCount; return appt; });
+        return count;
+    }
+
+    /// <summary>
+    /// A single overridden occurrence must produce:
+    /// <list type="bullet">
+    ///   <item>Exactly one entry in <c>ExceptionList</c> (→ one <c>ModifiedInstanceDates</c> entry).</item>
+    ///   <item><c>DeletedInstanceDates.Count ≥ ModifiedInstanceDates.Count</c> (vendored GetBytes invariant).</item>
+    ///   <item>Exactly one embedded <c>method=5</c> exception attachment on the master item.</item>
+    /// </list>
+    /// </summary>
+    [Fact]
+    public void Override_writes_exception_blob_entry_and_attachment()
+    {
+        var rec = WeeklyRecord();
+        rec.Exceptions = new[] { new AppointmentException {
+            OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                new DateTime(2026,7,8,8,0,0,DateTimeKind.Unspecified), "UTC", false),
+            NewStartUtc = new(2026,7,8,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,7,30,0,DateTimeKind.Utc),
+            Subject = "Standup MOVED", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd } };
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+        Assert.Single(s.ExceptionList);
+        Assert.Single(s.ModifiedInstanceDates);
+        Assert.True(s.DeletedInstanceDates.Count >= s.ModifiedInstanceDates.Count);  // GetBytes invariant
+        Assert.Equal(1, ReopenAttachmentCount(rec));   // embedded method=5 exception
+    }
+
+    /// <summary>
+    /// A unicode subject on an overridden occurrence must round-trip through the embedded
+    /// <c>method=5</c> attachment's <see cref="ModifiedAppointmentInstance.Subject"/> property
+    /// (stored as MAPI PT_UNICODE — full UTF-16, not the ANSI blob ExceptionInfo field).
+    /// </summary>
+    [Fact]
+    public void Override_unicode_subject_survives_from_embedded_attachment()
+    {
+        const string UnicodeSubject = "Mødet ✅ æøå";
+        var rec = WeeklyRecord();
+        rec.Exceptions = new[] { new AppointmentException {
+            OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+            NewStartUtc = new(2026,7,8,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,7,30,0,DateTimeKind.Utc),
+            Subject = UnicodeSubject,
+            ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd } };
+
+        // Read the embedded attachment's Subject while the file is open (GetModifiedInstance accesses
+        // the subnode tree, which requires the file handle).
+        string? attachSubject = null;
+        WriteAndReadAppointment(rec, (_, appt) =>
+        {
+            if (appt is RecurringAppointment ra && ra.AttachmentCount > 0)
+                attachSubject = ra.GetModifiedInstance(0).Subject;
+            return appt;
+        });
+        Assert.Equal(UnicodeSubject, attachSubject);
+    }
+
     /// <summary>
     /// Regression test for the zone-before-start ordering fix.
     ///

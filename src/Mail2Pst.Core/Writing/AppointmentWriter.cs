@@ -89,12 +89,12 @@ public sealed class AppointmentWriter
         WriteCategories(file, appt, a);
         WriteReminder(file, appt, a);
 
-        // Recurring-specific: apply recurrence pattern to the master.
-        // ApplyExceptions (Task 5) extends this block.
+        // Recurring-specific: apply recurrence pattern, deletions, and overrides to the master.
         if (appt is RecurringAppointment ra)
         {
             ApplyRecurrence(ra, a.Recurrence!, durationMinutes);
-            ApplyDeletions(ra, a, out _);   // populates ra.DeletedInstanceDates; Task 5 will capture the out set
+            ApplyDeletions(ra, a, out var deletedDates);
+            ApplyExceptions(ra, a, durationMinutes, (BusyStatus)busy, zone ?? TimeZoneInfo.Utc, deletedDates);
         }
 
         WriteAttendees(file, appt, a);   // recipients + organizer + meeting state (no-op when no attendees)
@@ -239,6 +239,49 @@ public sealed class AppointmentWriter
     {
         DateTime key = DateTime.SpecifyKind(localDate, DateTimeKind.Unspecified);
         if (seen.Add(key)) ra.DeletedInstanceDates.Add(key);
+    }
+
+    // -----------------------------------------------------------------------
+    // Exception helpers (Task 5)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// For each <see cref="AppointmentException"/> in <see cref="AppointmentRecord.Exceptions"/>:
+    /// (a) writes a <c>method=5</c> embedded-message attachment via
+    ///     <see cref="RecurringAppointment.AddModifiedInstanceAttachment"/>,
+    /// (b) adds an <see cref="ExceptionInfoStructure"/> to the blob's <c>ExceptionList</c>, and
+    /// (c) adds the original occurrence's zone-local date to the shared deleted-dates set
+    ///     (count-equality invariant:
+    ///     <c>ExceptionList.Count == ModifiedInstanceDates.Count</c>;
+    ///     <c>ModifiedInstanceDates.Count ≤ DeletedInstanceDates.Count</c>).
+    /// PR7a encodes Subject / StartEnd / Location / BusyStatus changes only; other changed fields
+    /// are warned at MAP time (Task 2 <c>ToException</c>) and silently ignored here.
+    /// </summary>
+    private static void ApplyExceptions(RecurringAppointment ra, AppointmentRecord master,
+        int masterDurationMinutes, BusyStatus masterBusy, TimeZoneInfo zone, HashSet<DateTime> deletedDates)
+    {
+        foreach (var ex in master.Exceptions)
+        {
+            DateTime origStartUtc = ex.OriginalInstance.OriginalStartUtc;
+            DateTime newStartUtc = ex.NewStartUtc ?? origStartUtc;
+            DateTime newEndUtc   = ex.NewEndUtc   ?? newStartUtc.AddMinutes(masterDurationMinutes);
+            int newDuration = (int)Math.Max(0, Math.Round((newEndUtc - newStartUtc).TotalMinutes));
+            BusyStatus busy = ex.BusyStatus is { } bs ? (BusyStatus)bs : masterBusy;
+
+            ra.AddModifiedInstanceAttachment(origStartUtc, masterDurationMinutes, newStartUtc, newDuration,
+                ex.Subject ?? master.Subject, ex.Location ?? "", busy, 0, MessagePriority.Normal, zone);
+
+            var info = new ExceptionInfoStructure();
+            info.SetOriginalStartDTUtc(origStartUtc, zone);
+            info.SetStartAndDuration(newStartUtc, newDuration, zone);
+            if (ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.Subject))  { info.HasModifiedSubject  = true; info.Subject  = ex.Subject  ?? master.Subject; }
+            if (ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.Location)) { info.HasModifiedLocation = true; info.Location = ex.Location ?? ""; }
+            if (ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.BusyStatus)) { info.HasModifiedBusyStatus = true; info.BusyStatus = busy; }
+            ra.ExceptionList.Add(info);
+
+            // Original date must also be a deleted instance (count-equality; de-dups shared set vs EXDATE).
+            AddDeletedDate(ra, deletedDates, TimeZoneInfo.ConvertTimeFromUtc(origStartUtc, zone).Date);
+        }
     }
 
     /// <summary>Converts a <see cref="DayOfWeek"/> array to a bitfield mask for weekly recurrence.</summary>
