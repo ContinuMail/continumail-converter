@@ -23,4 +23,7 @@ public sealed class AppointmentRecord
     public int ReminderMinutesBefore { get; set; }    // PidLidReminderDelta (appointments use a delta)
 
     public string SourceId { get; set; } = "";        // cal_events.id, for skip/warning messages
+
+    public AppointmentAttendee? Organizer { get; set; }
+    public IReadOnlyList<AppointmentAttendee> Attendees { get; set; } = Array.Empty<AppointmentAttendee>();
 }
