@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported. When you convert a Thunderbird profile, contacts are included automatically; a
   `--no-contacts` flag (and a future GUI toggle) opts out. Contacts land in an `IPF.Contact` folder per
   address book and validate cleanly in Outlook and `scanpst.exe`.
+- **Thunderbird to-dos now convert to PST.** Non-recurring tasks from a Thunderbird calendar store
+  (`local.sqlite`/`cache.sqlite`) become Outlook tasks (`IPM.Task`) in a per-calendar Tasks folder,
+  carrying subject, start/due/completed dates, status, percent-complete, priority, sensitivity (incl.
+  Private), reminder, body, and categories. Tasks are included automatically when you convert a profile;
+  a `--no-tasks` flag opts out. _Recurring tasks are deferred to a later release._
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
@@ -23,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sparse card still yields a usable contact. Adds two pinned, GPL-compatible NuGet dependencies —
   `Microsoft.Data.Sqlite` and `FolkerKinzel.VCards` (both MIT-family) — recorded in `NOTICE`. The
   independent `pst-validate` round-trip gate now covers contact folders.
+- New task pipeline (`TaskRecord` model, `CalendarTaskMapper` over the SQLite calendar reader, an
+  `IPM.Task` vendor factory + `TaskWriter`) added as a distinct write phase reusing the shared
+  precreation / size-split / checkpoint / reporting machinery. The MAPI property recipe (absolute task
+  reminders, date-only start/due, the completed-task recipe, `PidLidPrivate` coupling, percent as
+  `PtypFloating64`, `Keywords` categories) was pinned against a real Outlook task export. The independent
+  `pst-validate` round-trip gate now covers `IPF.Task` folder counts.
 
 ## [0.2.3] — 2026-06-28
 
