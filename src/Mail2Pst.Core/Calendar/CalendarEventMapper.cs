@@ -458,9 +458,9 @@ public static class CalendarEventMapper
 
         if (p.Frequency == ParsedFrequency.Yearly)
         {
-            // YearlyNth: one BYDAY with a supported offset + one BYMONTH.
-            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is not null && p.ByMonth.Count == 1)
-                return null;
+            // YearlyNth: one BYDAY with a supported offset (1..4 or -1) + one BYMONTH.
+            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is { } off && p.ByMonth.Count == 1)
+                return (off is >= 1 and <= 4 or -1) ? null : "unrepresentable monthly/yearly pattern";
 
             // Yearly: one BYMONTH + one BYMONTHDAY, no BYDAY.
             if (p.ByMonth.Count == 1 && p.ByMonthDay.Count == 1 && p.ByDay.Count == 0)

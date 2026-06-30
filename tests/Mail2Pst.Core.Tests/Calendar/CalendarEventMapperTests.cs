@@ -836,6 +836,136 @@ public class CalendarEventMapperTests
         // EXDATE is still tracked as a deleted occurrence.
         Assert.Single(appt.DeletedOccurrences);
     }
+
+    // -----------------------------------------------------------------------
+    // Yearly recurrence — offset-range guard (finding 1 follow-up tests)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Yearly_5th_byday_degrades_to_single_with_warning()
+    {
+        // BYDAY=5MO on a YEARLY rule — 5th Monday is unsupported (only 1..4 and -1 are valid).
+        // Must degrade to single occurrence and emit a warning; must NOT return null.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStart   = MicrosFor(2026, 3, 1, 9, 0);
+            e.EventEnd     = MicrosFor(2026, 3, 1, 10, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=YEARLY;BYDAY=5MO;BYMONTH=3"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.Null(appt!.Recurrence);
+        Assert.Contains(warnings, w => w.Contains("unrepresentable"));
+    }
+
+    [Fact]
+    public void Yearly_2nd_byday_maps_to_YearlyNth()
+    {
+        // BYDAY=2MO;BYMONTH=3 on YEARLY — second Monday in March, valid offset (2).
+        // Must map to YearlyNth with NthOccurrence=2.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStart   = MicrosFor(2026, 3, 9, 9, 0); // second Monday in March 2026
+            e.EventEnd     = MicrosFor(2026, 3, 9, 10, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=YEARLY;BYDAY=2MO;BYMONTH=3"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.YearlyNth, appt.Recurrence!.Frequency);
+        Assert.Equal(2, appt.Recurrence.NthOccurrence);
+        Assert.Empty(warnings);
+    }
+
+    // -----------------------------------------------------------------------
+    // Mapper-level timezone integration (finding 2)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Timezone_AsiaBangkok_PreservesIanaIdAndResolvesToUtcPlus7()
+    {
+        // Asia/Bangkok = UTC+7 (no DST). Must resolve without warning and set TimeZone.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStartTz = "Asia/Bangkok";
+            e.EventEndTz   = "Asia/Bangkok";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.Equal("Asia/Bangkok", appt!.OriginatingTimeZoneId);
+        Assert.NotNull(appt.TimeZone);
+        Assert.Equal(TimeSpan.FromHours(7), appt.TimeZone!.BaseUtcOffset);
+        // No timezone-resolution warning.
+        Assert.DoesNotContain(warnings, w => w.Contains("unresolved", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Timezone_TzoneMicrosoftUtc_ResolvesToUtcNoWarning()
+    {
+        // tzone://Microsoft/Utc is the canonical Thunderbird id for UTC.
+        // Must resolve to TimeZoneInfo.Utc with no warning.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStartTz = "tzone://Microsoft/Utc";
+            e.EventEndTz   = "tzone://Microsoft/Utc";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.TimeZone);
+        Assert.Equal(TimeZoneInfo.Utc, appt.TimeZone);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void Timezone_Utc_ResolvesToUtcNoWarning()
+    {
+        // Plain "UTC" id must resolve to TimeZoneInfo.Utc with no warning.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.TimeZone);
+        Assert.Equal(TimeZoneInfo.Utc, appt.TimeZone);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void Timezone_Unresolvable_EmitsWarningAndPreservesOriginalId()
+    {
+        // "Mars/Phobos" is not a known timezone. The mapper must:
+        //   1. Add a warning naming the unresolved zone.
+        //   2. Preserve OriginatingTimeZoneId verbatim.
+        //   3. Fall back to appt.TimeZone = null (timed event with unresolvable tz → stored as UTC instant).
+        var group = SimpleGroup(e =>
+        {
+            e.EventStartTz = "Mars/Phobos";
+            e.EventEndTz   = "Mars/Phobos";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.Equal("Mars/Phobos", appt!.OriginatingTimeZoneId);
+        Assert.Null(appt.TimeZone);
+        Assert.Contains(warnings, w => w.Contains("Mars/Phobos", StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 /// <summary>

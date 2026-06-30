@@ -127,6 +127,9 @@ public class ConversionRunnerAppointmentTests
             // One event in the store → must be counted as converted.
             Assert.Equal(1, report.AppointmentsConverted);
 
+            // Degraded is not skipped.
+            Assert.Equal(0, report.AppointmentsSkipped);
+
             // A warning about BYSETPOS must be present.
             Assert.Contains(report.Warnings, w =>
                 w.Reason.Contains("BYSETPOS", StringComparison.OrdinalIgnoreCase));
