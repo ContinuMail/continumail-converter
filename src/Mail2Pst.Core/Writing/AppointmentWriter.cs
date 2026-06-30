@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Text;
 using Mail2Pst.Core.Models;
 using PSTFileFormat;
@@ -97,9 +98,72 @@ public sealed class AppointmentWriter
 
         // PidLidMeetingStatus is intentionally NOT set: absent in the Task 0 dump for plain appointments.
 
+        WriteAttendees(file, appt, a);   // recipients + organizer + meeting state (no-op when no attendees)
+
         appt.SaveChanges();
         folder.AddMessage(appt);
         // folder.SaveChanges() is the caller's responsibility (must be called before EndSavingChanges).
+    }
+
+    private static RecipientType MapRecipientType(AttendeeKind kind) => kind switch
+    {
+        AttendeeKind.Optional => RecipientType.Cc,
+        AttendeeKind.Resource => RecipientType.Bcc,
+        _ => RecipientType.To,
+    };
+
+    /// <summary>
+    /// Writes meeting attendees, organizer, and meeting-state props onto <paramref name="appt"/>.
+    /// Promotes the item to a meeting ONLY when <paramref name="a"/> has ≥1 attendee —
+    /// an organizer-only event is treated as a plain appointment (no recipient rows, no meeting state).
+    /// </summary>
+    private static void WriteAttendees(PSTFile file, SingleAppointment appt, AppointmentRecord a)
+    {
+        // PR6 promotes to a meeting ONLY when there is ≥1 non-organizer attendee. An organizer-only event
+        // (just an ORGANIZER line, no attendees) is a plain appointment — no recipient rows, no meeting state
+        // (avoids the hybrid "recipient table but not a meeting" state). The mapper guarantees every entry in
+        // a.Attendees has a non-empty Email; the organizer may be display-only (no email).
+        if (a.Attendees.Count == 0) return;
+
+        // Organizer → sender (mail precedent): name always, SMTP address only when present.
+        if (a.Organizer is { } org)
+        {
+            appt.SentRepresentingName = org.DisplayName;
+            if (!string.IsNullOrEmpty(org.Email))
+            {
+                appt.SentRepresentingAddressType = "SMTP";
+                appt.SentRepresentingEmailAddress = org.Email;
+            }
+        }
+
+        // Recipient rows — Task 0 CONFIRMED the organizer is a MeetingOrganizer-flagged To row
+        // (isOrganizer:true sets RecipientFlags.MeetingOrganizer) AND attendees are To/Cc/Bcc.
+        // AddRecipients also builds PidTagDisplayTo/Cc/Bcc automatically.
+        var recipients = new List<MessageRecipient>();
+
+        // Organizer recipient row ONLY when it has an email (a row with an empty address is invalid MAPI).
+        if (a.Organizer is { Email: { Length: > 0 } } orgWithEmail)
+            recipients.Add(new MessageRecipient(orgWithEmail.DisplayName, orgWithEmail.Email, isOrganizer: true,
+                RecipientType.To) { ResponseStatus = (int)AttendeeResponse.Organized });   // organizer copy = respOrganized; don't trust record.Response
+
+        foreach (var att in a.Attendees)   // each has a non-empty Email (mapper-enforced)
+            recipients.Add(new MessageRecipient(att.DisplayName, att.Email, isOrganizer: false,
+                MapRecipientType(att.Kind)) { ResponseStatus = (int)att.Response });
+
+        appt.AddRecipients(recipients);
+
+        // asfMeeting = 0x1 (PidLidAppointmentStateFlags, PSETID_Appointment 0x8217)
+        // The vendor Appointment.StateFlags setter takes int; there is no AppointmentStateFlags enum.
+        appt.StateFlags = 1;   // asfMeeting (0x1)
+
+        // PidLidResponseStatus = respOrganized(1) — PR6 organizer-copy default (Task 0 recipe).
+        // Named prop registered in Task 2; PSETID_Appointment 0x8218.
+        PropertyID rs = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment));
+        appt.PC.SetInt32Property(rs, (int)AttendeeResponse.Organized);
+
+        // Do NOT set PidLidFInvited (inconsistent in ground truth, not load-bearing) or
+        // PidLidMeetingStatus/PidLidAppointmentReplyTime (absent in ground truth). GlobalObjectId → PR8.
     }
 
     // WriteBody rules (ground-truthed from PstWriter.WriteMessage pattern):
