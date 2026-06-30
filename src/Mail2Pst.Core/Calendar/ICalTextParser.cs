@@ -3,7 +3,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Ical.Net.DataTypes;
 using IcalCalendar = Ical.Net.Calendar;
 
@@ -296,47 +295,13 @@ public static class ICalTextParser
             if (uriStr is not null &&
                 uriStr.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
-                // Format: data:[<mediatype>][;base64],<data>
-                var commaIdx = uriStr.IndexOf(',');
-                if (commaIdx < 0)
-                    return ParseResult<ParsedAttachment>.Fail($"ATTACH: malformed data: URI (no comma): {uriStr}");
-
-                var meta    = uriStr.Substring(0, commaIdx);   // e.g. "data:text/plain;base64"
-                var payload = uriStr.Substring(commaIdx + 1);  // e.g. "aGk="
-
-                // Extract media type from the meta segment (strip leading "data:").
-                var metaBody = meta.Length > "data:".Length
-                    ? meta.Substring("data:".Length)
-                    : string.Empty;
-                // metaBody is e.g. "text/plain;base64" — the media type is everything before the first ";"
-                var semicolonIdx = metaBody.IndexOf(';');
-                var mediaType    = semicolonIdx >= 0
-                    ? metaBody.Substring(0, semicolonIdx)
-                    : metaBody;
+                if (!IcalDataUri.TryDecode(uriStr, out var mediaType, out var inlineData))
+                    return ParseResult<ParsedAttachment>.Fail($"ATTACH: malformed or undecodable data: URI: {uriStr}");
 
                 // Use the data: media type as FormatType when Ical.Net didn't provide one.
                 var resolvedFormatType = string.IsNullOrEmpty(formatType) && !string.IsNullOrEmpty(mediaType)
                     ? mediaType
                     : formatType;
-
-                byte[] inlineData;
-                if (meta.Contains("base64", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        inlineData = Convert.FromBase64String(payload);
-                    }
-                    catch (FormatException ex)
-                    {
-                        return ParseResult<ParsedAttachment>.Fail(
-                            $"ATTACH: invalid base64 in data: URI: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    // Percent-decoded UTF-8 text payload.
-                    inlineData = Encoding.UTF8.GetBytes(Uri.UnescapeDataString(payload));
-                }
 
                 return ParseResult<ParsedAttachment>.Ok(
                     new ParsedAttachment(null, inlineData, fileName, resolvedFormatType));
