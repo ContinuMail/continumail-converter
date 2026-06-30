@@ -154,13 +154,19 @@ public sealed class AppointmentWriter
 
         // asfMeeting = 0x1 (PidLidAppointmentStateFlags, PSETID_Appointment 0x8217)
         // The vendor Appointment.StateFlags setter takes int; there is no AppointmentStateFlags enum.
-        appt.StateFlags = 1;   // asfMeeting (0x1)
+        const int AsfMeeting = 0x1; // PidLidAppointmentStateFlags asfMeeting bit
+        appt.StateFlags = AsfMeeting;
 
         // PidLidResponseStatus = respOrganized(1) — PR6 organizer-copy default (Task 0 recipe).
         // Named prop registered in Task 2; PSETID_Appointment 0x8218.
-        PropertyID rs = file.NameToIDMap.ObtainIDFromName(
-            new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment));
-        appt.PC.SetInt32Property(rs, (int)AttendeeResponse.Organized);
+        // Only written when a.Organizer is known: the organizer-copy response-status is
+        // meaningless (and misleading) when no organizer is present in the record.
+        if (a.Organizer is not null)
+        {
+            PropertyID rs = file.NameToIDMap.ObtainIDFromName(
+                new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment));
+            appt.PC.SetInt32Property(rs, (int)AttendeeResponse.Organized);
+        }
 
         // Do NOT set PidLidFInvited (inconsistent in ground truth, not load-bearing) or
         // PidLidMeetingStatus/PidLidAppointmentReplyTime (absent in ground truth). GlobalObjectId → PR8.

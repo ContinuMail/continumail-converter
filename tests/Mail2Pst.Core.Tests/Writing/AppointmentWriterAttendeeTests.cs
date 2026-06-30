@@ -61,9 +61,16 @@ public class AppointmentWriterAttendeeTests
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
-    /// <summary>Resolve a named-prop ID on a reopen.</summary>
+    /// <summary>Resolve a named-prop ID on a reopen (allocates if absent — use for props known to have been written).</summary>
     private static PropertyID Named(PSTFile pst, PropertyLongID lid, Guid set)
         => pst.NameToIDMap.ObtainIDFromName(new PropertyName(lid, set));
+
+    /// <summary>
+    /// Look up a named-prop ID without allocating. Returns null when the prop was never
+    /// registered in this PST — the correct "absent" check on a read-only file.
+    /// </summary>
+    private static PropertyID? TryNamed(PSTFile pst, PropertyLongID lid, Guid set)
+        => pst.NameToIDMap.GetIDFromName(new PropertyName(lid, set));
 
     /// <summary>Read RecipientType for row <paramref name="rowIndex"/> from the table.</summary>
     private static int? RowRecipientType(Appointment appt, int rowIndex)
@@ -297,5 +304,81 @@ public class AppointmentWriterAttendeeTests
         string? cls = RoundTripAppointment(a,
             (_, appt) => appt.PC.GetStringProperty(PropertyID.PidTagMessageClass));
         Assert.Equal("IPM.Appointment", cls);
+    }
+
+    // -----------------------------------------------------------------------
+    // Item 1 (TDD): Organizer == null → StateFlags set, PidLidResponseStatus absent
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AttendeesWithoutOrganizer_StateFlagsSet_but_PidLidResponseStatus_absent()
+    {
+        // A meeting with attendees but NO explicit Organizer.
+        // The asfMeeting bit in PidLidAppointmentStateFlags MUST still be set (it's meeting-presence
+        // derived from Attendees.Count > 0), but PidLidResponseStatus must NOT be written —
+        // the organizer-copy response-status is meaningless when no organizer is known.
+        var a = new AppointmentRecord
+        {
+            Subject  = "Attendees but no organizer",
+            StartUtc = new DateTime(2026, 7, 1, 10, 0, 0, DateTimeKind.Utc),
+            EndUtc   = new DateTime(2026, 7, 1, 11, 0, 0, DateTimeKind.Utc),
+            Organizer = null,
+            Attendees = new[]
+            {
+                new AppointmentAttendee { DisplayName = "Bob", Email = "bob@example.com",
+                    Kind = AttendeeKind.Required, Response = AttendeeResponse.Accepted },
+            },
+        };
+
+        RoundTripAppointment(a, (pst, appt) =>
+        {
+            // asfMeeting bit must be set (Attendees.Count > 0 promotes to meeting).
+            PropertyID sfId = Named(pst, PropertyLongID.PidLidAppointmentStateFlags, PropertySetGuid.PSETID_Appointment);
+            int? stateFlags = appt.PC.GetInt32Property(sfId);
+            Assert.NotNull(stateFlags);
+            Assert.True((stateFlags!.Value & 1) != 0, "asfMeeting bit (0x1) must be set even without an explicit organizer");
+
+            // PidLidResponseStatus must NOT be present when Organizer is null.
+            // Use TryNamed (GetIDFromName, nullable) — ObtainIDFromName would try to
+            // allocate a new entry on the read-only file and throw if the prop was never registered.
+            PropertyID? rsId = TryNamed(pst, PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment);
+            int? rs = rsId.HasValue ? appt.PC.GetInt32Property(rsId.Value) : null;
+            Assert.Null(rs);
+
+            return true;
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Item 5 (T3): SentRepresentingAddressType assertions
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Organizer_SentRepresentingAddressType_is_SMTP_when_email_present()
+    {
+        // When organizer has an email, PidTagSentRepresentingAddressType must be "SMTP".
+        var a = MakeMeetingRecord(organizerHasEmail: true);
+
+        RoundTripAppointment(a, (_, appt) =>
+        {
+            string? addrType = appt.PC.GetStringProperty(PropertyID.PidTagSentRepresentingAddressType);
+            Assert.Equal("SMTP", addrType);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Organizer_SentRepresentingAddressType_absent_when_email_empty()
+    {
+        // When organizer has no email, PidTagSentRepresentingAddressType must NOT be written.
+        var a = MakeMeetingRecord(organizerHasEmail: false);
+
+        RoundTripAppointment(a, (_, appt) =>
+        {
+            string? addrType = appt.PC.GetStringProperty(PropertyID.PidTagSentRepresentingAddressType);
+            Assert.True(string.IsNullOrEmpty(addrType),
+                "PidTagSentRepresentingAddressType must not be set when organizer email is empty");
+            return true;
+        });
     }
 }

@@ -282,6 +282,59 @@ public class CalendarEventMapperAttendeeTests
     }
 
     // -----------------------------------------------------------------------
+    // Test gap 4a: bare ORGANIZER line (no CN, no email, no params) → Organizer == null
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void BareOrganizerLine_NoUsableData_OrganizerIsNull()
+    {
+        // "ORGANIZER:" with no CN and no email address is a degenerate line.
+        // The mapper must not throw; Organizer should be null (neither name nor email present).
+        var group = GroupWithAttendees([
+            "ORGANIZER:",  // bare — no value after the colon
+        ]);
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.Null(appt!.Organizer);
+    }
+
+    // -----------------------------------------------------------------------
+    // Test gap 4c: CUTYPE=RESOURCE → Resource; ROLE=NON-PARTICIPANT → Optional
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void CuTypeResource_MapsToResource()
+    {
+        // CUTYPE=RESOURCE is the generic non-room resource; should map to AttendeeKind.Resource.
+        var group = GroupWithAttendees([
+            "ATTENDEE;CN=Projector;CUTYPE=RESOURCE;ROLE=REQ-PARTICIPANT:mailto:projector@example.com",
+        ]);
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.Single(appt!.Attendees);
+        Assert.Equal(AttendeeKind.Resource, appt.Attendees[0].Kind);
+    }
+
+    [Fact]
+    public void RoleNonParticipant_MapsToOptional()
+    {
+        // ROLE=NON-PARTICIPANT: observer/informational; maps to Optional (Cc row).
+        var group = GroupWithAttendees([
+            "ATTENDEE;CN=Observer;ROLE=NON-PARTICIPANT:mailto:observer@example.com",
+        ]);
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.Single(appt!.Attendees);
+        Assert.Equal(AttendeeKind.Optional, appt.Attendees[0].Kind);
+    }
+
+    // -----------------------------------------------------------------------
     // Malformed line: forwards warning, mapping still returns a record
     // -----------------------------------------------------------------------
 
