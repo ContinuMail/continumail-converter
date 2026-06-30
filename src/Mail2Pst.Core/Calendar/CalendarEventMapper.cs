@@ -776,6 +776,10 @@ public static class CalendarEventMapper
             RawRRuleBody         = rawRRuleBody,
         };
 
+        // RFC 5545 §3.3.10: a bare FREQ=WEEKLY with no BYDAY recurs on the DTSTART weekday.
+        if (spec.Frequency == AppointmentRecurrenceFrequency.Weekly && spec.DaysOfWeek.Length == 0)
+            spec.DaysOfWeek = new[] { spec.FirstStartLocal.DayOfWeek };
+
         if (p.Count > 0)
         {
             spec.EndKind = RecurrenceEndKind.Count;

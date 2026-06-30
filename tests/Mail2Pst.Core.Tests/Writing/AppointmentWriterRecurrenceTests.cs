@@ -421,6 +421,52 @@ public class AppointmentWriterRecurrenceTests
     }
 
     // -----------------------------------------------------------------------
+    // I1: bare FREQ=WEEKLY writer round-trip — weekday mask bit
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Bare FREQ=WEEKLY (no BYDAY) where DTSTART is Monday 2026-07-06.
+    /// The mapper defaults DaysOfWeek to [Monday]; the writer must reflect that in
+    /// the PidLidAppointmentRecur blob (DaysOfWeekFlags.Monday = 0x02).
+    /// </summary>
+    private static RawEventGroup BareWeeklyGroup()
+    {
+        var ev = new RawEvent
+        {
+            Id           = "bare-weekly-001@example.com",
+            Title        = "Bare Weekly",
+            EventStart   = new DateTimeOffset(2026, 7, 6, 14, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() * 1000L,
+            EventStartTz = "UTC",
+            EventEnd     = new DateTimeOffset(2026, 7, 6, 15, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() * 1000L,
+            EventEndTz   = "UTC",
+            Flags        = 0,
+        };
+        ev.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY"));
+        return new RawEventGroup { Master = ev };
+    }
+
+    /// <summary>
+    /// Writer round-trip for I1: a bare FREQ=WEEKLY (no BYDAY) with DTSTART on Monday
+    /// must produce a PidLidAppointmentRecur blob whose WeeklyRecurrencePatternStructure
+    /// has DaysOfWeek == Monday (0x02).
+    /// </summary>
+    [Fact]
+    public void Weekly_no_byday_blob_has_monday_mask()
+    {
+        var g   = BareWeeklyGroup();
+        var rec = CalendarEventMapper.Map(g, out _);
+        Assert.NotNull(rec);
+        // Mapper must have defaulted DaysOfWeek to Monday (I1 fix).
+        Assert.Equal(new[] { DayOfWeek.Monday }, rec!.Recurrence!.DaysOfWeek);
+
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        Assert.NotNull(blob);
+        var weekly = (WeeklyRecurrencePatternStructure)
+            AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+        Assert.Equal(DaysOfWeekFlags.Monday, weekly.DaysOfWeek);
+    }
+
+    // -----------------------------------------------------------------------
     // Task 7: all-day recurring writer test
     // -----------------------------------------------------------------------
 

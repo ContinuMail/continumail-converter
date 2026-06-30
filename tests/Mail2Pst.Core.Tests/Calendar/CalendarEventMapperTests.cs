@@ -838,6 +838,35 @@ public class CalendarEventMapperTests
     }
 
     // -----------------------------------------------------------------------
+    // I1: bare FREQ=WEEKLY with no BYDAY must default to DTSTART weekday (RFC 5545)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Weekly_bare_rrule_no_byday_defaults_to_dtstart_weekday()
+    {
+        // RRULE:FREQ=WEEKLY with no BYDAY — must default DaysOfWeek to the DTSTART weekday
+        // per RFC 5545 §3.3.10.  2026-07-06 is a Monday.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Bare Weekly";
+            e.EventStart   = MicrosFor(2026, 7, 6, 14, 0); // Monday 2026-07-06
+            e.EventEnd     = MicrosFor(2026, 7, 6, 15, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
+        // RFC 5545: bare FREQ=WEEKLY (no BYDAY) must recur on the DTSTART weekday (Monday here).
+        Assert.Equal(new[] { DayOfWeek.Monday }, appt.Recurrence.DaysOfWeek);
+        Assert.Empty(warnings);
+    }
+
+    // -----------------------------------------------------------------------
     // Yearly recurrence — offset-range guard (finding 1 follow-up tests)
     // -----------------------------------------------------------------------
 
