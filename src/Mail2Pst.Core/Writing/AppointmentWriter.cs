@@ -11,17 +11,22 @@ namespace Mail2Pst.Core.Writing;
 
 /// <summary>
 /// Writes an <see cref="AppointmentRecord"/> as an IPM.Appointment item into an
-/// IPF.Appointment (CalendarFolder) via the vendored <see cref="SingleAppointment"/> substrate.
+/// IPF.Appointment (CalendarFolder) via the vendored <see cref="Appointment"/> substrate
+/// (<see cref="SingleAppointment"/> for non-recurring, <see cref="RecurringAppointment"/>
+/// for series masters).
 /// </summary>
 /// <remarks>
 /// MAPI recipe ground-truthed from a real Outlook appointment export (Task 0, 2026-06-30).
 /// Key decisions:
 /// <list type="bullet">
-///   <item>Timezone via <c>SetOriginalTimeZone(tz)</c> — only when <see cref="AppointmentRecord.TimeZone"/>
-///         is non-null; floating events (null tz) skip it entirely and make no Win32 registry calls.</item>
+///   <item>Timezone via <c>SetOriginalTimeZone(tz)</c> — only when a resolved zone is available;
+///         floating events (null tz) skip it for single appointments. Recurring appointments
+///         ALWAYS get a non-null zone (UTC fallback) so <c>RecurringAppointment.SaveChanges()</c>
+///         never hits the Win32 system-TZ fallback.</item>
 ///   <item>Reminder uses a MINUTES-BEFORE DELTA (<c>PidLidReminderDelta</c>) + derived signal time —
 ///         unlike tasks, which use an absolute reminder instant.</item>
 ///   <item><c>PidLidMeetingStatus</c> is intentionally NOT set: absent in the Task 0 dump for plain appointments.</item>
+///   <item>Common fields (body, categories, reminder, attendees) run for BOTH single and recurring paths.</item>
 /// </list>
 /// The caller must call <see cref="PSTFile.BeginSavingChanges"/> before this method
 /// (named-property allocation requires it) and <see cref="PSTFolder.SaveChanges"/> +
@@ -31,12 +36,17 @@ public sealed class AppointmentWriter
 {
     /// <summary>
     /// Writes one appointment into <paramref name="folder"/> inside <paramref name="file"/>.
+    /// Branches on <see cref="AppointmentRecord.Recurrence"/>: null → <see cref="SingleAppointment"/>;
+    /// non-null → <see cref="RecurringAppointment"/>.
     /// </summary>
     public void WriteAppointment(PSTFile file, PSTFolder folder, AppointmentRecord a)
     {
-        SingleAppointment appt = SingleAppointment.CreateNewSingleAppointment(file, folder.NodeID);
-        appt.InternetCodepage = 65001;  // override the 1255 Hebrew default (CreateNewSingleAppointment gotcha)
+        // Branch on recurrence: single vs. series master.
+        Appointment appt = a.Recurrence is null
+            ? SingleAppointment.CreateNewSingleAppointment(file, folder.NodeID)
+            : RecurringAppointment.CreateNewRecurringAppointment(file, folder.NodeID);
 
+        appt.InternetCodepage = 65001;  // override the 1255 Hebrew default (CreateNew* gotcha)
         appt.Subject = a.Subject;
 
         // Defensive normalization — AppointmentWriter must never emit invalid MAPI even if handed a
@@ -52,12 +62,14 @@ public sealed class AppointmentWriter
         // PidLidAppointmentSubType — set BEFORE timezone blob so Outlook reads all-day correctly.
         appt.IsAllDayEvent = a.IsAllDay;
 
-        // Timezone blob (PidLidAppointmentTimeZoneDefinitionStartDisplay):
-        //   - Timed events AND all-day events write the blob when a resolved zone is available.
-        //   - Floating/unresolved events (TimeZone == null) skip it entirely — NO Win32 registry
-        //     access is made on this path (critical for cross-platform correctness).
-        if (a.TimeZone is { } tz)
-            appt.SetOriginalTimeZone(tz);   // Appointment.SetOriginalTimeZone(TimeZoneInfo) single-arg overload
+        // Resolve a writable zone.
+        //   - Single appointments: null = floating/unresolved → skip SetOriginalTimeZone (no Win32 call).
+        //   - Recurring appointments: MUST be non-null — SaveChanges() falls back to Win32
+        //     TimeZoneInfo.Local when OriginalTimeZone is unset, breaking cross-platform builds.
+        //     UTC is always a safe fallback for the blob's KeyName.
+        TimeZoneInfo? zone = ResolveWindowsZone(a) ?? (a.Recurrence is null ? null : TimeZoneInfo.Utc);
+        if (zone is not null)
+            appt.SetOriginalTimeZone(zone);
 
         if (!string.IsNullOrEmpty(a.Location)) appt.Location = a.Location;
         appt.BusyStatus = (BusyStatus)busy;
@@ -71,32 +83,13 @@ public sealed class AppointmentWriter
         appt.PC.SetInt32Property(PropertyID.PidTagSensitivity, sensitivity);
 
         WriteBody(appt, a);
+        WriteCategories(file, appt, a);
+        WriteReminder(file, appt, a);
 
-        // Categories — reuse the mail / task "Keywords" MV-string path
-        if (a.Categories.Count > 0)
-        {
-            ushort kw = PropertyNameToIDMap.GetOrCreateStringNamedProperty(file, 2, "Keywords");
-            appt.PC.SetMultiStringProperty((PropertyID)kw, a.Categories);
-        }
-
-        // Reminder — appointments use a MINUTES-BEFORE DELTA (unlike tasks which use absolute time).
-        // PidLidReminderSet is written via the vendor IsReminderSet setter (PSETID_Common 0x8503).
-        // PidLidReminderDelta (0x8501) and PidLidReminderSignalTime (0x8560) via the named-prop path.
-        appt.IsReminderSet = a.ReminderSet;
-        if (a.ReminderSet)
-        {
-            PropertyID deltaId = file.NameToIDMap.ObtainIDFromName(
-                new PropertyName(PropertyLongID.PidLidReminderDelta, PropertySetGuid.PSETID_Common));
-            appt.PC.SetInt32Property(deltaId, a.ReminderMinutesBefore);
-
-            PropertyID signalId = file.NameToIDMap.ObtainIDFromName(
-                new PropertyName(PropertyLongID.PidLidReminderSignalTime, PropertySetGuid.PSETID_Common));
-            // Signal time = start − delta (UTC). This is the instant Outlook fires the reminder.
-            DateTime signalTime = a.StartUtc.AddMinutes(-a.ReminderMinutesBefore);
-            appt.PC.SetDateTimeProperty(signalId, signalTime);
-        }
-
-        // PidLidMeetingStatus is intentionally NOT set: absent in the Task 0 dump for plain appointments.
+        // Recurring-specific: apply recurrence pattern to the master.
+        // ApplyDeletions (Task 4) and ApplyExceptions (Task 5) extend this block.
+        if (appt is RecurringAppointment ra)
+            ApplyRecurrence(ra, a.Recurrence!, durationMinutes);
 
         WriteAttendees(file, appt, a);   // recipients + organizer + meeting state (no-op when no attendees)
 
@@ -104,6 +97,137 @@ public sealed class AppointmentWriter
         folder.AddMessage(appt);
         // folder.SaveChanges() is the caller's responsibility (must be called before EndSavingChanges).
     }
+
+    // -----------------------------------------------------------------------
+    // Recurrence helpers (Task 3)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Resolves the Windows timezone for blob writing from <see cref="AppointmentRecord.OriginatingTimeZoneId"/>.
+    /// Deterministic and silent — the mapper (Task 2) already warned on unmappable zones.
+    ///
+    /// Resolution order:
+    /// <list type="number">
+    ///   <item><see cref="AppointmentRecord.OriginatingTimeZoneId"/> is null → return <see cref="AppointmentRecord.TimeZone"/> (may be null for floating events).</item>
+    ///   <item>Id starts with <c>tzone://Microsoft/</c> → strip prefix, use remainder as Windows id.</item>
+    ///   <item>Id equals "UTC" (case-insensitive) → <see cref="TimeZoneInfo.Utc"/>.</item>
+    ///   <item>IANA id → <see cref="TimeZoneInfo.TryConvertIanaIdToWindowsId"/> → <see cref="TimeZoneInfo.FindSystemTimeZoneById"/>.</item>
+    ///   <item>Already-Windows id → <see cref="TimeZoneInfo.FindSystemTimeZoneById"/>.</item>
+    ///   <item>Any failure → <see cref="TimeZoneInfo.Utc"/> (last-resort safety guard, no warning).</item>
+    /// </list>
+    /// </summary>
+    private static TimeZoneInfo? ResolveWindowsZone(AppointmentRecord a)
+    {
+        if (a.OriginatingTimeZoneId is null)
+            return a.TimeZone;  // null = floating or unresolved → caller decides (recurring gets UTC fallback)
+
+        string id = a.OriginatingTimeZoneId;
+
+        // Strip tzone://Microsoft/ prefix → use remainder as Windows zone id
+        const string TzonePrefix = "tzone://Microsoft/";
+        if (id.StartsWith(TzonePrefix, StringComparison.Ordinal))
+            id = id.Substring(TzonePrefix.Length);
+
+        // UTC sentinel (case-insensitive to catch both "UTC" and "Utc" from Thunderbird)
+        if (string.Equals(id, "UTC", StringComparison.OrdinalIgnoreCase))
+            return TimeZoneInfo.Utc;
+
+        // Try IANA → Windows id first (.NET 6+ TryConvertIanaIdToWindowsId works cross-platform via ICU)
+        if (TimeZoneInfo.TryConvertIanaIdToWindowsId(id, out string? winId) && winId is not null)
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(winId); }
+            catch { /* fall through */ }
+        }
+
+        // Try directly as a Windows/system id (also handles already-Windows ids from tzone:// prefix)
+        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+        catch { /* fall through */ }
+
+        // Any failure → UTC fallback (no warning — mapper already warned)
+        return TimeZoneInfo.Utc;
+    }
+
+    /// <summary>
+    /// Applies the recurrence pattern to the series master.
+    /// Field mapping is ground-truthed against the Task 0 vendor blob tests
+    /// (<see cref="Vendor.RecurringAppointmentBlobTests"/>).
+    /// </summary>
+    private static void ApplyRecurrence(RecurringAppointment ra, RecurrenceSpec s, int durationMinutes)
+    {
+        ra.RecurrenceType = s.Frequency switch
+        {
+            AppointmentRecurrenceFrequency.Daily      => RecurrenceType.EveryNDays,
+            AppointmentRecurrenceFrequency.Weekly     => RecurrenceType.EveryNWeeks,
+            AppointmentRecurrenceFrequency.Monthly    => RecurrenceType.EveryNMonths,
+            AppointmentRecurrenceFrequency.MonthlyNth => RecurrenceType.EveryNthDayOfEveryNMonths,
+            AppointmentRecurrenceFrequency.Yearly     => RecurrenceType.EveryNYears,
+            AppointmentRecurrenceFrequency.YearlyNth  => RecurrenceType.EveryNthDayOfEveryNYears,
+            _ => RecurrenceType.EveryNDays,
+        };
+
+        // Period: natural units (days, weeks, months, or years depending on frequency).
+        // Vendored setter scales to the internal blob unit automatically.
+        ra.Period = Math.Max(1, s.Interval);
+
+        // Day: day-mask for weekly; OutlookDayOfWeek for nth-day patterns; day-of-month for others.
+        ra.Day = s.Frequency switch
+        {
+            AppointmentRecurrenceFrequency.Weekly =>
+                (int)ToMask(s.DaysOfWeek),
+            AppointmentRecurrenceFrequency.MonthlyNth or AppointmentRecurrenceFrequency.YearlyNth =>
+                (int)ToOutlookDay(s.DaysOfWeek.Length > 0 ? s.DaysOfWeek[0] : DayOfWeek.Monday),
+            _ => s.DayOfMonth ?? s.FirstStartUtc.Day,
+        };
+
+        // DayOccurrenceNumber: only for Nth-day patterns (2nd Tuesday, Last Friday, etc.)
+        if (s.Frequency is AppointmentRecurrenceFrequency.MonthlyNth or AppointmentRecurrenceFrequency.YearlyNth)
+        {
+            ra.DayOccurenceNumber = (s.NthOccurrence ?? 1) == -1
+                ? DayOccurenceNumber.Last
+                : (DayOccurenceNumber)Math.Clamp(s.NthOccurrence ?? 1, 1, 4);
+        }
+
+        // End-of-series: Count / Until → EndAfterNumberOfOccurrences + LastInstanceStartDate;
+        //               NoEnd → sentinel year 4500.
+        if ((s.EndKind is RecurrenceEndKind.Count or RecurrenceEndKind.Until)
+            && s.LastInstanceStartUtc is { } last)
+        {
+            ra.EndAfterNumberOfOccurences = (s.EndKind == RecurrenceEndKind.Count);
+            ra.LastInstanceStartDate = last;
+        }
+        else // NoEnd
+        {
+            ra.EndAfterNumberOfOccurences = false;
+            ra.LastInstanceStartDate = new DateTime(4500, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        }
+
+        // Note: yearly Month is NOT set here — YearlyRecurrencePatternStructure has no Month field;
+        // Outlook derives it from the start date via FirstDateTime. s.Month is for cardinality checks only.
+    }
+
+    /// <summary>Converts a <see cref="DayOfWeek"/> array to a bitfield mask for weekly recurrence.</summary>
+    /// <remarks>
+    /// Maps DayOfWeek enum values to <see cref="DaysOfWeekFlags"/> bit positions:
+    /// Sunday(0)→0x01, Monday(1)→0x02, …, Saturday(6)→0x40 — both enums share the same layout.
+    /// </remarks>
+    private static DaysOfWeekFlags ToMask(DayOfWeek[] days)
+    {
+        DaysOfWeekFlags m = 0;
+        foreach (var d in days)
+            m |= (DaysOfWeekFlags)(1u << (int)d);
+        return m;
+    }
+
+    /// <summary>
+    /// Converts a single <see cref="DayOfWeek"/> to the corresponding <see cref="OutlookDayOfWeek"/>
+    /// value for Nth-day patterns (e.g., "2nd Tuesday").
+    /// </summary>
+    private static OutlookDayOfWeek ToOutlookDay(DayOfWeek d)
+        => (OutlookDayOfWeek)(1u << (int)d);
+
+    // -----------------------------------------------------------------------
+    // Shared helpers (common fields — run for BOTH single and recurring paths)
+    // -----------------------------------------------------------------------
 
     private static RecipientType MapRecipientType(AttendeeKind kind) => kind switch
     {
@@ -116,10 +240,11 @@ public sealed class AppointmentWriter
     /// Writes meeting attendees, organizer, and meeting-state props onto <paramref name="appt"/>.
     /// Promotes the item to a meeting ONLY when <paramref name="a"/> has ≥1 attendee —
     /// an organizer-only event is treated as a plain appointment (no recipient rows, no meeting state).
+    /// Works for both <see cref="SingleAppointment"/> and <see cref="RecurringAppointment"/>.
     /// </summary>
-    private static void WriteAttendees(PSTFile file, SingleAppointment appt, AppointmentRecord a)
+    private static void WriteAttendees(PSTFile file, Appointment appt, AppointmentRecord a)
     {
-        // PR6 promotes to a meeting ONLY when there is ≥1 non-organizer attendee. An organizer-only event
+        // Promotes to a meeting ONLY when there is ≥1 non-organizer attendee. An organizer-only event
         // (just an ORGANIZER line, no attendees) is a plain appointment — no recipient rows, no meeting state
         // (avoids the hybrid "recipient table but not a meeting" state). The mapper guarantees every entry in
         // a.Attendees has a non-empty Email; the organizer may be display-only (no email).
@@ -144,7 +269,7 @@ public sealed class AppointmentWriter
         // Organizer recipient row ONLY when it has an email (a row with an empty address is invalid MAPI).
         if (a.Organizer is { Email: { Length: > 0 } } orgWithEmail)
             recipients.Add(new MessageRecipient(orgWithEmail.DisplayName, orgWithEmail.Email, isOrganizer: true,
-                RecipientType.To) { ResponseStatus = (int)AttendeeResponse.Organized });   // organizer copy = respOrganized; don't trust record.Response
+                RecipientType.To) { ResponseStatus = (int)AttendeeResponse.Organized });   // organizer copy = respOrganized
 
         foreach (var att in a.Attendees)   // each has a non-empty Email (mapper-enforced)
             recipients.Add(new MessageRecipient(att.DisplayName, att.Email, isOrganizer: false,
@@ -153,23 +278,17 @@ public sealed class AppointmentWriter
         appt.AddRecipients(recipients);
 
         // asfMeeting = 0x1 (PidLidAppointmentStateFlags, PSETID_Appointment 0x8217)
-        // The vendor Appointment.StateFlags setter takes int; there is no AppointmentStateFlags enum.
-        const int AsfMeeting = 0x1; // PidLidAppointmentStateFlags asfMeeting bit
+        const int AsfMeeting = 0x1;
         appt.StateFlags = AsfMeeting;
 
         // PidLidResponseStatus = respOrganized(1) — PR6 organizer-copy default (Task 0 recipe).
-        // Named prop registered in Task 2; PSETID_Appointment 0x8218.
-        // Only written when a.Organizer is known: the organizer-copy response-status is
-        // meaningless (and misleading) when no organizer is present in the record.
+        // Only written when a.Organizer is known.
         if (a.Organizer is not null)
         {
             PropertyID rs = file.NameToIDMap.ObtainIDFromName(
                 new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment));
             appt.PC.SetInt32Property(rs, (int)AttendeeResponse.Organized);
         }
-
-        // Do NOT set PidLidFInvited (inconsistent in ground truth, not load-bearing) or
-        // PidLidMeetingStatus/PidLidAppointmentReplyTime (absent in ground truth). GlobalObjectId → PR8.
     }
 
     // WriteBody rules (ground-truthed from PstWriter.WriteMessage pattern):
@@ -177,7 +296,7 @@ public sealed class AppointmentWriter
     //   - If a.BodyHtml present → PidTagHtml (UTF-8 bytes) + PidTagNativeBody=3 + InternetCodepage=65001;
     //     AND ensure PidTagBody exists — derive it from HTML via PstWriter.HtmlToPlainText if a.Body is empty.
     //   - PstWriter.HtmlToPlainText is internal-static in the same assembly (Mail2Pst.Core); no HtmlBody.cs needed.
-    private static void WriteBody(SingleAppointment appt, AppointmentRecord a)
+    private static void WriteBody(Appointment appt, AppointmentRecord a)
     {
         string? plain = a.Body;
         if (!string.IsNullOrEmpty(a.BodyHtml))
@@ -190,5 +309,36 @@ public sealed class AppointmentWriter
         }
         if (!string.IsNullOrEmpty(plain))
             appt.PC.SetStringProperty(PropertyID.PidTagBody, plain);
+    }
+
+    /// <summary>Writes Keywords (categories) MV-string if any are present.</summary>
+    private static void WriteCategories(PSTFile file, Appointment appt, AppointmentRecord a)
+    {
+        if (a.Categories.Count > 0)
+        {
+            ushort kw = PropertyNameToIDMap.GetOrCreateStringNamedProperty(file, 2, "Keywords");
+            appt.PC.SetMultiStringProperty((PropertyID)kw, a.Categories);
+        }
+    }
+
+    /// <summary>
+    /// Writes reminder props (PidLidReminderSet, PidLidReminderDelta, PidLidReminderSignalTime)
+    /// if <see cref="AppointmentRecord.ReminderSet"/> is true.
+    /// Appointments use a MINUTES-BEFORE DELTA (unlike tasks, which use an absolute time).
+    /// </summary>
+    private static void WriteReminder(PSTFile file, Appointment appt, AppointmentRecord a)
+    {
+        appt.IsReminderSet = a.ReminderSet;
+        if (!a.ReminderSet) return;
+
+        PropertyID deltaId = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName(PropertyLongID.PidLidReminderDelta, PropertySetGuid.PSETID_Common));
+        appt.PC.SetInt32Property(deltaId, a.ReminderMinutesBefore);
+
+        PropertyID signalId = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName(PropertyLongID.PidLidReminderSignalTime, PropertySetGuid.PSETID_Common));
+        // Signal time = start − delta (UTC). This is the instant Outlook fires the reminder.
+        DateTime signalTime = a.StartUtc.AddMinutes(-a.ReminderMinutesBefore);
+        appt.PC.SetDateTimeProperty(signalId, signalTime);
     }
 }
