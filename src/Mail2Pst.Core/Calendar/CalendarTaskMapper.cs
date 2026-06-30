@@ -129,6 +129,8 @@ public static class CalendarTaskMapper
             }
         }
 
+        // Task attendees/assignment deferred: Outlook task assignment is a separate MAPI surface (not PR6).
+
         return t;
     }
 

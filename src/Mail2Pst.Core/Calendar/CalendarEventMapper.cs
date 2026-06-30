@@ -250,7 +250,97 @@ public static class CalendarEventMapper
             }
         }
 
+        // --- Attendees (after reminder block, before return) ---
+        var attendeeLines = master.Attendees
+            .Select(s => s.IcalString)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .ToList();
+        if (attendeeLines.Count > 0)
+        {
+            var parsed = ICalTextParser.ParseAttendees(attendeeLines);
+            foreach (var warning in parsed.Warnings) w.Add($"event '{appt.Subject}': {warning}");
+
+            var all = parsed.Value ?? Array.Empty<ParsedAttendee>();
+            AppointmentAttendee? organizer = null;
+            var attendees = new List<AppointmentAttendee>();
+            // Dedup non-organizer attendees by normalized email (case-insensitive, first wins). Pre-seed with the
+            // organizer's email so a duplicate ATTENDEE row for the organizer is dropped (common in CalDAV data).
+            var seenEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Organizer first (so its email pre-seeds the dedup set). Organizer MAY be display-only (no email);
+            // the writer simply omits the organizer recipient row when the email is empty.
+            foreach (ParsedAttendee p in all)
+            {
+                if (!p.IsOrganizer) continue;
+                string email = (p.Email ?? "").Trim();
+                string display = !string.IsNullOrWhiteSpace(p.CommonName) ? p.CommonName!.Trim() : email;
+                if (display.Length == 0) break;                       // neither name nor email → no usable organizer
+                organizer = new AppointmentAttendee
+                {
+                    DisplayName = display, Email = email,
+                    Kind = AttendeeKind.Required, Response = AttendeeResponse.Organized, IsOrganizer = true,
+                };
+                if (email.Length > 0) seenEmails.Add(email);
+                break;                                                // only one organizer
+            }
+
+            // Non-organizer attendees: REQUIRE an email (an Outlook recipient row with an empty address is invalid).
+            foreach (ParsedAttendee p in all)
+            {
+                if (p.IsOrganizer) continue;
+                string email = (p.Email ?? "").Trim();
+                if (email.Length == 0)
+                {
+                    w.Add($"event '{appt.Subject}': attendee '{p.CommonName}' has no email — skipped");
+                    continue;
+                }
+                if (!seenEmails.Add(email))                           // case-insensitive dedup (incl. vs the organizer)
+                {
+                    w.Add($"event '{appt.Subject}': duplicate attendee {email} skipped");
+                    continue;
+                }
+                attendees.Add(new AppointmentAttendee
+                {
+                    DisplayName = !string.IsNullOrWhiteSpace(p.CommonName) ? p.CommonName!.Trim() : email,
+                    Email = email,
+                    Kind = MapKind(p.Role, p.CuType),
+                    Response = MapResponse(p.ParticipationStatus, isOrganizer: false),
+                });
+            }
+
+            appt.Organizer = organizer;
+            appt.Attendees = attendees;
+        }
+
         return appt;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Attendee mapping helpers
+    // ---------------------------------------------------------------------------
+
+    // CUTYPE wins (a room is a resource regardless of ROLE); else ROLE; default Required.
+    private static AttendeeKind MapKind(string? role, string? cuType)
+    {
+        string c = (cuType ?? "").Trim().ToUpperInvariant();
+        if (c is "ROOM" or "RESOURCE") return AttendeeKind.Resource;
+        string r = (role ?? "").Trim().ToUpperInvariant();
+        if (r is "OPT-PARTICIPANT" or "NON-PARTICIPANT") return AttendeeKind.Optional;
+        return AttendeeKind.Required;
+    }
+
+    private static AttendeeResponse MapResponse(string? partStat, bool isOrganizer)
+    {
+        if (isOrganizer) return AttendeeResponse.Organized;
+        return (partStat ?? "").Trim().ToUpperInvariant() switch
+        {
+            "ACCEPTED"     => AttendeeResponse.Accepted,
+            "DECLINED"     => AttendeeResponse.Declined,
+            "TENTATIVE"    => AttendeeResponse.Tentative,
+            "NEEDS-ACTION" => AttendeeResponse.NotResponded,
+            _              => AttendeeResponse.None,
+        };
     }
 
     // ---------------------------------------------------------------------------
