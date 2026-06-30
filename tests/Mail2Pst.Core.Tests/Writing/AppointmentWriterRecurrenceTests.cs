@@ -289,6 +289,64 @@ public class AppointmentWriterRecurrenceTests
         Assert.Equal(UnicodeSubject, attachSubject);
     }
 
+    // -----------------------------------------------------------------------
+    // Task 6: recurring MEETING preserves PR6 attendees + meeting state + recur blob
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A recurring meeting (organizer + ≥1 attendee) must write BOTH the
+    /// <c>PidLidAppointmentRecur</c> blob (recurrence preserved) AND the PR6 meeting surface:
+    /// recipient table populated, <c>PidLidAppointmentStateFlags</c> has <c>asfMeeting</c>
+    /// (bit 0x1), and <c>PidLidResponseStatus == respOrganized</c> (1).
+    ///
+    /// Proves <c>WriteAttendees</c> runs on the recurring path — Task 3 routed it through
+    /// BOTH the single and recurring code paths in <see cref="AppointmentWriter.WriteAppointment"/>.
+    ///
+    /// All recipient-table / named-prop reads happen inside the <c>inspect</c> callback while
+    /// the <see cref="PSTFile"/> is still open (lazy-load gotcha — Task 5).
+    /// </summary>
+    [Fact]
+    public void Recurring_meeting_writes_state_recipients_and_recur_blob()
+    {
+        var rec = WeeklyRecord();
+        rec.Organizer = new AppointmentAttendee
+        {
+            DisplayName = "Org",
+            Email       = "org@example.com",
+            Kind        = AttendeeKind.Required,
+            Response    = AttendeeResponse.Organized,
+        };
+        rec.Attendees = new[]
+        {
+            new AppointmentAttendee { DisplayName = "Req", Email = "req@example.com", Kind = AttendeeKind.Required, Response = AttendeeResponse.None },
+        };
+
+        int recipientCount = 0;
+        int stateFlags = 0;
+        int? responseStatus = null;
+
+        var (_, blob, _) = WriteAndReadAppointment(rec, (pst, appt) =>
+        {
+            recipientCount = appt.RecipientCount;   // inside callback — recipient table lazily loaded from subnode tree
+
+            // PidLidAppointmentStateFlags (write-only on Appointment) — read via named prop, same as AppointmentWriterAttendeeTests
+            PropertyID sfId = pst.NameToIDMap.ObtainIDFromName(
+                new PropertyName(PropertyLongID.PidLidAppointmentStateFlags, PropertySetGuid.PSETID_Appointment));
+            stateFlags = appt.PC.GetInt32Property(sfId) ?? 0;
+
+            PropertyID rsId = pst.NameToIDMap.ObtainIDFromName(
+                new PropertyName(PropertyLongID.PidLidResponseStatus, PropertySetGuid.PSETID_Appointment));
+            responseStatus = appt.PC.GetInt32Property(rsId);
+
+            return appt;
+        });
+
+        Assert.NotNull(blob);                                               // recurrence preserved (Task 3)
+        Assert.True(recipientCount >= 1, "RecipientCount must be >= 1 for a recurring meeting");   // PR6 recipients
+        Assert.Equal(0x1, stateFlags & 0x1);                               // asfMeeting bit set (PidLidAppointmentStateFlags)
+        Assert.Equal(1, responseStatus);                                    // respOrganized (PidLidResponseStatus)
+    }
+
     /// <summary>
     /// Regression test for the zone-before-start ordering fix.
     ///
