@@ -60,23 +60,24 @@ public class CalendarEventMapperTests
     }
 
     [Fact]
-    public void GroupWithOverrides_ReturnsNullWithRecurringWarning()
+    public void Overrides_without_rrule_write_single_with_warning()
     {
-        var group = new RawEventGroup
-        {
-            Master    = new RawEvent { Id = "e1@example.com", Title = "Weekly Standup" },
-            Overrides = new List<RawEvent> { new RawEvent { Id = "e1@example.com" } }
-        };
+        // Overrides present but no RRULE → degrades to single occurrence, warns overrides dropped.
+        var group = SimpleGroup(e => e.Title = "Weekly Standup");
+        group.Overrides.Add(new RawEvent { Id = "e1@example.com" });
+
         var result = CalendarEventMapper.Map(group, out var warnings);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        Assert.Null(result!.Recurrence);
         Assert.Single(warnings);
-        Assert.Contains("recurring event 'Weekly Standup' with exceptions deferred to PR7", warnings[0]);
+        Assert.Contains("overrides dropped", warnings[0]);
     }
 
     [Fact]
-    public void MasterWithRecurrenceLine_ReturnsNullWithRecurringWarning()
+    public void MasterWithRecurrenceLine_MapsRecurrenceSpec()
     {
+        // RRULE:FREQ=DAILY — always mappable; result should have Recurrence set.
         var group = SimpleGroup(e =>
         {
             e.Title = "Daily Sync";
@@ -84,9 +85,10 @@ public class CalendarEventMapperTests
         });
         var result = CalendarEventMapper.Map(group, out var warnings);
 
-        Assert.Null(result);
-        Assert.Single(warnings);
-        Assert.Contains("recurring event 'Daily Sync' deferred to PR7", warnings[0]);
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Daily, result.Recurrence!.Frequency);
+        Assert.Empty(warnings);
     }
 
     [Fact]
@@ -100,7 +102,7 @@ public class CalendarEventMapperTests
 
         Assert.Null(result);
         Assert.Single(warnings);
-        Assert.Contains("event override row deferred to PR7", warnings[0]);
+        Assert.Contains("mis-grouped as master", warnings[0]);
     }
 
     // -----------------------------------------------------------------------
@@ -577,14 +579,263 @@ public class CalendarEventMapperTests
     }
 
     // -----------------------------------------------------------------------
-    // Pending: recurring-event support (PR7)
+    // Recurrence (PR7a Task 2)
     // -----------------------------------------------------------------------
 
-    [Fact(Skip = "Recurring events land in PR7; tracked by this skipped test.")]
-    public void Recurring_event_is_written_with_recurrence_pattern() { /* TODO PR7 */ }
+    [Fact]
+    public void Daily_rrule_maps_spec_and_iana_id()
+    {
+        // RRULE:FREQ=DAILY with IANA tz — spec must be non-null, IANA id must pass through.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Daily Standup";
+            e.EventStartTz = "Europe/Copenhagen";
+            e.EventEndTz   = "Europe/Copenhagen";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY"));
+        });
 
-    [Fact(Skip = "Recurring events land in PR7; tracked by this skipped test.")]
-    public void Recurring_event_with_exception_override_is_written_correctly() { /* TODO PR7 */ }
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Daily, appt.Recurrence!.Frequency);
+        Assert.Equal("Europe/Copenhagen", appt.OriginatingTimeZoneId);
+        Assert.Equal("Europe/Copenhagen", appt.Recurrence.OriginatingTimeZoneId);
+    }
+
+    [Fact]
+    public void Bysetpos_degrades_to_single_with_warning()
+    {
+        // BYSETPOS is not representable in RecurrenceSpec → degrade to single, never skip.
+        var group = SimpleGroup(e =>
+        {
+            e.Title = "Last Monday";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=-1"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.Null(appt!.Recurrence);
+        Assert.Contains(warnings, w => w.Contains("BYSETPOS"));
+    }
+
+    [Fact]
+    public void Monthly_byday_without_offset_degrades()
+    {
+        // BYDAY without a numeric offset on a MONTHLY rule is unrepresentable → degrade.
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=MONTHLY;BYDAY=MO"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.Null(appt!.Recurrence);
+        Assert.Contains(warnings, w => w.Contains("unrepresentable"));
+    }
+
+    [Fact]
+    public void AllDay_weekly_recurrence_maps_local_midnight()
+    {
+        // All-day weekly event (Mon) — spec frequency, BYDAY, and EndKind must be correct.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Weekly Review";
+            e.Flags        = 4; // EVENT_ALLDAY
+            e.EventStart   = MicrosFor(2026, 7, 14, 0, 0); // Monday
+            e.EventEnd     = MicrosFor(2026, 7, 15, 0, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.True(appt!.IsAllDay);
+        Assert.NotNull(appt.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
+        Assert.Contains(DayOfWeek.Monday, appt.Recurrence.DaysOfWeek);
+        Assert.Equal(RecurrenceEndKind.Count, appt.Recurrence.EndKind);
+        Assert.Equal(4, appt.Recurrence.Count);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void DateOnly_exdate_in_bangkok_converts_to_correct_utc()
+    {
+        // Bangkok = UTC+7; midnight July 6 Bangkok = 2026-07-05T17:00:00Z
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO"));
+            e.Recurrence.Add(new RawSideText("EXDATE;TZID=Asia/Bangkok;VALUE=DATE:20260706"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        var deleted = Assert.Single(appt.DeletedOccurrences);
+        Assert.True(deleted.IsDateOnly);
+        var expectedUtc = new DateTime(2026, 7, 5, 17, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(expectedUtc, deleted.OriginalStartUtc);
+    }
+
+    [Fact]
+    public void Override_with_body_change_creates_exception_with_warning()
+    {
+        // An override with changed DESCRIPTION → exception in model + "changed Body not encoded" warning.
+        var overrideEv = new RawEvent
+        {
+            Id             = "event-example-001@example.com",
+            Title          = "Modified Occurrence",
+            RecurrenceId   = MicrosFor(2026, 7, 11, 14, 0),
+            RecurrenceIdTz = "UTC",
+            EventStart     = MicrosFor(2026, 7, 11, 15, 0),
+            EventEnd       = MicrosFor(2026, 7, 11, 16, 0),
+        };
+        overrideEv.Properties.Add(new RawProperty("DESCRIPTION", Utf8("Changed body text"), null, null));
+
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY"));
+        });
+        group.Overrides.Add(overrideEv);
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        var ex = Assert.Single(appt.Exceptions);
+        Assert.True(ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.Body));
+        Assert.Contains(warnings, w => w.Contains("changed Body not encoded"));
+    }
+
+    [Fact]
+    public void Override_with_reminder_change_creates_exception_with_warning()
+    {
+        // An override with a VALARM → Reminder flag in exception + warning.
+        var overrideEv = new RawEvent
+        {
+            Id             = "event-example-001@example.com",
+            Title          = "Rescheduled",
+            RecurrenceId   = MicrosFor(2026, 7, 11, 14, 0),
+            RecurrenceIdTz = "UTC",
+            EventStart     = MicrosFor(2026, 7, 11, 14, 0),
+            EventEnd       = MicrosFor(2026, 7, 11, 15, 0),
+        };
+        overrideEv.Alarms.Add(new RawSideText("BEGIN:VALARM\r\nTRIGGER:-PT10M\r\nEND:VALARM"));
+
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY"));
+        });
+        group.Overrides.Add(overrideEv);
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        var ex = Assert.Single(appt!.Exceptions);
+        Assert.True(ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.Reminder));
+        Assert.Contains(warnings, w => w.Contains("changed Reminder not encoded"));
+    }
+
+    [Fact]
+    public void Override_with_categories_creates_exception_with_warning()
+    {
+        // An override with CATEGORIES → Categories flag in exception + warning.
+        var overrideEv = new RawEvent
+        {
+            Id             = "event-example-001@example.com",
+            Title          = "Recategorized",
+            RecurrenceId   = MicrosFor(2026, 7, 11, 14, 0),
+            RecurrenceIdTz = "UTC",
+            EventStart     = MicrosFor(2026, 7, 11, 14, 0),
+            EventEnd       = MicrosFor(2026, 7, 11, 15, 0),
+        };
+        overrideEv.Properties.Add(new RawProperty("CATEGORIES", Utf8("Work"), null, null));
+
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY"));
+        });
+        group.Overrides.Add(overrideEv);
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        var ex = Assert.Single(appt!.Exceptions);
+        Assert.True(ex.ChangeFlags.HasFlag(AppointmentExceptionChangeFlags.Categories));
+        Assert.Contains(warnings, w => w.Contains("changed Categories not encoded"));
+    }
+
+    [Fact]
+    public void ComputeLastInstanceUtc_Weekly_Count_Returns_Nth_Occurrence()
+    {
+        // WEEKLY MO+WE COUNT=6 from Wed 2026-07-01 14:00 UTC.
+        // Raw occurrences: 1-Jul, 6-Jul, 8-Jul, 13-Jul, 15-Jul, 20-Jul → 6th = Mon 20-Jul.
+        var group = SimpleGroup(e =>
+        {
+            e.EventStart   = MicrosFor(2026, 7, 1, 14, 0);
+            e.EventEnd     = MicrosFor(2026, 7, 1, 15, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt?.Recurrence);
+        Assert.Equal(RecurrenceEndKind.Count, appt!.Recurrence!.EndKind);
+        Assert.Equal(6, appt.Recurrence.Count);
+        var expected = new DateTime(2026, 7, 20, 14, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(expected, appt.Recurrence.LastInstanceStartUtc);
+    }
+
+    [Fact]
+    public void ComputeLastInstanceUtc_Weekly_Until_ReturnsUntilDirectly()
+    {
+        // Until-bounded rule: LastInstanceStartUtc must equal UntilUtc without enumeration.
+        var group = SimpleGroup(e =>
+        {
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20260831T000000Z"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt?.Recurrence);
+        Assert.Equal(RecurrenceEndKind.Until, appt!.Recurrence!.EndKind);
+        Assert.NotNull(appt.Recurrence.UntilUtc);
+        // Must be the same value — returned directly, no enumeration.
+        Assert.Equal(appt.Recurrence.UntilUtc, appt.Recurrence.LastInstanceStartUtc);
+    }
+
+    [Fact]
+    public void ComputeLastInstanceUtc_CountWithExdate_CountNotReduced()
+    {
+        // EXDATE removes an instance from the visible set but does NOT reduce COUNT.
+        // Raw occurrences: Jul 6, Jul 13, Jul 20 → COUNT=3 → last = Jul 20 (EXDATE on Jul 13 ignored).
+        var group = SimpleGroup(e =>
+        {
+            e.EventStart   = MicrosFor(2026, 7, 6, 14, 0);   // Monday
+            e.EventEnd     = MicrosFor(2026, 7, 6, 15, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=3"));
+            e.Recurrence.Add(new RawSideText("EXDATE:20260713T140000Z")); // delete 2nd raw occurrence
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt?.Recurrence);
+        // 3rd raw occurrence is Jul 20 — not Jul 27 (which would wrongly count EXDATE as consuming one slot).
+        var expected = new DateTime(2026, 7, 20, 14, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(expected, appt!.Recurrence!.LastInstanceStartUtc);
+        // EXDATE is still tracked as a deleted occurrence.
+        Assert.Single(appt.DeletedOccurrences);
+    }
 }
 
 /// <summary>

@@ -3,9 +3,13 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Ical.Net.CalendarComponents;
+using Ical.Net.DataTypes;
+using IcalCalendar = Ical.Net.Calendar;
 using Mail2Pst.Core.Models;
 
 namespace Mail2Pst.Core.Calendar;
@@ -28,19 +32,11 @@ public static class CalendarEventMapper
             w.Add("orphan event override (no master) skipped");
             return null;
         }
-        if (group.Overrides.Count > 0)
-        {
-            w.Add($"recurring event '{title}' with exceptions deferred to PR7");
-            return null;
-        }
-        if (master.Recurrence.Count > 0)
-        {
-            w.Add($"recurring event '{title}' deferred to PR7");
-            return null;
-        }
+        // Defensive guard: a lone override mis-grouped as master (RECURRENCE-ID set on the master row).
+        // This should not occur after correct grouping, but guard against it defensively.
         if (master.RecurrenceId is not null)
         {
-            w.Add("event override row deferred to PR7");
+            w.Add("event override row mis-grouped as master; skipped");
             return null;
         }
 
@@ -143,6 +139,13 @@ public static class CalendarEventMapper
                 w.Add($"event '{title}': zero-length event");
             }
         }
+
+        // Preserve the originating timezone id verbatim (canonical IANA/Olson or tzone:// id from TB).
+        appt.OriginatingTimeZoneId = master.EventStartTz;
+
+        // Apply recurrence (RRULE/EXDATE) and exception overrides when present.
+        if (master.Recurrence.Count > 0 || group.Overrides.Count > 0)
+            ApplyRecurrence(appt, master, group, w);
 
         // Body (DESCRIPTION property)
         appt.Body = PropValue(master, "DESCRIPTION");
@@ -391,5 +394,417 @@ public static class CalendarEventMapper
         }
         if (triggerLine is not null)
             appt.Body = (appt.Body ?? "") + $"\n[Thunderbird alarm not converted: {triggerLine}]";
+    }
+
+    // ---------------------------------------------------------------------------
+    // Recurrence helpers
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Resolves a timezone id string to a <see cref="TimeZoneInfo"/> using the same
+    /// rules as <see cref="TimeZoneResolver"/>. Falls back to UTC when unresolvable.
+    /// </summary>
+    private static TimeZoneInfo ResolveZone(string? tzId) =>
+        TimeZoneResolver.Resolve(tzId).Zone ?? TimeZoneInfo.Utc;
+
+    /// <summary>
+    /// Strips the <c>RRULE:</c> prefix (case-insensitive) from a raw iCal RRULE line,
+    /// returning the bare rule body consumed by <see cref="RecurrencePattern"/>.
+    /// </summary>
+    private static string StripRRulePrefix(string line)
+    {
+        const string prefix = "RRULE:";
+        return line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? line.Substring(prefix.Length)
+            : line;
+    }
+
+    /// <summary>
+    /// Returns a non-null reason string when the parsed recurrence cannot be faithfully
+    /// represented in the <see cref="RecurrenceSpec"/> model, or <c>null</c> when the
+    /// rule is mappable.
+    /// </summary>
+    private static string? DegradeReason(ParsedRecurrence p, List<string> lines)
+    {
+        // 1. Unknown FREQ (ical.net returned ParsedFrequency.Unknown for an unrecognised value).
+        if (p.Frequency == ParsedFrequency.Unknown) return "Unknown FREQ";
+
+        // 2. BYSETPOS (e.g. "last Monday of month") — not representable in RecurrenceSpec.
+        if (p.BySetPosition.Count > 0) return "BYSETPOS";
+
+        // 3. RDATE — additional explicit dates outside of the RRULE pattern.
+        if (p.RDates.Count > 0) return "RDATE";
+
+        // 4. Multiple RRULE lines — we only handle a single rule.
+        int rruleCount = lines.Count(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
+        if (rruleCount > 1) return "multiple RRULE";
+
+        // 5. WKST when INTERVAL > 1 — the work-week start shifts grouping boundaries; degrade.
+        bool hasWkst = lines.Any(l => l.Contains("WKST=", StringComparison.OrdinalIgnoreCase));
+        if (hasWkst && p.Interval > 1) return "WKST interval-sensitive";
+
+        // 6 & 7. Cardinality rules for Monthly / Yearly.
+        if (p.Frequency == ParsedFrequency.Monthly)
+        {
+            // MonthlyNth: exactly one BYDAY with a supported offset (1..4 or -1).
+            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is { } off)
+                return (off is >= 1 and <= 4 or -1) ? null : "unrepresentable monthly/yearly pattern";
+
+            // Monthly-by-day: exactly one BYMONTHDAY, no BYDAY.
+            if (p.ByMonthDay.Count == 1 && p.ByDay.Count == 0) return null;
+
+            return "unrepresentable monthly/yearly pattern";
+        }
+
+        if (p.Frequency == ParsedFrequency.Yearly)
+        {
+            // YearlyNth: one BYDAY with a supported offset + one BYMONTH.
+            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is not null && p.ByMonth.Count == 1)
+                return null;
+
+            // Yearly: one BYMONTH + one BYMONTHDAY, no BYDAY.
+            if (p.ByMonth.Count == 1 && p.ByMonthDay.Count == 1 && p.ByDay.Count == 0)
+                return null;
+
+            return "unrepresentable monthly/yearly pattern";
+        }
+
+        // Daily / Weekly — always mappable.
+        return null;
+    }
+
+    /// <summary>Maps a <see cref="ParsedRecurrence"/> frequency to the model enum.
+    /// <see cref="DegradeReason"/> must return <c>null</c> before this is called.</summary>
+    private static AppointmentRecurrenceFrequency MapFreq(ParsedRecurrence p) => p.Frequency switch
+    {
+        ParsedFrequency.Daily   => AppointmentRecurrenceFrequency.Daily,
+        ParsedFrequency.Weekly  => AppointmentRecurrenceFrequency.Weekly,
+        ParsedFrequency.Monthly =>
+            p.ByDay.Count == 1 && p.ByDay[0].Offset is not null
+                ? AppointmentRecurrenceFrequency.MonthlyNth
+                : AppointmentRecurrenceFrequency.Monthly,
+        ParsedFrequency.Yearly  =>
+            p.ByDay.Count == 1 && p.ByDay[0].Offset is not null
+                ? AppointmentRecurrenceFrequency.YearlyNth
+                : AppointmentRecurrenceFrequency.Yearly,
+        _ => throw new InvalidOperationException($"Unmapped ParsedFrequency: {p.Frequency}"),
+    };
+
+    /// <summary>
+    /// Computes the UTC start of the last occurrence of a recurrence rule.
+    /// Returns <c>null</c> for <see cref="RecurrenceEndKind.NoEnd"/>.
+    /// For <see cref="RecurrenceEndKind.Until"/> returns <see cref="RecurrenceSpec.UntilUtc"/> directly
+    /// (no enumeration).  For <see cref="RecurrenceEndKind.Count"/> enumerates the COUNT-th raw occurrence
+    /// (EXDATE does NOT reduce the COUNT).
+    /// </summary>
+    private static DateTime? ComputeLastInstanceUtc(RecurrenceSpec s)
+    {
+        switch (s.EndKind)
+        {
+            case RecurrenceEndKind.NoEnd:
+                return null;
+
+            case RecurrenceEndKind.Until:
+                // UNTIL bound is the last-occurrence date: no enumeration needed.
+                return s.UntilUtc;
+
+            case RecurrenceEndKind.Count:
+            {
+                // Build a minimal VCALENDAR anchored at FirstStartLocal (floating — no TZ suffix)
+                // so Ical.Net enumerates in local time without any IANA / Windows zone lookups.
+                // Calendar.GetOccurrences respects COUNT: it will return exactly COUNT occurrences.
+                var anchor = s.FirstStartLocal;
+                string dtFmt = anchor.ToString("yyyyMMddTHHmmss", CultureInfo.InvariantCulture);
+                string calText =
+                    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ContinuMail//recurrence//EN\r\n" +
+                    "BEGIN:VEVENT\r\nUID:count-enum@continmail\r\n" +
+                    $"DTSTART:{dtFmt}\r\n" +
+                    $"DTEND:{dtFmt}\r\n" +
+                    $"RRULE:{s.RawRRuleBody}\r\n" +
+                    "END:VEVENT\r\nEND:VCALENDAR\r\n";
+
+                try
+                {
+                    var enumCal = IcalCalendar.Load(calText);
+                    if (enumCal?.Events.Count == 0) return null;
+
+                    // In Ical.Net 5.x, GetOccurrences(CalDateTime startTime) returns all occurrences
+                    // from startTime onward, respecting COUNT. No end-date parameter needed.
+                    var startDt = new CalDateTime(
+                        anchor.Year, anchor.Month, anchor.Day,
+                        anchor.Hour, anchor.Minute, anchor.Second, string.Empty);
+
+                    var occs = enumCal.GetOccurrences(startDt)
+                                      .OrderBy(o => o.Period.StartTime)
+                                      .ToList();
+
+                    int idx = (s.Count ?? 0) - 1;
+                    if (idx < 0 || idx >= occs.Count) return null;
+
+                    var lastLocalRaw = occs[idx].Period.StartTime.Value;
+                    var lastLocal    = new DateTime(
+                        lastLocalRaw.Year, lastLocalRaw.Month, lastLocalRaw.Day,
+                        lastLocalRaw.Hour, lastLocalRaw.Minute, lastLocalRaw.Second,
+                        DateTimeKind.Unspecified);
+
+                    return s.TimeZone != null
+                        ? TimeZoneInfo.ConvertTimeToUtc(lastLocal, s.TimeZone)
+                        : DateTime.SpecifyKind(lastLocal, DateTimeKind.Utc);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Converts a raw EXDATE date/datetime string to a <see cref="RecurrenceInstanceId"/>.
+    /// For date-only values (<paramref name="isDateOnly"/>), the local midnight in
+    /// <paramref name="tzId"/> is used as the reference point.
+    /// </summary>
+    private static RecurrenceInstanceId ToInstanceId(string value, string? tzId, bool isDateOnly)
+    {
+        var zone = ResolveZone(tzId);
+
+        if (isDateOnly)
+        {
+            if (DateTime.TryParseExact(value, "yyyyMMdd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var date))
+            {
+                var localMidnight = new DateTime(date.Year, date.Month, date.Day,
+                    0, 0, 0, DateTimeKind.Unspecified);
+                var utc = TimeZoneInfo.ConvertTimeToUtc(localMidnight, zone);
+                return new RecurrenceInstanceId(utc, localMidnight, tzId, IsDateOnly: true);
+            }
+            return new RecurrenceInstanceId(default, default, tzId, IsDateOnly: true);
+        }
+        else
+        {
+            // yyyyMMddTHHmmssZ (UTC) or yyyyMMddTHHmmss (local in tzId zone)
+            bool isUtc = value.EndsWith("Z", StringComparison.OrdinalIgnoreCase);
+            string valueTrimmed = isUtc ? value.TrimEnd('z', 'Z') : value;
+
+            if (DateTime.TryParseExact(valueTrimmed, "yyyyMMddTHHmmss", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var parsed))
+            {
+                DateTime utc, local;
+                if (isUtc)
+                {
+                    utc   = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+                    local = new DateTime(
+                        TimeZoneInfo.ConvertTimeFromUtc(utc, zone).Ticks,
+                        DateTimeKind.Unspecified);
+                }
+                else
+                {
+                    local = new DateTime(parsed.Year, parsed.Month, parsed.Day,
+                        parsed.Hour, parsed.Minute, parsed.Second, DateTimeKind.Unspecified);
+                    utc = TimeZoneInfo.ConvertTimeToUtc(local, zone);
+                }
+                return new RecurrenceInstanceId(utc, local, tzId, IsDateOnly: false);
+            }
+            return new RecurrenceInstanceId(default, default, tzId, IsDateOnly: false);
+        }
+    }
+
+    /// <summary>
+    /// Maps a RECURRENCE-ID override <see cref="RawEvent"/> to an <see cref="AppointmentException"/>.
+    /// Returns <c>null</c> when the override has no <c>RECURRENCE-ID</c> (should not happen after
+    /// correct grouping, but guard defensively).
+    /// Emits a warning into <paramref name="w"/> for fields that are not encoded by the writer in
+    /// this release (Body, Reminder, Sensitivity, Categories).
+    /// </summary>
+    private static AppointmentException? ToException(RawEvent o, List<string> w)
+    {
+        if (o.RecurrenceId is null) return null;
+
+        // Resolve the original-instance identity from the override's RECURRENCE-ID micros.
+        var zone    = ResolveZone(o.RecurrenceIdTz);
+        var utc     = PrTime.FromMicros(o.RecurrenceId)?.UtcDateTime ?? default;
+        var localRaw = TimeZoneInfo.ConvertTimeFromUtc(utc, zone);
+        var local   = new DateTime(localRaw.Year, localRaw.Month, localRaw.Day,
+            localRaw.Hour, localRaw.Minute, localRaw.Second, DateTimeKind.Unspecified);
+        var instanceId = new RecurrenceInstanceId(utc, local, o.RecurrenceIdTz, IsDateOnly: false);
+
+        var flags  = AppointmentExceptionChangeFlags.None;
+        string?  subject  = null;
+        string?  location = null;
+        string?  body     = null;
+        int?     busyStatus = null;
+        DateTime? newStart = null;
+        DateTime? newEnd   = null;
+
+        // Subject
+        if (!string.IsNullOrEmpty(o.Title))
+        {
+            subject = o.Title;
+            flags |= AppointmentExceptionChangeFlags.Subject;
+        }
+
+        // StartEnd
+        if (o.EventStart.HasValue || o.EventEnd.HasValue)
+        {
+            newStart = PrTime.FromMicros(o.EventStart)?.UtcDateTime;
+            newEnd   = PrTime.FromMicros(o.EventEnd)?.UtcDateTime;
+            flags |= AppointmentExceptionChangeFlags.StartEnd;
+        }
+
+        // Location
+        byte[]? locVal = o.Properties
+            .FirstOrDefault(p => string.Equals(p.Key, "LOCATION", StringComparison.OrdinalIgnoreCase))?.Value;
+        if (locVal is not null)
+        {
+            location = Encoding.UTF8.GetString(locVal);
+            flags |= AppointmentExceptionChangeFlags.Location;
+        }
+
+        // Body (DESCRIPTION) — stored in model but not encoded by the writer; warn.
+        byte[]? bodyVal = o.Properties
+            .FirstOrDefault(p => string.Equals(p.Key, "DESCRIPTION", StringComparison.OrdinalIgnoreCase))?.Value;
+        if (bodyVal is not null)
+        {
+            body = Encoding.UTF8.GetString(bodyVal);
+            flags |= AppointmentExceptionChangeFlags.Body;
+            w.Add($"exception for '{o.Title}': changed Body not encoded in this version; stored in model only");
+        }
+
+        // BusyStatus (from TENTATIVE status or TRANSP)
+        string? transp = null;
+        byte[]? transpVal = o.Properties
+            .FirstOrDefault(p => string.Equals(p.Key, "TRANSP", StringComparison.OrdinalIgnoreCase))?.Value;
+        if (transpVal is not null) transp = Encoding.UTF8.GetString(transpVal);
+
+        if (string.Equals(o.IcalStatus, "TENTATIVE", StringComparison.OrdinalIgnoreCase))
+        { busyStatus = 1; flags |= AppointmentExceptionChangeFlags.BusyStatus; }
+        else if (string.Equals(transp, "TRANSPARENT", StringComparison.OrdinalIgnoreCase))
+        { busyStatus = 0; flags |= AppointmentExceptionChangeFlags.BusyStatus; }
+        else if (string.Equals(transp, "OPAQUE", StringComparison.OrdinalIgnoreCase))
+        { busyStatus = 2; flags |= AppointmentExceptionChangeFlags.BusyStatus; }
+
+        // Reminder — stored in model but not encoded by the writer; warn.
+        if (o.Alarms.Count > 0)
+        {
+            flags |= AppointmentExceptionChangeFlags.Reminder;
+            w.Add($"exception for '{o.Title}': changed Reminder not encoded in this version; stored in model only");
+        }
+
+        // Sensitivity — stored in model but not encoded by the writer; warn.
+        if (!string.IsNullOrEmpty(o.Privacy))
+        {
+            flags |= AppointmentExceptionChangeFlags.Sensitivity;
+            w.Add($"exception for '{o.Title}': changed Sensitivity not encoded in this version; stored in model only");
+        }
+
+        // Categories — stored in model but not encoded by the writer; warn.
+        byte[]? catsVal = o.Properties
+            .FirstOrDefault(p => string.Equals(p.Key, "CATEGORIES", StringComparison.OrdinalIgnoreCase))?.Value;
+        if (catsVal is not null)
+        {
+            flags |= AppointmentExceptionChangeFlags.Categories;
+            w.Add($"exception for '{o.Title}': changed Categories not encoded in this version; stored in model only");
+        }
+
+        return new AppointmentException
+        {
+            OriginalInstance       = instanceId,
+            NewStartUtc            = newStart,
+            NewEndUtc              = newEnd,
+            Subject                = subject,
+            Location               = location,
+            Body                   = body,
+            BusyStatus             = busyStatus,
+            ChangeFlags            = flags,
+        };
+    }
+
+    /// <summary>
+    /// Applies RRULE/EXDATE recurrence data and override exceptions to <paramref name="appt"/>.
+    /// Degrades to a single occurrence (no <c>Recurrence</c> set) with a warning when the rule
+    /// cannot be faithfully mapped; a degraded result is still returned (never null).
+    /// </summary>
+    private static void ApplyRecurrence(
+        AppointmentRecord appt, RawEvent master, RawEventGroup group, List<string> w)
+    {
+        var lines = master.Recurrence
+            .Select(s => s.IcalString)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .ToList();
+
+        ParseResult<ParsedRecurrence> pr = ICalTextParser.ParseRecurrence(lines);
+        foreach (var pw in pr.Warnings) w.Add(pw);
+        ParsedRecurrence? p = pr.Value;
+
+        if (p is null)
+        {
+            // No mappable RRULE (parse failure or no RRULE line); event is a single occurrence.
+            if (group.Overrides.Count > 0)
+                w.Add($"recurrence: overrides dropped (no recurrence pattern) for '{appt.Subject}'");
+            return;
+        }
+
+        string? reason = DegradeReason(p, lines);
+        if (reason is not null)
+        {
+            w.Add($"recurrence unsupported ({reason}); wrote first occurrence only: '{appt.Subject}'");
+            return;  // appt.Recurrence remains null — degraded single occurrence
+        }
+
+        // Build the RRULE body for Ical.Net (strip the "RRULE:" prefix).
+        string rruleLine = lines.First(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
+        string rawRRuleBody = StripRRulePrefix(IcalParseSupport.UnfoldIcalLines(rruleLine));
+
+        var spec = new RecurrenceSpec
+        {
+            Frequency    = MapFreq(p),
+            Interval     = Math.Max(1, p.Interval),
+            DaysOfWeek   = p.ByDay.Select(d => d.DayOfWeek).Distinct().ToArray(),
+            DayOfMonth   = p.ByMonthDay.Count == 1 ? p.ByMonthDay[0] : (int?)null,
+            NthOccurrence = p.ByDay.Count == 1 ? p.ByDay[0].Offset : null,
+            Month        = p.ByMonth.Count == 1 ? p.ByMonth[0] : (int?)null,
+            FirstStartUtc   = appt.StartUtc,
+            FirstStartLocal = appt.TimeZone is { } tz0
+                ? TimeZoneInfo.ConvertTimeFromUtc(appt.StartUtc, tz0)
+                : appt.StartUtc,
+            TimeZone             = appt.TimeZone,
+            OriginatingTimeZoneId = master.EventStartTz,
+            RawRRuleBody         = rawRRuleBody,
+        };
+
+        if (p.Count > 0)
+        {
+            spec.EndKind = RecurrenceEndKind.Count;
+            spec.Count   = p.Count;
+        }
+        else if (p.UntilUtc is { } until)
+        {
+            spec.EndKind  = RecurrenceEndKind.Until;
+            spec.UntilUtc = until;
+        }
+        else
+        {
+            spec.EndKind = RecurrenceEndKind.NoEnd;
+        }
+
+        spec.LastInstanceStartUtc = ComputeLastInstanceUtc(spec);
+        appt.Recurrence = spec;
+
+        // Map EXDATEs to deleted-occurrence identities.
+        appt.DeletedOccurrences = p.ExDates
+            .SelectMany(dl => dl.Values.Select(v =>
+                ToInstanceId(v, dl.TzId ?? master.EventStartTz, dl.IsDateOnly)))
+            .ToList();
+
+        // Map override exceptions.
+        appt.Exceptions = group.Overrides
+            .Select(o => ToException(o, w))
+            .Where(e => e is not null)
+            .Select(e => e!)
+            .ToList();
     }
 }

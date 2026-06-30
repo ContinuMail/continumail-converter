@@ -33,6 +33,7 @@ public sealed record ParsedRecurrence(
     IReadOnlyList<ParsedByDay> ByDay,
     IReadOnlyList<int> ByMonth,
     IReadOnlyList<int> ByMonthDay,
+    IReadOnlyList<int> BySetPosition,
     IReadOnlyList<ParsedDateList> ExDates,
     IReadOnlyList<ParsedDateList> RDates);
 
@@ -130,22 +131,24 @@ public static class ICalTextParser
                 }
             }
 
-            var byMonth    = (IReadOnlyList<int>)(rr.ByMonth    is { Count: > 0 } bm  ? bm  : Array.Empty<int>());
-            var byMonthDay = (IReadOnlyList<int>)(rr.ByMonthDay is { Count: > 0 } bmd ? bmd : Array.Empty<int>());
+            var byMonth      = (IReadOnlyList<int>)(rr.ByMonth      is { Count: > 0 } bm  ? bm  : Array.Empty<int>());
+            var byMonthDay   = (IReadOnlyList<int>)(rr.ByMonthDay   is { Count: > 0 } bmd ? bmd : Array.Empty<int>());
+            var bySetPosition = (IReadOnlyList<int>)(rr.BySetPosition is { Count: > 0 } bsp ? bsp.ToList() : Array.Empty<int>());
 
             DateTime? untilUtc = rr.Until is not null ? rr.Until.AsUtc : null;
 
             var recurrence = new ParsedRecurrence(
-                Frequency:    freq,
-                RawFrequency: rr.Frequency.ToString(),
-                Interval:     rr.Interval,
-                Count:        rr.Count ?? 0,
-                UntilUtc:     untilUtc,
-                ByDay:        byDay,
-                ByMonth:      byMonth,
-                ByMonthDay:   byMonthDay,
-                ExDates:      exDates,
-                RDates:       rDates);
+                Frequency:     freq,
+                RawFrequency:  rr.Frequency.ToString(),
+                Interval:      rr.Interval,
+                Count:         rr.Count ?? 0,
+                UntilUtc:      untilUtc,
+                ByDay:         byDay,
+                ByMonth:       byMonth,
+                ByMonthDay:    byMonthDay,
+                BySetPosition: bySetPosition,
+                ExDates:       exDates,
+                RDates:        rDates);
 
             return ParseResult<ParsedRecurrence>.Ok(recurrence);
         }

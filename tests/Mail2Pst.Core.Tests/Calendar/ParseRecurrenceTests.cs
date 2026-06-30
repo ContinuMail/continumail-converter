@@ -70,4 +70,12 @@ public class ParseRecurrenceTests
     [Fact]
     public void Malformed_rrule_returns_warning_not_throw()
         => Assert.NotEmpty(ICalTextParser.ParseRecurrence(new[]{"RRULE:FREQ=GARBAGE;;;"}).Warnings);
+
+    [Fact]
+    public void ParseRecurrence_surfaces_bysetpos()
+    {
+        var r = ICalTextParser.ParseRecurrence(new[] { "RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=-1" });
+        Assert.NotNull(r.Value);
+        Assert.Equal(new[] { -1 }, r.Value!.BySetPosition);
+    }
 }
