@@ -187,4 +187,16 @@ authoritative description of the local PSTFileFormat modifications.
 
 - Round-tripped recipient track status (`PidTagRecipientTrackStatus`) via `MessageRecipient.ResponseStatus` (written in `AddRecipient`, read in `GetRecipient`), and registered `PidLidResponseStatus` (0x8218, PSETID_Appointment) for meeting recipients (ContinuMail, 2026).
 
+- `Messaging/Messages/RecurringAppointment.cs` (`GetRecurrencePattern`, end-by-date branch): compute
+  `OccurrenceCount` for an end-by-date (UNTIL) recurring series via
+  `CalendarHelper.CalculateNumberOfOccurences(...)` instead of the upstream hard-coded sentinel `10`
+  (ContinuMail addition 2026: appointment recurrence write). Real classic-Outlook output writes the
+  actual occurrence count even for end-by-date series, so the previous fixed `10` produced a
+  `PidLidAppointmentRecur` blob that did not match Outlook byte-for-byte (e.g. the "2nd Tuesday until
+  31 Jan 2027" ground-truth blob has `OccurrenceCount = 7`, not `10`). The computed count is always
+  `>= 1`, preserving the upstream invariant that it must not be `0` (else Outlook 2003's recurrence
+  window fails to load). Proven against the Outlook-authored ground-truth dump by
+  `tests/Mail2Pst.Core.Tests/Vendor/RecurringAppointmentBlobTests.Monthly_2ndTuesday_full_blob_matches_dump`
+  (full-blob byte equality). The end-after-N and never-end branches are unchanged.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

@@ -154,8 +154,12 @@ namespace PSTFileFormat
             else
             {
                 structure.EndType = RecurrenceEndType.EndAfterDate;
+                // [ContinuMail 2026] Real Outlook stores the actual occurrence count for an end-by-date
+                // (UNTIL) series, not a fixed sentinel; computing it makes the serialized
+                // PidLidAppointmentRecur blob byte-for-byte identical to Outlook's. CalculateNumberOfOccurences
+                // always returns >= 1, so the "must not be 0" requirement below still holds.
                 // OccurrenceCount should not be 0, or otherwise Outlook 2003's Appointment recurrence window is not loaded properly
-                structure.OccurrenceCount = 10;
+                structure.OccurrenceCount = (uint)CalendarHelper.CalculateNumberOfOccurences(StartDTUtc, m_lastInstanceStartDate, this.RecurrenceType, Period, Day);
             }
             
             structure.DeletedInstanceDates = DeletedInstanceDates;
