@@ -18,4 +18,5 @@ public class OutputGroupConfig
 
     public List<SourceConfig> Sources { get; set; } = new();
     public List<ContactSourceConfig> Contacts { get; set; } = new();
+    public List<CalendarSourceConfig> Calendars { get; set; } = new();
 }

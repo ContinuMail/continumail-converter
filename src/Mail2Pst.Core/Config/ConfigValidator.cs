@@ -4,6 +4,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Mail2Pst.Core.Config;
 
@@ -37,9 +38,28 @@ public static class ConfigValidator
 
             bool hasMail = output.Sources is { Count: > 0 };
             bool hasContacts = output.Contacts is { Count: > 0 };
-            if (!hasMail && !hasContacts)
+            bool hasTasks = output.Calendars is { Count: > 0 } && output.Calendars.Any(c => c.IncludeTasks);
+            if (!hasMail && !hasContacts && !hasTasks)
                 throw new ConfigValidationException(
-                    $"Output '{output.Name}' has no sources and no contacts.");
+                    $"Output '{output.Name}' has no sources, no contacts, and no calendars.");
+
+            foreach (CalendarSourceConfig cal in output.Calendars ?? new List<CalendarSourceConfig>())
+            {
+                if (string.IsNullOrWhiteSpace(cal.StorePath))
+                    throw new ConfigValidationException(
+                        $"Output '{output.Name}' has a calendar source with an empty StorePath.");
+                if (cal.IncludeAppointments)
+                    throw new ConfigValidationException(
+                        "Calendar appointment conversion is not supported until the appointment writer PR (PR5).");
+                if (!cal.IncludeTasks && !cal.IncludeAppointments)
+                    throw new ConfigValidationException(
+                        $"Output '{output.Name}' has a calendar source that contributes nothing (both IncludeTasks and IncludeAppointments are false).");
+                if (cal.IncludeTasks && string.IsNullOrEmpty(cal.CalId) && (cal.TaskFolderPath is null or { Count: 0 }))
+                    throw new ConfigValidationException(
+                        $"Output '{output.Name}' has a calendar source with no CalId (all calendars in the store); it must set TaskFolderPath explicitly.");
+                if (cal.TaskFolderPath is not null)
+                    FolderNameValidator.ValidatePath(cal.TaskFolderPath);
+            }
 
             foreach (ContactSourceConfig contact in output.Contacts ?? new List<ContactSourceConfig>())
             {

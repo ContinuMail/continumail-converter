@@ -80,6 +80,33 @@ public static class MappingEngine
                         $"Contact folder '{key}' collides with a mail folder of a different item type in output '{output.Name}'.");
             }
 
+            // Build task mappings (IncludeAppointments is PR5; only IncludeTasks wired here).
+            foreach (CalendarSourceConfig cal in output.Calendars ?? new List<CalendarSourceConfig>())
+            {
+                if (!cal.IncludeTasks)
+                    continue;
+                IReadOnlyList<string> target = cal.TaskFolderPath
+                    ?? new[] { "Tasks", cal.CalId };
+                plan.TaskMappings.Add(new TaskMapping
+                {
+                    Source = cal,
+                    TargetFolderPath = target,
+                });
+            }
+
+            // Plan-stage item-type collision check: a task folder path must not equal a mail or contact folder path.
+            var allNonTaskPathKeys = new HashSet<string>(
+                plan.SourceMappings.Select(m => FolderPathKey.Join(m.TargetFolderPath))
+                    .Concat(plan.ContactMappings.Select(m => FolderPathKey.Join(m.TargetFolderPath))),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (TaskMapping tm in plan.TaskMappings)
+            {
+                string key = FolderPathKey.Join(tm.TargetFolderPath);
+                if (allNonTaskPathKeys.Contains(key))
+                    throw new ConfigValidationException(
+                        $"Task folder '{key}' collides with a mail or contact folder of a different item type in output '{output.Name}'.");
+            }
+
             plans.Add(plan);
         }
 
