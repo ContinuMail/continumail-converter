@@ -39,7 +39,8 @@ public static class ConfigValidator
             bool hasMail = output.Sources is { Count: > 0 };
             bool hasContacts = output.Contacts is { Count: > 0 };
             bool hasTasks = output.Calendars is { Count: > 0 } && output.Calendars.Any(c => c.IncludeTasks);
-            if (!hasMail && !hasContacts && !hasTasks)
+            bool hasAppointments = output.Calendars is { Count: > 0 } && output.Calendars.Any(c => c.IncludeAppointments);
+            if (!hasMail && !hasContacts && !hasTasks && !hasAppointments)
                 throw new ConfigValidationException(
                     $"Output '{output.Name}' has no sources, no contacts, and no calendars.");
 
@@ -48,9 +49,6 @@ public static class ConfigValidator
                 if (string.IsNullOrWhiteSpace(cal.StorePath))
                     throw new ConfigValidationException(
                         $"Output '{output.Name}' has a calendar source with an empty StorePath.");
-                if (cal.IncludeAppointments)
-                    throw new ConfigValidationException(
-                        "Calendar appointment conversion is not supported until the appointment writer PR (PR5).");
                 if (!cal.IncludeTasks && !cal.IncludeAppointments)
                     throw new ConfigValidationException(
                         $"Output '{output.Name}' has a calendar source that contributes nothing (both IncludeTasks and IncludeAppointments are false).");
@@ -59,6 +57,11 @@ public static class ConfigValidator
                         $"Output '{output.Name}' has a calendar source with no CalId (all calendars in the store); it must set TaskFolderPath explicitly.");
                 if (cal.TaskFolderPath is not null)
                     FolderNameValidator.ValidatePath(cal.TaskFolderPath);
+                if (cal.IncludeAppointments && string.IsNullOrEmpty(cal.CalId) && (cal.AppointmentFolderPath is null or { Count: 0 }))
+                    throw new ConfigValidationException(
+                        $"Output '{output.Name}' has a calendar source with no CalId (all calendars in the store); it must set AppointmentFolderPath explicitly.");
+                if (cal.AppointmentFolderPath is not null)
+                    FolderNameValidator.ValidatePath(cal.AppointmentFolderPath);
             }
 
             foreach (ContactSourceConfig contact in output.Contacts ?? new List<ContactSourceConfig>())

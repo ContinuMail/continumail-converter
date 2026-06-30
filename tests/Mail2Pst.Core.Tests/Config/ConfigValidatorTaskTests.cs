@@ -63,8 +63,9 @@ public class ConfigValidatorTaskTests
     }
 
     [Fact]
-    public void Validate_IncludeAppointmentsTrue_Throws()
+    public void Validate_IncludeAppointmentsTrueWithTasksTrue_Validates()
     {
+        // PR5: IncludeAppointments is now supported — both flags true on the same calendar is legal.
         var config = new ConversionConfig
         {
             Outputs = new List<OutputGroupConfig>
@@ -80,6 +81,7 @@ public class ConfigValidatorTaskTests
                             StorePath = "local.sqlite",
                             CalId = "home",
                             IncludeAppointments = true,
+                            AppointmentFolderPath = new[] { "Calendars", "Home" },
                             IncludeTasks = true,
                             TaskFolderPath = new[] { "Tasks", "Home" },
                         },
@@ -87,7 +89,7 @@ public class ConfigValidatorTaskTests
                 },
             },
         };
-        Assert.Throws<ConfigValidationException>(() => ConfigValidator.Validate(config));
+        ConfigValidator.Validate(config); // must not throw
     }
 
     [Fact]
