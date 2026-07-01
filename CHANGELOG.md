@@ -14,17 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported. When you convert a Thunderbird profile, contacts are included automatically; a
   `--no-contacts` flag (and a future GUI toggle) opts out. Contacts land in an `IPF.Contact` folder per
   address book and validate cleanly in Outlook and `scanpst.exe`.
-- **Thunderbird to-dos now convert to PST.** Non-recurring tasks from a Thunderbird calendar store
+- **Thunderbird to-dos now convert to PST.** Tasks from a Thunderbird calendar store
   (`local.sqlite`/`cache.sqlite`) become Outlook tasks (`IPM.Task`) in a per-calendar Tasks folder,
   carrying subject, start/due/completed dates, status, percent-complete, priority, sensitivity (incl.
   Private), reminder, body, and categories. Tasks are included automatically when you convert a profile;
-  a `--no-tasks` flag opts out. _Recurring tasks are deferred to a later release._
-- **Thunderbird calendar events now convert to PST.** Non-recurring events from a Thunderbird calendar
+  a `--no-tasks` flag opts out.
+- **Thunderbird calendar events now convert to PST.** Events from a Thunderbird calendar
   store (`local.sqlite`/`cache.sqlite`) become Outlook appointments (`IPM.Appointment`) in a per-calendar
   Calendar folder, carrying subject, start/end with **timezone**, **all-day**, location, busy/free, sensitivity
   (incl. Private), importance, body (plain **and** HTML), categories, and reminder. Events are included
-  automatically when you convert a profile; a `--no-appointments` flag opts out. _Recurring events,
-  attendees, and attachments are deferred to later releases._
+  automatically when you convert a profile; a `--no-appointments` flag opts out. _Event attachments and
+  online-meeting links (Teams/Google Meet) are deferred to a later release._
 - **Meeting attendees now convert to PST appointment recipients.** Events with attendees become proper
   Outlook meetings (`IPM.Appointment` with meeting-request state). Required, optional, and resource
   attendees map to the correct MAPI recipient types (To/Cc/Bcc); the organizer is recorded in the
@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local time. All-day recurring events carry both a recurrence blob and `PidLidAppointmentSubType`.
   Unsupported patterns (BYSETPOS, multi-RRULE, etc.) degrade gracefully to a single occurrence with
   a warning rather than being skipped.
+- **Recurring tasks now convert to PST.** Daily, weekly, monthly, and yearly recurring to-dos become
+  proper Outlook recurring tasks (`IPM.Task`) carrying a `PidLidTaskRecurrence` pattern, so Outlook
+  regenerates the next occurrence when you complete one. A recurring task with deleted or overridden
+  occurrences, a completed recurring task, or an unrepresentable rule is written as a single task with
+  a warning rather than being dropped.
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
@@ -68,6 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PidLidResponseStatus` registration. Case-insensitive email dedup (attendees vs organizer). Attendee-only
   events with no valid email are skipped with a warning; organizer-only events (zero attendees) remain
   plain appointments. Received-meeting response status is deferred (requires identity resolution).
+- Recurrence pipeline: a shared `RecurrenceMapping` translates iCal `RRULE`/`EXDATE` into a typed
+  `RecurrenceSpec`, consumed by both the appointment writer (the full `PidLidAppointmentRecur` blob with
+  deleted/modified instances, embedded exception attachments, and IANA→Windows timezone definitions) and
+  the task writer (the bare MS-OXOCAL `RecurrencePattern` prefix for `PidLidTaskRecurrence` +
+  `PidLidTaskFRecurring`, split out of the vendored appointment serializer). Both blob encodings are
+  byte-gated against real Outlook ground-truth exports. Unrepresentable rules and task-level exceptions
+  (EXDATE/RDATE/overrides, completed-recurring) degrade to a single item plus a warning — counted as
+  converted, never silently dropped. The independent `pst-validate` gate confirms recurrence adds no
+  phantom folder items.
 
 ## [0.2.3] — 2026-06-28
 
