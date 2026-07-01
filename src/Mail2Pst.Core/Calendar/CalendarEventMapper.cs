@@ -327,6 +327,13 @@ public static class CalendarEventMapper
             appt.Attendees = attendees;
         }
 
+        // --- GlobalObjectId (Exchange-cached events only) ---
+        // For Exchange/Owl-cached events the id IS the GlobalObjectId, uppercase-hex-encoded
+        // (112 chars = 56 bytes, EDK prefix 040000008200E00074C5B7101A82E008).
+        // Mozilla UUIDs and CalDAV UIDs do not match; TryDecode returns false and GlobalObjectId stays null.
+        if (GlobalObjectIdCodec.TryDecode(group.Master?.Id, out var goid, out _))
+            appt.GlobalObjectId = goid;
+
         // --- Online-meeting join URL (Teams / Google Meet) ---
         // Only these two provider X-props trigger URL preservation; ordinary URLs in
         // DESCRIPTION or LOCATION are not promoted (no over-promotion rule).

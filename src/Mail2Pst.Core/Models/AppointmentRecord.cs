@@ -33,4 +33,11 @@ public sealed class AppointmentRecord
     public IReadOnlyList<AppointmentException> Exceptions { get; set; } = Array.Empty<AppointmentException>();
 
     public IReadOnlyList<CalendarAttachment> Attachments { get; set; } = Array.Empty<CalendarAttachment>();
+
+    /// <summary>
+    /// Raw 56-byte GlobalObjectId blob, hex-decoded from an Exchange-cached event id.
+    /// Null when the source id is a Mozilla UUID, CalDAV UID, or otherwise not a GOID
+    /// (Outlook generates a GOID on demand for non-Exchange items).
+    /// </summary>
+    public byte[]? GlobalObjectId { get; set; }
 }

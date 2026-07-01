@@ -103,6 +103,8 @@ public sealed class AppointmentWriter
 
         WriteAttachments(file, appt, a.Attachments);   // ByValue inline/local-file attachments + no-op for LinkOnly
 
+        WriteGlobalObjectId(file, appt, a);
+
         appt.SaveChanges();
         folder.AddMessage(appt);
         // folder.SaveChanges() is the caller's responsibility (must be called before EndSavingChanges).
@@ -431,6 +433,33 @@ public sealed class AppointmentWriter
                     AttachmentContent.FromExistingFile(att.LocalPath)));   // NEVER FromTempFile — that deletes the source
             // LinkOnly → body appendix only; no PST attachment row.
         }
+    }
+
+    /// <summary>
+    /// Writes <c>PidLidGlobalObjectId</c> (PSETID_Meeting LID 0x0003) and
+    /// <c>PidLidCleanGlobalObjectId</c> (PSETID_Meeting LID 0x0023) when
+    /// <see cref="AppointmentRecord.GlobalObjectId"/> is non-null.
+    ///
+    /// These are byte-exact blobs derived by <see cref="Calendar.GlobalObjectIdCodec"/> from the
+    /// Exchange-cached source event id. CleanGlobalObjectId = GlobalObjectId with exception-date
+    /// bytes [16..20) zeroed (they are already zero for non-exception occurrences).
+    /// No-op when GlobalObjectId is null (Mozilla UUID / CalDAV events — Outlook generates on demand).
+    /// </summary>
+    private static void WriteGlobalObjectId(PSTFile file, Appointment appt, AppointmentRecord a)
+    {
+        if (a.GlobalObjectId is null) return;
+
+        // Derive CleanGlobalObjectId: clone, zero exception-date bytes [16..20).
+        byte[] clean = (byte[])a.GlobalObjectId.Clone();
+        for (int i = 16; i < 20; i++) clean[i] = 0;
+
+        PropertyID goidPropId = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName(PropertyLongID.PidLidGlobalObjectId, PropertySetGuid.PSETID_Meeting));
+        appt.PC.SetBytesProperty(goidPropId, a.GlobalObjectId);
+
+        PropertyID cleanPropId = file.NameToIDMap.ObtainIDFromName(
+            new PropertyName(PropertyLongID.PidLidCleanGlobalObjectId, PropertySetGuid.PSETID_Meeting));
+        appt.PC.SetBytesProperty(cleanPropId, clean);
     }
 
     /// <summary>Writes Keywords (categories) MV-string if any are present.</summary>
