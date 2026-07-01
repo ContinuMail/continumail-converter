@@ -57,8 +57,11 @@ public class CalendarTaskMapperTests
     }
 
     [Fact]
-    public void GroupWithOverrides_ReturnsNullWithRecurringWarning()
+    public void GroupWithOverrides_NoRrule_MapsMasterNormally()
     {
+        // Overrides with no RRULE in master — the override list is only relevant when
+        // there is also a recurrence rule. Without one, the master is a non-recurring task
+        // and the override rows are effectively orphaned; map the master as a plain task.
         var group = new RawTodoGroup
         {
             Master = new RawTodo { Id = "t1@example.com", Title = "Weekly Review" },
@@ -66,14 +69,15 @@ public class CalendarTaskMapperTests
         };
         var result = CalendarTaskMapper.Map(group, out var warnings);
 
-        Assert.Null(result);
-        Assert.Single(warnings);
-        Assert.Contains("recurring task 'Weekly Review' with exceptions deferred to PR7", warnings[0]);
+        Assert.NotNull(result);
+        Assert.Empty(warnings);
+        Assert.Equal("Weekly Review", result.Subject);
     }
 
     [Fact]
-    public void MasterWithRecurrenceLine_ReturnsNullWithRecurringWarning()
+    public void MasterWithRecurrenceLine_NoDates_DegradesWith_NoDueDateWarning()
     {
+        // RRULE present but no anchor date → degrade to single non-recurring task + warning.
         var group = SimpleGroup(t =>
         {
             t.Title = "Recurring Task";
@@ -81,14 +85,16 @@ public class CalendarTaskMapperTests
         });
         var result = CalendarTaskMapper.Map(group, out var warnings);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
         Assert.Single(warnings);
-        Assert.Contains("recurring task 'Recurring Task' deferred to PR7", warnings[0]);
+        Assert.Contains("no due/start date to anchor recurrence", warnings[0]);
+        Assert.Null(result.Recurrence);
     }
 
     [Fact]
-    public void MasterWithRecurrenceIdSet_ReturnsNullWithOverrideWarning()
+    public void MasterWithRecurrenceIdSet_ReturnsNullWithMisgroupedWarning()
     {
+        // A task with RecurrenceId is an override row that got mis-grouped as a master; skip it.
         var group = SimpleGroup(t =>
         {
             t.RecurrenceId = MicrosFor(2026, 7, 7);
@@ -97,7 +103,7 @@ public class CalendarTaskMapperTests
 
         Assert.Null(result);
         Assert.Single(warnings);
-        Assert.Contains("task override row deferred to PR7", warnings[0]);
+        Assert.Contains("task override row mis-grouped as master; skipped", warnings[0]);
     }
 
     // -----------------------------------------------------------------------
@@ -497,14 +503,217 @@ public class CalendarTaskMapperTests
     }
 
     // -----------------------------------------------------------------------
-    // Pending: recurring-task support (PR7)
-    // These skipped tests are placeholders that track the work deferred to PR7.
-    // Remove the Skip attribute and implement when the recurrence writer lands.
+    // Recurring task support (PR7)
     // -----------------------------------------------------------------------
 
-    [Fact(Skip = "Recurring tasks land in PR7 (recurrence + exceptions); tracked by this skipped test.")]
-    public void Recurring_task_is_written_with_recurrence_pattern() { /* TODO PR7 */ }
+    [Fact]
+    public void Recurring_task_is_written_with_recurrence_pattern()
+    {
+        // Basic recurring task with a weekly RRULE and a DueDate anchor.
+        // 2026-07-13 is a Monday — consistent with the BYDAY=MO rule.
+        var group = SimpleGroup(t =>
+        {
+            t.Title   = "Weekly Standup";
+            t.TodoDue = MicrosFor(2026, 7, 13); // Monday
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=5"));
+        });
 
-    [Fact(Skip = "Recurring tasks land in PR7 (recurrence + exceptions); tracked by this skipped test.")]
-    public void Recurring_task_with_exception_override_is_written_correctly() { /* TODO PR7 */ }
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Empty(warnings);
+        Assert.NotNull(task.Recurrence);
+        Assert.Equal(RecurrenceFrequency.Weekly, task.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceEndKind.Count, task.Recurrence.EndKind);
+        Assert.Equal(5, task.Recurrence.Count);
+    }
+
+    [Fact]
+    public void Recurring_task_with_exception_override_is_written_correctly()
+    {
+        // A recurring task whose series has an override row (exception) should degrade to
+        // a single non-recurring task with a warning — NOT return null.
+        var overrideTodo = new RawTodo
+        {
+            Id    = "task-override-001@example.com",
+            Title = "Weekly Review",
+        };
+        var group = new RawTodoGroup
+        {
+            Master = new RawTodo
+            {
+                Id    = "task-master-001@example.com",
+                Title = "Weekly Review",
+                TodoDue = MicrosFor(2026, 7, 13),
+            },
+            Overrides = new List<RawTodo> { overrideTodo },
+        };
+        group.Master.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;COUNT=5"));
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        // Task is returned (NOT null) — it degrades to single non-recurring
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("deletions/exceptions not supported", warnings[0]);
+        Assert.Null(task.Recurrence);
+    }
+
+    [Fact]
+    public void Weekly_task_with_due_anchor_maps_recurrence()
+    {
+        // RRULE anchored on DueDate (preferred over StartDate).
+        // 2026-07-13 is a Monday — consistent with BYDAY=MO.
+        var group = SimpleGroup(t =>
+        {
+            t.Title      = "Monday Task";
+            t.TodoEntry  = MicrosFor(2026, 7, 6);   // start (Sunday)
+            t.TodoDue    = MicrosFor(2026, 7, 13);  // due (Monday) — anchor
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=5"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Empty(warnings);
+        Assert.NotNull(task.Recurrence);
+        Assert.Equal(RecurrenceFrequency.Weekly, task.Recurrence!.Frequency);
+        Assert.Equal(5, task.Recurrence.Count);
+        Assert.Equal(RecurrenceEndKind.Count, task.Recurrence.EndKind);
+        // Anchor is UTC-midnight of the DueDate (2026-07-13)
+        Assert.Equal(new DateTime(2026, 7, 13, 0, 0, 0, DateTimeKind.Utc), task.Recurrence.FirstStartUtc);
+    }
+
+    [Fact]
+    public void No_due_falls_back_to_start_anchor()
+    {
+        // When there is no DueDate, StartDate is used as the anchor.
+        var group = SimpleGroup(t =>
+        {
+            t.Title     = "Daily Habit";
+            t.TodoEntry = MicrosFor(2026, 7, 14); // start only
+            // No TodoDue
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY;COUNT=3"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Empty(warnings);
+        Assert.NotNull(task.Recurrence);
+        Assert.Equal(RecurrenceFrequency.Daily, task.Recurrence!.Frequency);
+        Assert.Equal(new DateTime(2026, 7, 14, 0, 0, 0, DateTimeKind.Utc), task.Recurrence.FirstStartUtc);
+    }
+
+    [Fact]
+    public void No_due_no_start_degrades_with_warning()
+    {
+        // Neither DueDate nor StartDate — cannot anchor the recurrence; degrade to single task.
+        var group = SimpleGroup(t =>
+        {
+            t.Title = "Undated Recurring";
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;COUNT=3"));
+            // No TodoEntry, no TodoDue
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        // Task is still returned (non-null) — just without Recurrence
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("no due/start date to anchor recurrence", warnings[0]);
+        Assert.Null(task.Recurrence);
+    }
+
+    [Fact]
+    public void Exdate_present_degrades_to_single_task_with_warning()
+    {
+        // An EXDATE line means the series has deleted occurrences — not representable;
+        // degrade to a single non-recurring task with a warning, task is NOT null.
+        var group = SimpleGroup(t =>
+        {
+            t.Title   = "Skipped Monday";
+            t.TodoDue = MicrosFor(2026, 7, 13); // Monday
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=5"));
+            t.Recurrence.Add(new RawSideText("EXDATE:20260720T000000Z"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("deletions/exceptions not supported", warnings[0]);
+        Assert.Null(task.Recurrence);
+    }
+
+    [Fact]
+    public void Override_rows_degrade_to_single_task_with_warning()
+    {
+        // group.Overrides.Count > 0 with RRULE present → degrade, task still returned (NOT null).
+        var group = new RawTodoGroup
+        {
+            Master = new RawTodo
+            {
+                Id      = "master-002@example.com",
+                Title   = "Weekly Sync",
+                TodoDue = MicrosFor(2026, 7, 13),
+            },
+            Overrides = new List<RawTodo>
+            {
+                new RawTodo { Id = "override-002@example.com", Title = "Weekly Sync" }
+            },
+        };
+        group.Master.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;COUNT=5"));
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("deletions/exceptions not supported", warnings[0]);
+        Assert.Null(task.Recurrence);
+    }
+
+    [Fact]
+    public void Bysetpos_degrades_with_warning()
+    {
+        // BYSETPOS (e.g. "last Monday of month") is not representable — degrade.
+        var group = SimpleGroup(t =>
+        {
+            t.Title   = "Last Monday";
+            t.TodoDue = MicrosFor(2026, 7, 27); // last Monday of July 2026
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=-1"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("BYSETPOS", warnings[0]);
+        Assert.Null(task.Recurrence);
+    }
+
+    [Fact]
+    public void Completed_recurring_task_degrades_if_unsupported()
+    {
+        // A completed recurring task triggers Outlook live-regeneration when written.
+        // The converter cannot author that lifecycle, so degrade to a single completed task.
+        var group = SimpleGroup(t =>
+        {
+            t.Title        = "Done Series";
+            t.IcalStatus   = "COMPLETED";
+            t.TodoComplete = 100;
+            t.TodoDue      = MicrosFor(2026, 7, 13);
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;COUNT=5"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);
+        Assert.Single(warnings);
+        Assert.Contains("completed recurring tasks not supported", warnings[0]);
+        Assert.Null(task.Recurrence);
+        // Task is still complete
+        Assert.Equal(TaskStatusKind.Complete, task.Status);
+        Assert.Equal(100, task.PercentComplete);
+    }
 }

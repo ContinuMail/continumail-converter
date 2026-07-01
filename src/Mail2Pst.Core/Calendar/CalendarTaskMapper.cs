@@ -12,6 +12,11 @@ namespace Mail2Pst.Core.Calendar;
 
 public static class CalendarTaskMapper
 {
+    // Completing a recurring task triggers Outlook live-regeneration (advance current +
+    // spawn a TaskDeadOccurrence=true copy) — a converter must not author that lifecycle.
+    // Keep false: completed recurring tasks degrade to a single completed non-recurring task.
+    private const bool CompletedRecurringSupported = false;
+
     public static TaskRecord? Map(RawTodoGroup group, out IReadOnlyList<string> warnings)
     {
         var w = new List<string>();
@@ -20,9 +25,8 @@ public static class CalendarTaskMapper
         RawTodo? master = group.Master;
         string title = master?.Title ?? "";
         if (master is null) { w.Add("orphan task override (no master) skipped"); return null; }
-        if (group.Overrides.Count > 0) { w.Add($"recurring task '{title}' with exceptions deferred to PR7"); return null; }
-        if (master.Recurrence.Count > 0) { w.Add($"recurring task '{title}' deferred to PR7"); return null; }
-        if (master.RecurrenceId is not null) { w.Add("task override row deferred to PR7"); return null; }
+        // A task with RecurrenceId is an override row that got mis-grouped as a master; skip it.
+        if (master.RecurrenceId is not null) { w.Add("task override row mis-grouped as master; skipped"); return null; }
 
         var t = new TaskRecord { Subject = title, SourceId = master.Id ?? "" };
 
@@ -130,6 +134,57 @@ public static class CalendarTaskMapper
         }
 
         // Task attendees/assignment deferred: Outlook task assignment is a separate MAPI surface (not PR6).
+
+        // Recurrence — map RRULE if present, degrade on exceptions/completions/unrepresentable rules.
+        bool hasRrule = master.Recurrence.Any(s =>
+            (s.IcalString ?? "").TrimStart().StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
+
+        if (hasRrule)
+        {
+            bool hasExdateOrRdate = master.Recurrence.Any(s =>
+                (s.IcalString ?? "").TrimStart().StartsWith("EXDATE", StringComparison.OrdinalIgnoreCase) ||
+                (s.IcalString ?? "").TrimStart().StartsWith("RDATE",  StringComparison.OrdinalIgnoreCase));
+            bool hasOverrides = group.Overrides.Count > 0;
+
+            // Warning precedence (most-specific first): exceptions/deletions, then completed-recurring,
+            // then rule-degrade. Short-circuit so only one reason is reported.
+            if (hasExdateOrRdate || hasOverrides)
+            {
+                w.Add($"recurring task '{title}': deletions/exceptions not supported — wrote a single task");
+            }
+            else if (t.Status == TaskStatusKind.Complete && !CompletedRecurringSupported)
+            {
+                w.Add($"recurring task '{title}': completed recurring tasks not supported — wrote a single completed task");
+            }
+            else
+            {
+                // Prefer DueDate as anchor; fall back to StartDate.
+                var anchor = t.DueDate ?? t.StartDate;
+                if (anchor is null)
+                {
+                    w.Add($"recurring task '{title}': no due/start date to anchor recurrence — wrote a single task");
+                }
+                else
+                {
+                    // Task dates are DATE-ONLY; anchor at UTC-midnight of that calendar day (deterministic,
+                    // consistent with PR4 which stores task dates as UTC-midnight).
+                    var utcMidnight = new DateTime(
+                        anchor.Value.Year, anchor.Value.Month, anchor.Value.Day,
+                        0, 0, 0, DateTimeKind.Utc);
+                    var lines = master.Recurrence
+                        .Select(s => s.IcalString)
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Select(s => s!)
+                        .ToList();
+                    var (spec, reason) = RecurrenceMapping.FromIcal(
+                        lines, utcMidnight, utcMidnight, TimeZoneInfo.Utc, originatingTzId: null);
+                    if (reason is not null)
+                        w.Add($"recurring task '{title}': {reason}; wrote a single task");
+                    else
+                        t.Recurrence = spec;
+                }
+            }
+        }
 
         return t;
     }

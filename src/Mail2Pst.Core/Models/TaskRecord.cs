@@ -30,4 +30,7 @@ public sealed class TaskRecord
     public DateTimeOffset? ReminderTime { get; set; }     // absolute reminder instant
 
     public string SourceId { get; set; } = "";            // cal_todos.id, for skip/warning messages
+
+    // Recurrence — null for non-recurring tasks.
+    public RecurrenceSpec? Recurrence { get; set; }
 }
