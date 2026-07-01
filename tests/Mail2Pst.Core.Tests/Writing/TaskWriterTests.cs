@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
 using System.IO;
+using System.Linq;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Writing;
 using PSTFileFormat;
 using Xunit;
+// Disambiguates Mail2Pst.Core.Models.RecurrenceFrequency from PSTFileFormat.RecurrenceFrequency.
+using RecurrenceFrequency = Mail2Pst.Core.Models.RecurrenceFrequency;
 
 namespace Mail2Pst.Core.Tests.Writing;
 
@@ -255,6 +258,130 @@ public class TaskWriterTests
             DateTime? due = msg.PC.GetDateTimeProperty(dueId);
             Assert.NotNull(due);
             Assert.Equal(new DateTime(2026, 6, 30, 0, 0, 0, DateTimeKind.Utc), due!.Value);
+            return true;
+        });
+    }
+
+    // ---------------------------------------------------------------------------
+    // PR7b recurrence tests (Task 4)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Byte-gate: <see cref="TaskRecurrenceBlob.Build"/> must reproduce the exact
+    /// PidLidTaskRecurrence bytes dumped from real Outlook for "GT Task Weekly"
+    /// (weekly Mon, COUNT=5, due 2026-07-06).
+    /// Oracle source: docs/research/2026-07-01-pr7a-recurrence-ground-truth.md,
+    /// "Task recurrence ground truth" section.
+    /// </summary>
+    [Fact]
+    public void Weekly_task_due_monday_writes_GT_oracle_bytes()
+    {
+        // GT Task Weekly oracle — 54 bytes, weekly Mon COUNT=5 starting 2026-07-06.
+        // Decoded:
+        //   ReaderVersion=0x3004, WriterVersion=0x3004
+        //   RecurFrequency=0x200B (Weekly), PatternType=0x0001 (Week), CalendarType=0
+        //   FirstDateTime=8640 (6 days × 1440 min — week-start offset from 1601-01-01)
+        //   Period=1, SlidingFlag=0
+        //   DaysOfWeek=0x02 (Monday)
+        //   EndType=0x2022 (EndAfterNOccurrences), OccurrenceCount=5, FirstDOW=0
+        //   DeletedInstanceCount=0, ModifiedInstanceCount=0
+        //   StartDate=2026-07-06 (155,414 × 1440 = 0x0D56DBC0)
+        //   EndDate=2026-08-03 (155,442 × 1440 = 0x0D577940)
+        byte[] oracle = Convert.FromHexString(
+            // 54 bytes: bare RecurrencePattern (no appointment tail).
+            // Fields: ReaderVer+WriterVer+RecurFreq+PatType+CalType+FirstDateTime+Period+SlidingFlag
+            //       + DaysOfWeek+EndType+OccurrenceCount+FirstDOW+DeletedCount+ModifiedCount
+            //       + StartDate+EndDate
+            "043004300B2001000000C02100000100000000000000" +  // header+FirstDateTime+Period+SlidingFlag (22 bytes)
+            "020000002220000005000000" +                        // DaysOfWeek+EndType+OccurrenceCount (12 bytes)
+            "000000000000000000000000" +                        // FirstDOW+DeletedCount+ModifiedCount (12 bytes)
+            "C0DB560D4079570D");                                // StartDate+EndDate (8 bytes)
+
+        var spec = new RecurrenceSpec
+        {
+            Frequency         = RecurrenceFrequency.Weekly,
+            Interval          = 1,
+            DaysOfWeek        = new[] { DayOfWeek.Monday },
+            EndKind           = RecurrenceEndKind.Count,
+            Count             = 5,
+            FirstStartUtc     = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc),
+            FirstStartLocal   = new DateTime(2026, 7, 6, 0, 0, 0),
+            LastInstanceStartUtc = new DateTime(2026, 8, 3, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        byte[] actual = TaskRecurrenceBlob.Build(spec, TimeZoneInfo.Utc);
+
+        Assert.Equal(54, actual.Length);
+        Assert.True(oracle.SequenceEqual(actual),
+            $"Bytes differ.\nExpected: {Convert.ToHexString(oracle)}\nActual:   {Convert.ToHexString(actual)}");
+    }
+
+    [Fact]
+    public void Recurring_task_writes_TaskRecurrence_and_FRecurring_true()
+    {
+        // A TaskRecord with a RecurrenceSpec must round-trip with PidLidTaskFRecurring=true
+        // and PidLidTaskRecurrence present (non-null bytes).
+        var spec = new RecurrenceSpec
+        {
+            Frequency         = RecurrenceFrequency.Weekly,
+            Interval          = 1,
+            DaysOfWeek        = new[] { DayOfWeek.Monday },
+            EndKind           = RecurrenceEndKind.Count,
+            Count             = 5,
+            FirstStartUtc     = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc),
+            FirstStartLocal   = new DateTime(2026, 7, 6, 0, 0, 0),
+            LastInstanceStartUtc = new DateTime(2026, 8, 3, 0, 0, 0, DateTimeKind.Utc),
+        };
+        var t = new TaskRecord
+        {
+            Subject    = "Recurring GT Weekly",
+            DueDate    = new DateTimeOffset(2026, 7, 6, 0, 0, 0, TimeSpan.Zero),
+            Recurrence = spec,
+        };
+
+        RoundTripTask(t, (pst, msg) =>
+        {
+            // PidLidTaskFRecurring == true
+            PropertyID frId = pst.NameToIDMap.ObtainIDFromName(
+                new PropertyName(PropertyLongID.PidLidTaskFRecurring, PropertySetGuid.PSETID_Task));
+            Assert.True(msg.PC.GetBooleanProperty(frId),
+                "PidLidTaskFRecurring should be true for a recurring task");
+
+            // PidLidTaskRecurrence present and non-empty
+            PropertyID recId = pst.NameToIDMap.ObtainIDFromName(
+                new PropertyName(PropertyLongID.PidLidTaskRecurrence, PropertySetGuid.PSETID_Task));
+            byte[]? recBytes = msg.PC.GetBytesProperty(recId);
+            Assert.NotNull(recBytes);
+            Assert.True(recBytes!.Length > 0, "PidLidTaskRecurrence should be non-empty");
+
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Non_recurring_task_writes_no_recurrence_props()
+    {
+        // A non-recurring TaskRecord (Recurrence=null) must NOT write PidLidTaskRecurrence
+        // or PidLidTaskFRecurring — absent is the correct state (PR7b ground-truth confirms
+        // Outlook omits these props on non-recurring tasks; writing them absent is equivalent
+        // to FRecurring=false without the prop overhead).
+        var t = new TaskRecord { Subject = "Non-recurring" };
+
+        RoundTripTask(t, (pst, msg) =>
+        {
+            // Use GetIDFromName (non-mutating) so we don't allocate these names in the store.
+            PropertyID? recId = pst.NameToIDMap.GetIDFromName(
+                new PropertyName(PropertyLongID.PidLidTaskRecurrence, PropertySetGuid.PSETID_Task));
+            PropertyID? frId = pst.NameToIDMap.GetIDFromName(
+                new PropertyName(PropertyLongID.PidLidTaskFRecurring, PropertySetGuid.PSETID_Task));
+
+            // Prop is absent if: name was never registered (null) OR registered but no value on this message.
+            bool recAbsent = recId is null || msg.PC.GetBytesProperty(recId.Value) is null;
+            bool frAbsent  = frId  is null || msg.PC.GetBooleanProperty(frId.Value) is null;
+
+            Assert.True(recAbsent, "PidLidTaskRecurrence should not be written for a non-recurring task");
+            Assert.True(frAbsent,  "PidLidTaskFRecurring should not be written for a non-recurring task");
+
             return true;
         });
     }

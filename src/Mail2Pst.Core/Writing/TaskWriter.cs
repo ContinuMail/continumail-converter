@@ -4,6 +4,8 @@
 using System;
 using Mail2Pst.Core.Models;
 using PSTFileFormat;
+// Alias disambiguates our model enum from PSTFileFormat.RecurrenceFrequency (the vendor blob type).
+using RecurrenceFrequency = Mail2Pst.Core.Models.RecurrenceFrequency;
 
 namespace Mail2Pst.Core.Writing;
 
@@ -67,6 +69,16 @@ public class TaskWriter
             msg.PC.SetMultiStringProperty((PropertyID)kw, t.Categories);
         }
 
+        // Recurrence — only PidLidTaskRecurrence (the bare pattern) + PidLidTaskFRecurring=true.
+        // Non-recurring tasks write neither prop (absent is equivalent to FRecurring=false per GT).
+        if (t.Recurrence is { } rec)
+        {
+            var zone = rec.TimeZone ?? TimeZoneInfo.Utc;   // deterministic; mapper passes UTC. NEVER TimeZoneInfo.Local.
+            SetNamedBytes(file, msg, PropertyLongID.PidLidTaskRecurrence,  PropertySetGuid.PSETID_Task,
+                TaskRecurrenceBlob.Build(rec, zone));
+            SetNamedBool(file, msg, PropertyLongID.PidLidTaskFRecurring, PropertySetGuid.PSETID_Task, true);
+        }
+
         msg.SaveChanges();
         folder.AddMessage(msg);
     }
@@ -89,6 +101,9 @@ public class TaskWriter
 
     private static void SetNamedBool(PSTFile file, TaskMessage msg, PropertyLongID lid, Guid set, bool value)
         => msg.PC.SetBooleanProperty(Obtain(file, lid, set), value);
+
+    private static void SetNamedBytes(PSTFile file, TaskMessage msg, PropertyLongID lid, Guid set, byte[] value)
+        => msg.PC.SetBytesProperty(Obtain(file, lid, set), value);
 
     private static void SetNamedDate(PSTFile file, TaskMessage msg, PropertyLongID lid, Guid set, DateTimeOffset value)
         => msg.PC.SetDateTimeProperty(Obtain(file, lid, set), value.UtcDateTime);
