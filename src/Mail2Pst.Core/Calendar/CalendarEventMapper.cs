@@ -327,6 +327,33 @@ public static class CalendarEventMapper
             appt.Attendees = attendees;
         }
 
+        // --- Online-meeting join URL (Teams / Google Meet) ---
+        // Only these two provider X-props trigger URL preservation; ordinary URLs in
+        // DESCRIPTION or LOCATION are not promoted (no over-promotion rule).
+        var joinUrl =
+            PropValue(master, "X-MICROSOFT-SKYPETEAMSMEETINGURL") ??
+            PropValue(master, "X-GOOGLE-CONFERENCE");
+
+        if (joinUrl is { Length: > 0 })
+        {
+            // Plain body: append if the URL is not already present in Body or Location.
+            bool inBody     = appt.Body     is { } b && b.Contains(joinUrl, StringComparison.Ordinal);
+            bool inLocation = appt.Location is { } l && l.Contains(joinUrl, StringComparison.Ordinal);
+
+            if (!inBody && !inLocation)
+                appt.Body = (appt.Body ?? "") + $"\nJoin online meeting: {joinUrl}";
+
+            // HTML body: append an anchor block if BodyHtml is present and URL not already there.
+            if (appt.BodyHtml is { Length: > 0 } html &&
+                !html.Contains(joinUrl, StringComparison.Ordinal))
+            {
+                var escapedUrl   = HtmlEscape(joinUrl);
+                var escapedLabel = HtmlEscape($"Join online meeting: {joinUrl}");
+                appt.BodyHtml = html +
+                    $"<p><a href=\"{escapedUrl}\">{escapedLabel}</a></p>";
+            }
+        }
+
         return appt;
     }
 
@@ -367,6 +394,13 @@ public static class CalendarEventMapper
             x => string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase));
         return p?.Value is { } b ? Encoding.UTF8.GetString(b) : null;
     }
+
+    /// <summary>
+    /// Minimal HTML escaping for placing text or a URL attribute value into an HTML fragment.
+    /// Escapes &amp;, &lt;, and &gt; — sufficient for the join-URL anchor appended by the mapper.
+    /// </summary>
+    private static string HtmlEscape(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     /// <summary>
     /// Splits a CATEGORIES value on commas that are NOT escaped by a preceding backslash,
