@@ -33,7 +33,7 @@ public class GlobalObjectIdCodecTests
     public void Mozilla_uuid_is_not_a_goid()   => Assert.False(GlobalObjectIdCodec.TryDecode("4ad842d0-1234-5678-9abc-def012345678", out _, out _));
 
     [Fact]
-    public void Caldav_email_uid_is_not_a_goid() => Assert.False(GlobalObjectIdCodec.TryDecode("abc123@google.com", out _, out _));
+    public void Caldav_email_uid_is_not_a_goid() => Assert.False(GlobalObjectIdCodec.TryDecode("abc123@example.com", out _, out _));
 
     [Fact]
     public void Null_or_empty_is_not_a_goid()   => Assert.False(GlobalObjectIdCodec.TryDecode(null, out _, out _));
