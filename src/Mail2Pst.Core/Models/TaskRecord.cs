@@ -33,4 +33,6 @@ public sealed class TaskRecord
 
     // Recurrence — null for non-recurring tasks.
     public RecurrenceSpec? Recurrence { get; set; }
+
+    public IReadOnlyList<CalendarAttachment> Attachments { get; set; } = Array.Empty<CalendarAttachment>();
 }

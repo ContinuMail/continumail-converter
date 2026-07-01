@@ -31,4 +31,6 @@ public sealed class AppointmentRecord
     public RecurrenceSpec? Recurrence { get; set; }
     public IReadOnlyList<RecurrenceInstanceId> DeletedOccurrences { get; set; } = Array.Empty<RecurrenceInstanceId>();
     public IReadOnlyList<AppointmentException> Exceptions { get; set; } = Array.Empty<AppointmentException>();
+
+    public IReadOnlyList<CalendarAttachment> Attachments { get; set; } = Array.Empty<CalendarAttachment>();
 }

@@ -187,6 +187,7 @@ public class ConversionRunner
                             ? read.Calendars
                             : read.Calendars.Where(c => c.CalId == tm.Source.CalId);
 
+                        var taskAttResolver = new CalendarAttachmentResolver(ResolveCalendarAttachmentRoot(tm.Source, config));
                         foreach (RawCalendarRead cal in cals)
                         {
                             foreach (RawTodoGroup group in cal.TodoGroups)
@@ -203,6 +204,7 @@ public class ConversionRunner
                                 }
                                 else
                                 {
+                                    ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
                                     plannedTasks.Add(new PlannedTask
                                     {
                                         Task = mapped,
@@ -241,6 +243,7 @@ public class ConversionRunner
                             ? read.Calendars
                             : read.Calendars.Where(c => c.CalId == am.Source.CalId);
 
+                        var apptAttResolver = new CalendarAttachmentResolver(ResolveCalendarAttachmentRoot(am.Source, config));
                         foreach (RawCalendarRead cal in cals)
                         {
                             foreach (RawEventGroup group in cal.EventGroups)
@@ -257,6 +260,7 @@ public class ConversionRunner
                                 }
                                 else
                                 {
+                                    ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
                                     plannedAppointments.Add(new PlannedAppointment
                                     {
                                         Appointment = mapped,
@@ -288,6 +292,38 @@ public class ConversionRunner
         }
 
         return report;
+    }
+
+    // …/<profile>/calendar-data/local.sqlite → <profile>. Explicit ProfilePath wins. Returns null when the
+    // store isn't under the expected calendar-data shape → local-file attachments become link-only (safe).
+    internal static string? ResolveCalendarAttachmentRoot(CalendarSourceConfig source, ConversionConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.ProfilePath)) return config.ProfilePath;
+        string? calDataDir = Path.GetDirectoryName(source.StorePath);
+        if (calDataDir is null ||
+            !string.Equals(Path.GetFileName(calDataDir), "calendar-data", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return Path.GetDirectoryName(calDataDir);
+    }
+
+    // The resolve seam (unit-testable). subject used only for warning locality.
+    internal static void ApplyCalendarAttachments(
+        AppointmentRecord record, IEnumerable<RawSideText> raw,
+        CalendarAttachmentResolver resolver, Action<string> recordWarning)
+    {
+        var (atts, warns) = resolver.ResolveAll(raw, record.Subject);
+        record.Attachments = atts;
+        foreach (string w in warns) recordWarning(w);
+    }
+
+    // Overload for TaskRecord (same body; TaskRecord.Attachments / record.Subject).
+    internal static void ApplyCalendarAttachments(
+        TaskRecord record, IEnumerable<RawSideText> raw,
+        CalendarAttachmentResolver resolver, Action<string> recordWarning)
+    {
+        var (atts, warns) = resolver.ResolveAll(raw, record.Subject);
+        record.Attachments = atts;
+        foreach (string w in warns) recordWarning(w);
     }
 
     private static IEnumerable<PlannedMessage> EnumeratePlannedMessages(
