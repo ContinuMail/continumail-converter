@@ -716,4 +716,31 @@ public class CalendarTaskMapperTests
         Assert.Equal(TaskStatusKind.Complete, task.Status);
         Assert.Equal(100, task.PercentComplete);
     }
+
+    // -----------------------------------------------------------------------
+    // I1: RRULE present but body is malformed — must warn, not silently drop
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Recurring_task_with_unparseable_rrule_degrades_with_warning()
+    {
+        // RRULE:FREQ=WEEKLY;BYDAY=ZZ — "ZZ" is not a valid BYDAY weekday abbreviation; Ical.Net's
+        // RecurrencePattern constructor throws, causing ICalTextParser.ParseRecurrence to return
+        // (Value=null, Warnings=[...]).  RecurrenceMapping.FromIcal collapses this to (null,null).
+        // With hasRrule==true the task mapper must emit "RRULE could not be parsed" — not silently
+        // produce a non-recurring task with zero warnings.
+        var group = SimpleGroup(t =>
+        {
+            t.Title   = "Bad RRULE Task";
+            t.TodoDue = MicrosFor(2026, 7, 13);
+            t.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=ZZ"));
+        });
+
+        var task = CalendarTaskMapper.Map(group, out var warnings);
+
+        Assert.NotNull(task);                              // task is returned, not null
+        Assert.Null(task.Recurrence);                     // degraded — no recurrence pattern
+        Assert.Single(warnings);                          // exactly one warning
+        Assert.Contains("could not be parsed", warnings[0]); // the parse-failure warning
+    }
 }

@@ -180,6 +180,9 @@ public static class CalendarTaskMapper
                         lines, utcMidnight, utcMidnight, TimeZoneInfo.Utc, originatingTzId: null);
                     if (reason is not null)
                         w.Add($"recurring task '{title}': {reason}; wrote a single task");
+                    else if (spec is null)
+                        // hasRrule is true, so RRULE was present — (null,null) uniquely means parse failure.
+                        w.Add($"recurring task '{title}': RRULE could not be parsed — wrote a single task");
                     else
                         t.Recurrence = spec;
                 }

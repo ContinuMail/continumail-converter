@@ -4,8 +4,6 @@
 using System;
 using Mail2Pst.Core.Models;
 using PSTFileFormat;
-// Alias disambiguates our model enum from PSTFileFormat.RecurrenceFrequency (the vendor blob type).
-using RecurrenceFrequency = Mail2Pst.Core.Models.RecurrenceFrequency;
 
 namespace Mail2Pst.Core.Writing;
 
