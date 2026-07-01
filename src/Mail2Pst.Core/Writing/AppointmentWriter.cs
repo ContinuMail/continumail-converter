@@ -101,6 +101,8 @@ public sealed class AppointmentWriter
 
         WriteAttendees(file, appt, a);   // recipients + organizer + meeting state (no-op when no attendees)
 
+        WriteAttachments(file, appt, a.Attachments);   // ByValue inline/local-file attachments + no-op for LinkOnly
+
         appt.SaveChanges();
         folder.AddMessage(appt);
         // folder.SaveChanges() is the caller's responsibility (must be called before EndSavingChanges).
@@ -382,19 +384,53 @@ public sealed class AppointmentWriter
     //   - If a.BodyHtml present → PidTagHtml (UTF-8 bytes) + PidTagNativeBody=3 + InternetCodepage=65001;
     //     AND ensure PidTagBody exists — derive it from HTML via PstWriter.HtmlToPlainText if a.Body is empty.
     //   - PstWriter.HtmlToPlainText is internal-static in the same assembly (Mail2Pst.Core); no HtmlBody.cs needed.
+    //   - LinkOnly attachments produce a body appendix (dedup-aware) appended to BOTH plain text and HTML.
     private static void WriteBody(Appointment appt, AppointmentRecord a)
     {
+        // Compute appendix once (dedup against the original body text before any append).
+        string? appendix = CalendarBodyAppendix.Format(a.Attachments,
+            System.Array.Empty<string>(),   // Task 5 supplies relation lines
+            existingText: a.Body ?? a.BodyHtml);
+
         string? plain = a.Body;
         if (!string.IsNullOrEmpty(a.BodyHtml))
         {
-            appt.PC.SetBytesProperty(PropertyID.PidTagHtml, Encoding.UTF8.GetBytes(a.BodyHtml));
+            // Append HTML-escaped block to the HTML body when there is a link-only appendix.
+            string htmlBody = appendix is null
+                ? a.BodyHtml
+                : a.BodyHtml + "\n<pre>" + HtmlEscape(appendix) + "</pre>";
+            appt.PC.SetBytesProperty(PropertyID.PidTagHtml, Encoding.UTF8.GetBytes(htmlBody));
             appt.PC.SetInt32Property(PropertyID.PidTagNativeBody, 3);
             // InternetCodepage=65001 already set unconditionally at the top of WriteAppointment.
             if (string.IsNullOrEmpty(plain))
                 plain = PstWriter.HtmlToPlainText(a.BodyHtml);
         }
+
+        // Append link-only references to the plain-text body.
+        if (appendix is not null)
+            plain = string.IsNullOrEmpty(plain) ? appendix : plain + "\n\n" + appendix;
+
         if (!string.IsNullOrEmpty(plain))
             appt.PC.SetStringProperty(PropertyID.PidTagBody, plain);
+    }
+
+    private static string HtmlEscape(string text) =>
+        text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    private static void WriteAttachments(PSTFile file, Appointment appt, IReadOnlyList<CalendarAttachment> atts)
+    {
+        var writer = new AttachmentWriter();
+        foreach (CalendarAttachment att in atts)
+        {
+            // No IsInline: calendar attachments are VISIBLE ByValue attachments, never hidden CID resources.
+            if (att.Kind == CalendarAttachmentKind.InlineBytes && att.InlineData is not null)
+                writer.Write(file, appt, new AttachmentSpec(att.FileName, att.MimeType,
+                    AttachmentContent.FromBytes(att.InlineData)));
+            else if (att.Kind == CalendarAttachmentKind.LocalFileByValue && att.LocalPath is not null)
+                writer.Write(file, appt, new AttachmentSpec(att.FileName, att.MimeType,
+                    AttachmentContent.FromExistingFile(att.LocalPath)));   // NEVER FromTempFile — that deletes the source
+            // LinkOnly → body appendix only; no PST attachment row.
+        }
     }
 
     /// <summary>Writes Keywords (categories) MV-string if any are present.</summary>

@@ -137,6 +137,19 @@ public class AttachmentContentTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void FromExistingFile_does_not_delete_source_on_dispose()
+    {
+        string f = Path.Combine(Path.GetTempPath(), $"src-{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(f, new byte[] { 7 });
+        try
+        {
+            using (var c = AttachmentContent.FromExistingFile(f)) { Assert.Equal(1, c.Length); }
+            Assert.True(File.Exists(f));
+        }
+        finally { File.Delete(f); }
+    }
 }
 
 public class AttachmentContentLengthOnlyTests

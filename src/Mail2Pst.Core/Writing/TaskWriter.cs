@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Collections.Generic;
 using Mail2Pst.Core.Models;
 using PSTFileFormat;
 
@@ -22,9 +23,16 @@ public class TaskWriter
         if (status == TaskStatusKind.Complete && percent < 100) percent = 100;
         bool reminderSet = t.ReminderSet && t.ReminderTime is not null;
 
+        // Body with optional link-only attachment appendix (tasks are plain-text only; no HTML body).
+        string? appendix = CalendarBodyAppendix.Format(t.Attachments,
+            System.Array.Empty<string>(),   // Task 5 supplies relation lines
+            existingText: t.Body);
+        string? effectiveBody = appendix is null ? t.Body
+            : string.IsNullOrEmpty(t.Body) ? appendix : t.Body + "\n\n" + appendix;
+
         // Static-tag props
         SetIf(msg, PropertyID.PidTagSubject, t.Subject);
-        SetIf(msg, PropertyID.PidTagBody, t.Body);
+        SetIf(msg, PropertyID.PidTagBody, effectiveBody);
         msg.PC.SetInt32Property(PropertyID.PidTagImportance, t.Importance);
         msg.PC.SetInt32Property(PropertyID.PidTagSensitivity, t.Sensitivity);
 
@@ -77,6 +85,8 @@ public class TaskWriter
             SetNamedBool(file, msg, PropertyLongID.PidLidTaskFRecurring, PropertySetGuid.PSETID_Task, true);
         }
 
+        WriteAttachments(file, msg, t.Attachments);   // ByValue inline/local-file attachments + no-op for LinkOnly
+
         msg.SaveChanges();
         folder.AddMessage(msg);
     }
@@ -84,6 +94,22 @@ public class TaskWriter
     // -----------------------------------------------------------------------
     // Helpers (mirror ContactWriter pattern)
     // -----------------------------------------------------------------------
+
+    private static void WriteAttachments(PSTFile file, TaskMessage msg, IReadOnlyList<CalendarAttachment> atts)
+    {
+        var writer = new AttachmentWriter();
+        foreach (CalendarAttachment att in atts)
+        {
+            // No IsInline: task attachments are VISIBLE ByValue attachments, never hidden CID resources.
+            if (att.Kind == CalendarAttachmentKind.InlineBytes && att.InlineData is not null)
+                writer.Write(file, msg, new AttachmentSpec(att.FileName, att.MimeType,
+                    AttachmentContent.FromBytes(att.InlineData)));
+            else if (att.Kind == CalendarAttachmentKind.LocalFileByValue && att.LocalPath is not null)
+                writer.Write(file, msg, new AttachmentSpec(att.FileName, att.MimeType,
+                    AttachmentContent.FromExistingFile(att.LocalPath)));   // NEVER FromTempFile — that deletes the source
+            // LinkOnly → body appendix only; no PST attachment row.
+        }
+    }
 
     private static void SetIf(TaskMessage msg, PropertyID id, string? value)
     {

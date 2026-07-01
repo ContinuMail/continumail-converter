@@ -12,6 +12,7 @@ public sealed class AttachmentContent : IDisposable
     private readonly byte[]? _bytes;
     private readonly string? _tempPath;
     private readonly bool _lengthOnly;
+    private readonly bool _ownsFile;
     private bool _disposed;
 
     public long Length { get; }
@@ -19,11 +20,12 @@ public sealed class AttachmentContent : IDisposable
     internal bool IsTempFileBacked => _tempPath is not null;
     internal string? TempPath => _tempPath;
 
-    private AttachmentContent(byte[]? bytes, string? tempPath, long length, bool lengthOnly = false)
+    private AttachmentContent(byte[]? bytes, string? tempPath, long length, bool lengthOnly = false, bool ownsFile = true)
     {
         _bytes = bytes;
         _tempPath = tempPath;
         _lengthOnly = lengthOnly;
+        _ownsFile = ownsFile;
         Length = length;
     }
 
@@ -32,6 +34,12 @@ public sealed class AttachmentContent : IDisposable
 
     public static AttachmentContent FromTempFile(string path, long length) =>
         new(null, path, length);
+
+    /// <summary>A non-owning reference to an existing file. The file is read on demand but NEVER
+    /// deleted or mutated on <see cref="Dispose"/>. Use this for user's real calendar attachment
+    /// files — as opposed to <see cref="FromTempFile"/> which deletes on dispose.</summary>
+    public static AttachmentContent FromExistingFile(string path) =>
+        new(null, path, new FileInfo(path).Length, ownsFile: false);
 
     /// <summary>A scan measure-only attachment: carries the exact decoded <see cref="Length"/> but NO
     /// content. <see cref="OpenRead"/>/<see cref="ReadAllBytes"/> throw — it must never reach the writer.</summary>
@@ -77,7 +85,7 @@ public sealed class AttachmentContent : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        if (_tempPath is not null)
+        if (_tempPath is not null && _ownsFile)
         {
             try { File.Delete(_tempPath); } catch (Exception) { }
         }
