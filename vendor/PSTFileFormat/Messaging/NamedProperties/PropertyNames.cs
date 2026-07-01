@@ -46,5 +46,9 @@ namespace PSTFileFormat
         public static readonly PropertyName PidLidSendMeetingAsIcal = new PropertyName(PropertyLongID.PidLidSendMeetingAsIcal, PropertySetGuid.PSETID_Appointment);
         
         public static readonly PropertyName PidLidIsRecurring = new PropertyName(PropertyLongID.PidLidIsRecurring, PropertySetGuid.PSETID_Meeting);
+
+        // ContinuMail 2026 (PR7b): task recurrence props
+        public static readonly PropertyName PidLidTaskFRecurring = new PropertyName(PropertyLongID.PidLidTaskFRecurring, PropertySetGuid.PSETID_Task);
+        public static readonly PropertyName PidLidTaskRecurrence = new PropertyName(PropertyLongID.PidLidTaskRecurrence, PropertySetGuid.PSETID_Task);
     }
 }

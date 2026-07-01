@@ -199,6 +199,102 @@ public class RecurringAppointmentBlobTests
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
+    // ────────────────── Task 1 (PR7b): bare-pattern serializer tests ──────────────────
+
+    // Builds the GT Task Weekly structure (weekly Mon, end-after-5, due 2026-07-06).
+    // Reused by GetRecurrencePatternBytes_is_the_prefix test and the weekly oracle gate.
+    private static WeeklyRecurrencePatternStructure BuildWeeklyMondayCount5Structure()
+    {
+        var s = new WeeklyRecurrencePatternStructure();
+        s.PatternType = PatternType.Week;
+        s.DaysOfWeek = DaysOfWeekFlags.Monday;
+        s.Period = 1;
+        s.FirstDateTimeInDays = AppointmentRecurrencePatternStructure.CalculateFirstDateTimeInDays(
+            RecurrenceFrequency.Weekly, PatternType.Week, 1, new DateTime(2026, 7, 6));
+        s.EndType = RecurrenceEndType.EndAfterNOccurrences;
+        s.OccurrenceCount = 5;
+        s.FirstDOW = 0;
+        s.StartDTZone = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Unspecified);
+        s.LastInstanceStartDate = new DateTime(2026, 8, 3);
+        return s;
+    }
+
+    [Fact]
+    public void GetRecurrencePatternBytes_is_the_prefix_of_GetBytes()
+    {
+        // The bare prefix must equal the leading bytes of the full appointment blob —
+        // proves the split is a pure extraction that changes nothing for the appointment path.
+        var s = BuildWeeklyMondayCount5Structure();
+        byte[] full = s.GetBytes(WriterCompatibilityMode.Outlook2007RTM);
+        byte[] bare = s.GetRecurrencePatternBytes();
+        Assert.True(bare.Length < full.Length);
+        Assert.Equal(full.AsSpan(0, bare.Length).ToArray(), bare); // prefix-equality
+    }
+
+    // Builder for the exact GT task structures from the research doc.
+    private static AppointmentRecurrencePatternStructure BuildTaskGtStructure(string freq)
+    {
+        switch (freq)
+        {
+            case "weekly":
+                // GT Task Weekly: weekly Mon, end-after-5, due 2026-07-06
+                return BuildWeeklyMondayCount5Structure();
+
+            case "monthly":
+            {
+                // GT Task Monthly: day 6, end-by 2026-12-31, OccurrenceCount=6
+                var s = new MonthlyRecurrencePatternStructure();
+                s.PatternType = PatternType.Month;
+                s.DayOfMonth = 6;
+                s.Period = 1;
+                s.FirstDateTimeInDays = AppointmentRecurrencePatternStructure.CalculateFirstDateTimeInDays(
+                    RecurrenceFrequency.Monthly, PatternType.Month, 1, new DateTime(2026, 7, 6));
+                s.EndType = RecurrenceEndType.EndAfterDate;
+                s.OccurrenceCount = 6;
+                s.FirstDOW = 0;
+                s.StartDTZone = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Unspecified);
+                s.LastInstanceStartDate = new DateTime(2026, 12, 31);
+                return s;
+            }
+
+            case "daily":
+            {
+                // GT Task Daily: daily (every day), no-end, OccurrenceCount=10 (sentinel), due 2026-07-01
+                var s = new DailyRecurrencePatternStructure();
+                s.PatternType = PatternType.Day;
+                s.Period = 1440; // minutes
+                s.FirstDateTimeInDays = AppointmentRecurrencePatternStructure.CalculateFirstDateTimeInDays(
+                    RecurrenceFrequency.Daily, PatternType.Day, 1, new DateTime(2026, 7, 1));
+                s.EndType = RecurrenceEndType.NeverEnd;
+                s.OccurrenceCount = 10;
+                s.FirstDOW = 0;
+                s.StartDTZone = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Unspecified);
+                s.LastInstanceStartDate = new DateTime(4500, 8, 31);
+                return s;
+            }
+
+            default:
+                throw new ArgumentException($"Unknown freq: {freq}");
+        }
+    }
+
+    // Identical to HexBytes but named per the brief spec (strips spaces, parses hex pairs).
+    private static byte[] HexToBytes(string hex) => HexBytes(hex);
+
+    [Theory]
+    // GT Task Weekly (weekly Mon, end-after-5, due 2026-07-06) — 54 B
+    [InlineData("04 30 04 30 0B 20 01 00 00 00 C0 21 00 00 01 00 00 00 00 00 00 00 02 00 00 00 22 20 00 00 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 C0 DB 56 0D 40 79 57 0D", "weekly")]
+    // GT Task Monthly (day 6, end-by 2026-12-31) — 54 B
+    [InlineData("04 30 04 30 0C 20 02 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 06 00 00 00 21 20 00 00 06 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 C0 DB 56 0D 00 C5 5A 0D", "monthly")]
+    // GT Task Daily (no-end) — 50 B
+    [InlineData("04 30 04 30 0A 20 00 00 00 00 00 00 00 00 A0 05 00 00 00 00 00 00 23 20 00 00 0A 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 A0 BF 56 0D DF 80 E9 5A", "daily")]
+    public void Bare_pattern_matches_task_GT_oracle(string hex, string freq)
+    {
+        byte[] oracle = HexToBytes(hex);
+        var s = BuildTaskGtStructure(freq);
+        Assert.Equal(oracle, s.GetRecurrencePatternBytes());
+    }
+
     private static byte[] HexBytes(string hex)
     {
         string[] parts = hex.Split(' ', StringSplitOptions.RemoveEmptyEntries);

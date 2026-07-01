@@ -24,6 +24,7 @@ namespace PSTFileFormat
         PidLidTaskAssigner = 0x00008121,          // String
         PidLidTaskOrdinal = 0x00008123,           // Int32
         PidLidTaskNoCompute = 0x00008124,         // Boolean
+        PidLidTaskRecurrence = 0x00008116,        // Binary (bare RecurrencePattern, PR7b ContinuMail 2026)
         PidLidTaskFRecurring = 0x00008126,        // Boolean
         PidLidTaskRole = 0x00008127,              // String
         PidLidTaskOwnership = 0x00008129,         // Int32

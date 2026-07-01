@@ -140,10 +140,47 @@ namespace PSTFileFormat
 
         public abstract void WritePatternTypeSpecific(Stream stream);
 
+        // [ContinuMail 2026] Writes the MS-OXOCAL RecurrencePattern prefix (ReaderVersion …
+        // EndDate) into an existing stream. Extracted from GetBytes so that the prefix can be
+        // emitted standalone as PidLidTaskRecurrence (bare RecurrencePattern, no appointment tail).
+        private void WriteRecurrencePattern(MemoryStream stream)
+        {
+            LittleEndianWriter.WriteUInt16(stream, ReaderVersion);
+            LittleEndianWriter.WriteUInt16(stream, WriterVersion);
+            LittleEndianWriter.WriteUInt16(stream, (ushort)RecurFrequency);
+            LittleEndianWriter.WriteUInt16(stream, (ushort)PatternType);
+            LittleEndianWriter.WriteUInt16(stream, CalendarType);
+            LittleEndianWriter.WriteUInt32(stream, FirstDateTime);
+            LittleEndianWriter.WriteUInt32(stream, Period);
+            LittleEndianWriter.WriteUInt32(stream, SlidingFlag);
+            WritePatternTypeSpecific(stream);
+            LittleEndianWriter.WriteUInt32(stream, (uint)EndType);
+            LittleEndianWriter.WriteUInt32(stream, OccurrenceCount);
+            LittleEndianWriter.WriteUInt32(stream, FirstDOW);
+            LittleEndianWriter.WriteUInt32(stream, (uint)DeletedInstanceDates.Count);
+            foreach (DateTime date in ListUtils.GetSorted(DeletedInstanceDates))
+                DateTimeHelper.WriteDateTimeInMinutes(stream, date);
+            LittleEndianWriter.WriteUInt32(stream, (uint)ModifiedInstanceDates.Count);
+            foreach (DateTime date in ListUtils.GetSorted(ModifiedInstanceDates))
+                DateTimeHelper.WriteDateTimeInMinutes(stream, date);
+            DateTimeHelper.WriteDateTimeInMinutes(stream, StartDate);
+            DateTimeHelper.WriteDateTimeInMinutes(stream, EndDate);
+        }
+
+        /// <summary>[ContinuMail 2026] Emits ONLY the MS-OXOCAL RecurrencePattern prefix (no
+        /// AppointmentRecurrencePattern tail) — used to write PidLidTaskRecurrence for recurring
+        /// tasks. Byte-gated against real Outlook task GT oracles (PR7b Task 1).</summary>
+        public byte[] GetRecurrencePatternBytes()
+        {
+            MemoryStream stream = new MemoryStream();
+            WriteRecurrencePattern(stream);
+            return stream.ToArray();
+        }
+
         public byte[] GetBytes(WriterCompatibilityMode writerCompatibilityMode)
         {
             switch (writerCompatibilityMode)
-            { 
+            {
                 case WriterCompatibilityMode.Outlook2007RTM:
                 case WriterCompatibilityMode.Outlook2007SP2:
                     WriterVersion2 = Outlook2007VersionSignature;
@@ -166,35 +203,7 @@ namespace PSTFileFormat
             }
 
             MemoryStream stream = new MemoryStream();
-            LittleEndianWriter.WriteUInt16(stream, ReaderVersion);
-            LittleEndianWriter.WriteUInt16(stream, WriterVersion);
-            LittleEndianWriter.WriteUInt16(stream, (ushort)RecurFrequency);
-            LittleEndianWriter.WriteUInt16(stream, (ushort)PatternType);
-            LittleEndianWriter.WriteUInt16(stream, CalendarType);
-            LittleEndianWriter.WriteUInt32(stream, FirstDateTime);
-            LittleEndianWriter.WriteUInt32(stream, Period);
-            LittleEndianWriter.WriteUInt32(stream, SlidingFlag);
-            WritePatternTypeSpecific(stream);
-
-            LittleEndianWriter.WriteUInt32(stream, (uint)EndType);
-            LittleEndianWriter.WriteUInt32(stream, OccurrenceCount);
-            LittleEndianWriter.WriteUInt32(stream, FirstDOW);
-            LittleEndianWriter.WriteUInt32(stream, (uint)DeletedInstanceDates.Count);
-            // [MS-OXOCAL] DeletedInstanceDates - The dates are ordered from earliest to latest
-            foreach (DateTime date in ListUtils.GetSorted(DeletedInstanceDates))
-            {
-                DateTimeHelper.WriteDateTimeInMinutes(stream, date);
-            }
-
-            LittleEndianWriter.WriteUInt32(stream, (uint)ModifiedInstanceDates.Count);
-            // [MS-OXOCAL] ModifiedInstanceDates - The dates are ordered from earliest to latest
-            foreach (DateTime date in ListUtils.GetSorted(ModifiedInstanceDates))
-            {
-                DateTimeHelper.WriteDateTimeInMinutes(stream, date);
-            }
-
-            DateTimeHelper.WriteDateTimeInMinutes(stream, StartDate);
-            DateTimeHelper.WriteDateTimeInMinutes(stream, EndDate);
+            WriteRecurrencePattern(stream);
 
             LittleEndianWriter.WriteUInt32(stream, ReaderVersion2);
             LittleEndianWriter.WriteUInt32(stream, WriterVersion2);
