@@ -339,11 +339,48 @@ public class CalendarEventMapperTests
     }
 
     // -----------------------------------------------------------------------
-    // All-day event with unresolved timezone → TimeZone=Utc + warn
+    // Floating all-day event → anchored to LOCAL zone (local-midnight-in-UTC)
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void AllDayEvent_UnresolvedTimezone_UsesUtcAndWarn()
+    public void AllDayEvent_FloatingTimezone_AnchorsToLocalMidnightInUtc()
+    {
+        // Regression (real Thunderbird all-day events are floating): a floating all-day event must
+        // anchor midnight to the machine LOCAL zone (local-midnight-in-UTC) and carry that zone —
+        // NOT UTC. Anchoring to UTC makes the event straddle two calendar days for any viewer east
+        // of UTC (e.g. a UTC+2 viewer sees a one-day event span both days).
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Company Holiday";
+            e.Flags        = 8 | 4;                       // EVENT_ALLDAY | HAS_PROPERTIES
+            e.EventStart   = MicrosFor(2026, 7, 1, 0, 0); // floating wall-clock July 1 00:00
+            e.EventStartTz = "floating";
+            e.EventEnd     = MicrosFor(2026, 7, 2, 0, 0);
+            e.EventEndTz   = "floating";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.True(appt!.IsAllDay);
+        Assert.Equal(TimeZoneInfo.Local, appt.TimeZone);
+
+        // local-midnight-in-UTC for July 1 / July 2 — deterministic on any machine (incl. UTC CI,
+        // where Local == UTC so this reduces to UTC midnight).
+        var expStart = TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Unspecified), TimeZoneInfo.Local);
+        var expEnd   = TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 7, 2, 0, 0, 0, DateTimeKind.Unspecified), TimeZoneInfo.Local);
+        Assert.Equal(expStart, appt.StartUtc);
+        Assert.Equal(expEnd, appt.EndUtc);
+        // Genuine floating is normal → no warning.
+        Assert.Empty(warnings);
+    }
+
+    // -----------------------------------------------------------------------
+    // All-day event with unresolved (bogus) timezone → LOCAL anchor + resolver warn
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void AllDayEvent_UnresolvedTimezone_AnchorsToLocalAndWarns()
     {
         var startMicros = MicrosFor(2026, 7, 15, 0, 0);
         var endMicros   = MicrosFor(2026, 7, 16, 0, 0);
@@ -362,7 +399,9 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.True(appt.IsAllDay);
-        Assert.Equal(TimeZoneInfo.Utc, appt.TimeZone);
+        // Unresolvable zone → anchored to LOCAL (same policy as floating), never straddles days.
+        Assert.Equal(TimeZoneInfo.Local, appt.TimeZone);
+        // The resolver still surfaces the lost zone.
         Assert.True(warnings.Count > 0, "Expected a warning for unresolved timezone");
         Assert.Contains("unresolved", string.Join(" ", warnings), StringComparison.OrdinalIgnoreCase);
     }

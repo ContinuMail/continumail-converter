@@ -149,8 +149,10 @@ public sealed class AppointmentWriter
         try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
         catch { /* fall through */ }
 
-        // Any failure → UTC fallback (no warning — mapper already warned)
-        return TimeZoneInfo.Utc;
+        // Any failure → prefer the zone the mapper already resolved (e.g. the machine-local zone
+        // anchored to a floating all-day event) so the recurrence/tz blob matches StartWhole;
+        // UTC only as a last resort. (No warning — mapper already warned for a bogus id.)
+        return a.TimeZone ?? TimeZoneInfo.Utc;
     }
 
     /// <summary>

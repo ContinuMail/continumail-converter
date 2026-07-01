@@ -60,6 +60,9 @@ public static class CalendarEventMapper
         if (rz.Warning is { } rzWarn)
             w.Add(rzWarn);
 
+        // allDayFloating: an all-day event with no resolvable source zone. Anchored to the machine
+        // LOCAL zone (local-midnight-in-UTC), NOT UTC — see the all-day computation below.
+        bool allDayFloating = false;
         TimeZoneInfo? resolvedZone;
         if (rz.Zone != null && !rz.IsFloating)
         {
@@ -68,11 +71,14 @@ public static class CalendarEventMapper
         }
         else if (isAllDay)
         {
-            // All-day needs a zone for midnight boundaries; UTC is deterministic
-            resolvedZone   = TimeZoneInfo.Utc;
-            appt.TimeZone  = TimeZoneInfo.Utc;
-            if (rz.Zone == null || rz.IsFloating)
-                w.Add($"all-day event '{title}': unresolved timezone — using UTC for date boundaries");
+            // All-day floating/unresolved: anchor midnight boundaries to the machine local zone and
+            // carry that zone in the tz blob — this is how Outlook authors an all-day event. UTC would
+            // place midnight at the wrong instant for any viewer east of UTC, straddling two calendar
+            // days. (The resolver already warned for a bogus id; genuine floating is normal, so silent.)
+            // See docs/research/2026-06-30-thunderbird-calendar-findings.md ("all-day is NOT floating").
+            resolvedZone   = TimeZoneInfo.Local;
+            appt.TimeZone  = TimeZoneInfo.Local;
+            allDayFloating = true;
         }
         else
         {
@@ -92,11 +98,15 @@ public static class CalendarEventMapper
 
             var tz = resolvedZone ?? TimeZoneInfo.Utc;
 
-            // Convert UTC instant to local date in tz
+            // For a floating all-day event the raw micros ARE the intended wall-clock date; reading it
+            // through the display zone would shift the date across the UTC boundary for negative-offset
+            // zones. For a resolved zone, the stored instant is interpreted in that zone.
+            DateTime AllDayDate(DateTime rawUtc) =>
+                allDayFloating ? rawUtc.Date : TimeZoneInfo.ConvertTimeFromUtc(rawUtc, tz).Date;
+
             if (startOffset is null)
                 w.Add($"all-day event '{title}': missing start — using sentinel date");
-            var startLocalDate = TimeZoneInfo.ConvertTimeFromUtc(
-                startOffset?.UtcDateTime ?? default, tz).Date;
+            var startLocalDate = AllDayDate(startOffset?.UtcDateTime ?? default);
 
             // Build local midnight
             var startLocalMidnight = new DateTime(
@@ -109,7 +119,7 @@ public static class CalendarEventMapper
             DateTime? endLocalMidnight = null;
             if (endOffset is { } eo)
             {
-                var endLocalDate = TimeZoneInfo.ConvertTimeFromUtc(eo.UtcDateTime, tz).Date;
+                var endLocalDate = AllDayDate(eo.UtcDateTime);
                 endLocalMidnight = new DateTime(
                     endLocalDate.Year, endLocalDate.Month, endLocalDate.Day,
                     0, 0, 0, DateTimeKind.Unspecified);
