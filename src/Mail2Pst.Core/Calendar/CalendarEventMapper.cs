@@ -16,7 +16,11 @@ namespace Mail2Pst.Core.Calendar;
 
 public static class CalendarEventMapper
 {
-    private const int EventAllDay = 4;
+    // Mozilla calStorageCalendar flag bits (see calStorageCalendar.sys.mjs CAL_ITEM_FLAG):
+    // 1=PRIVATE, 2=HAS_ATTENDEES, 4=HAS_PROPERTIES, 8=EVENT_ALLDAY, 16=HAS_RECURRENCE,
+    // 32=HAS_EXCEPTIONS, 64=HAS_ATTACHMENTS, 128=HAS_RELATIONS, 256=HAS_ALARMS.
+    // NOTE: HAS_PROPERTIES (4) is set on nearly every real event, so all-day MUST key on bit 8.
+    private const int EventAllDay = 8;
 
     public static AppointmentRecord? Map(RawEventGroup group, out IReadOnlyList<string> warnings)
     {

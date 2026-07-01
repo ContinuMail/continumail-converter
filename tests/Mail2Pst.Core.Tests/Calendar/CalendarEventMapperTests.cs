@@ -197,7 +197,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Company Holiday";
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStart   = startMicros;
             e.EventStartTz = "UTC";
             e.EventEnd     = endMicros;
@@ -214,6 +214,53 @@ public class CalendarEventMapperTests
     }
 
     [Fact]
+    public void EventWithPropertiesFlagButNotAllDayBit_IsTimedNotAllDay()
+    {
+        // Regression (real Thunderbird data): Mozilla flags bit 4 = HAS_PROPERTIES,
+        // bit 8 = EVENT_ALLDAY. Nearly every real event has HAS_PROPERTIES set
+        // (DESCRIPTION/LOCATION live in cal_properties), so a timed event routinely
+        // arrives with (flags & 4) != 0. All-day detection must key on bit 8 only —
+        // otherwise every event renders as all-day in Outlook.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Team Standup";
+            e.Flags        = 4 | 16 | 256; // HAS_PROPERTIES | HAS_RECURRENCE | HAS_ALARMS, NOT EVENT_ALLDAY
+            e.EventStart   = MicrosFor(2026, 7, 13, 9, 0);
+            e.EventStartTz = "UTC";
+            e.EventEnd     = MicrosFor(2026, 7, 13, 9, 15);
+            e.EventEndTz   = "UTC";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.False(appt!.IsAllDay);
+        // Timed boundaries preserved (not snapped to midnight).
+        Assert.Equal(new DateTime(2026, 7, 13, 9, 0, 0, DateTimeKind.Utc), appt.StartUtc);
+        Assert.Equal(new DateTime(2026, 7, 13, 9, 15, 0, DateTimeKind.Utc), appt.EndUtc);
+    }
+
+    [Fact]
+    public void EventWithAllDayBitSet_IsAllDay()
+    {
+        // The genuine all-day flag is bit 8 (EVENT_ALLDAY), here OR'd with HAS_PROPERTIES.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Company Anniversary";
+            e.Flags        = 8 | 4; // EVENT_ALLDAY | HAS_PROPERTIES
+            e.EventStart   = MicrosFor(2026, 7, 15, 0, 0);
+            e.EventStartTz = "UTC";
+            e.EventEnd     = MicrosFor(2026, 7, 16, 0, 0);
+            e.EventEndTz   = "UTC";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.True(appt!.IsAllDay);
+    }
+
+    [Fact]
     public void AllDayEvent_EndEqualStart_EndSetToOneDayLater()
     {
         var startMicros = MicrosFor(2026, 7, 15, 0, 0);
@@ -221,7 +268,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Single Day Holiday";
-            e.Flags        = 4;
+            e.Flags        = 8;
             e.EventStart   = startMicros;
             e.EventStartTz = "UTC";
             e.EventEnd     = startMicros; // same as start
@@ -244,7 +291,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Sentinel Holiday";
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStart   = null;
             e.EventStartTz = "UTC";
             e.EventEnd     = null;
@@ -277,7 +324,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Exact Day Event";
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStart   = startMicros;
             e.EventStartTz = "UTC";
             e.EventEnd     = null; // missing end → fallback to one-day boundary
@@ -304,7 +351,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Holiday";
-            e.Flags        = 4;
+            e.Flags        = 8;
             e.EventStart   = startMicros;
             e.EventStartTz = "Unknown/Bogus_Timezone_99";
             e.EventEnd     = endMicros;
@@ -421,7 +468,7 @@ public class CalendarEventMapperTests
         // All-day event with no TRANSP and no TENTATIVE → Free (0), not Busy.
         var group = SimpleGroup(e =>
         {
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStartTz = "UTC";
             e.IcalStatus   = null;
             // no TRANSP property
@@ -439,7 +486,7 @@ public class CalendarEventMapperTests
         // All-day event WITH explicit TRANSP=OPAQUE → Busy (2); explicit wins over all-day default.
         var group = SimpleGroup(e =>
         {
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStartTz = "UTC";
             e.IcalStatus   = null;
             e.Properties.Add(new RawProperty("TRANSP", Utf8("OPAQUE"), null, null));
@@ -643,7 +690,7 @@ public class CalendarEventMapperTests
         var group = SimpleGroup(e =>
         {
             e.Title        = "Weekly Review";
-            e.Flags        = 4; // EVENT_ALLDAY
+            e.Flags        = 8; // EVENT_ALLDAY
             e.EventStart   = MicrosFor(2026, 7, 13, 0, 0); // Monday 2026-07-13
             e.EventEnd     = MicrosFor(2026, 7, 14, 0, 0);
             e.EventStartTz = "UTC";

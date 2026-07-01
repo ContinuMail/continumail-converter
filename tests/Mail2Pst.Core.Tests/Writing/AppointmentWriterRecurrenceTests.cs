@@ -118,7 +118,7 @@ public class AppointmentWriterRecurrenceTests
     };
 
     /// <summary>
-    /// All-day weekly event on Monday starting 2026-07-13 (UTC midnight boundaries, flags=4).
+    /// All-day weekly event on Monday starting 2026-07-13 (UTC midnight boundaries, flags=8=EVENT_ALLDAY).
     /// Used as input to <see cref="CalendarEventMapper.Map"/> so that PR5's all-day normalisation
     /// (midnight boundaries / IsAllDay flag) is applied before writing.
     /// </summary>
@@ -132,7 +132,7 @@ public class AppointmentWriterRecurrenceTests
             EventStartTz = "UTC",
             EventEnd     = new DateTimeOffset(2026, 7, 14, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() * 1000L,
             EventEndTz   = "UTC",
-            Flags        = 4, // EVENT_ALLDAY
+            Flags        = 8, // EVENT_ALLDAY
         };
         ev.Recurrence.Add(new RawSideText("RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4"));
         return new RawEventGroup { Master = ev };
