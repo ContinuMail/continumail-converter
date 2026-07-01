@@ -3,6 +3,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using Microsoft.Data.Sqlite;
 using Mail2Pst.Core.Storage;
 
@@ -278,6 +280,15 @@ public sealed class SqliteCalendarReader : ICalendarReader
         return dict;
     }
 
+    // Normalises a cal_properties.value cell (BLOB / TEXT / INTEGER / REAL) to UTF-8 bytes so
+    // downstream consumers can decode it as a string regardless of the stored SQLite type.
+    private static byte[] ToValueBytes(object raw) => raw switch
+    {
+        byte[] b => b,
+        string s => Encoding.UTF8.GetBytes(s),
+        _        => Encoding.UTF8.GetBytes(Convert.ToString(raw, CultureInfo.InvariantCulture) ?? ""),
+    };
+
     // Loads cal_properties; value column is BLOB, returned as byte[].
     private static Dictionary<CalendarItemKey, List<RawProperty>> LoadProps(
         SqliteConnection c, List<string> warnings)
@@ -300,7 +311,11 @@ public sealed class SqliteCalendarReader : ICalendarReader
                 string? calId  = rdr.IsDBNull(oCalId)  ? null : rdr.GetString(oCalId);
                 string  itemId = rdr.IsDBNull(oItemId) ? ""   : rdr.GetString(oItemId);
                 string  key    = rdr.IsDBNull(oKey)    ? ""   : rdr.GetString(oKey);
-                byte[]? value  = rdr.IsDBNull(oValue)  ? null : (byte[])rdr.GetValue(oValue);
+                // cal_properties.value has BLOB column affinity, but SQLite's dynamic typing means
+                // Thunderbird stores most values as TEXT (DESCRIPTION/LOCATION/CATEGORIES/…) and some
+                // as INTEGER (e.g. PERCENT-COMPLETE). A hard (byte[]) cast throws on those, and the
+                // whole-table catch would drop EVERY property. Normalise any type to UTF-8 bytes.
+                byte[]? value  = rdr.IsDBNull(oValue) ? null : ToValueBytes(rdr.GetValue(oValue));
                 long?   rid    = rdr.IsDBNull(oRid)    ? null : rdr.GetInt64(oRid);
                 string? ridTz  = rdr.IsDBNull(oRidTz)  ? null : rdr.GetString(oRidTz);
 
