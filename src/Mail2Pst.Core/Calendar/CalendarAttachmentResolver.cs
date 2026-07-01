@@ -58,6 +58,13 @@ public sealed class CalendarAttachmentResolver
                 (CalendarAttachmentKind kind, string? localPath, string? reason) = ResolveLocalFile(uri);
                 if (kind == CalendarAttachmentKind.LocalFileByValue)
                 {
+                    // Thunderbird stores only the URI (no FILENAME param) — an embedded file must
+                    // carry its real basename or Outlook gets an extensionless "attachment".
+                    if (string.IsNullOrWhiteSpace(p.FileName))
+                    {
+                        string basename = Path.GetFileName(localPath!);
+                        if (!string.IsNullOrWhiteSpace(basename)) fileName = basename;
+                    }
                     atts.Add(new CalendarAttachment(kind, fileName, mime, null, localPath, null));
                 }
                 else

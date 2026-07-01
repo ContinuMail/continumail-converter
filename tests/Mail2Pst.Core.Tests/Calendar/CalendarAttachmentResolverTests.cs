@@ -85,6 +85,45 @@ public class CalendarAttachmentResolverTests
         finally { Directory.Delete(root, true); }
     }
 
+    // --- filename fallback (no FILENAME param) ---
+    // Thunderbird's storage calendar keeps only the attachment URI (no FILENAME param),
+    // so an embedded local file must take its name from the URI basename — a generic
+    // extensionless "attachment" won't open cleanly from Outlook.
+
+    [Fact] public void Local_file_without_filename_param_uses_uri_basename()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string f = Path.Combine(root, "pr8-note.txt");
+            File.WriteAllBytes(f, new byte[] { 9 });
+            var r = new CalendarAttachmentResolver(root);
+            var (atts, _) = r.ResolveAll(new[] { Line($"ATTACH;FMTTYPE=text/plain:{FileUri(f)}") }, "evt");
+            var a = Assert.Single(atts);
+            Assert.Equal(CalendarAttachmentKind.LocalFileByValue, a.Kind);
+            Assert.Equal("pr8-note.txt", a.FileName);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact] public void Local_file_filename_param_wins_over_uri_basename()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string f = Path.Combine(root, "on-disk.bin");
+            File.WriteAllBytes(f, new byte[] { 9 });
+            var r = new CalendarAttachmentResolver(root);
+            var (atts, _) = r.ResolveAll(new[] { Line($"ATTACH;FILENAME=custom.txt:{FileUri(f)}") }, "evt");
+            var a = Assert.Single(atts);
+            Assert.Equal(CalendarAttachmentKind.LocalFileByValue, a.Kind);
+            Assert.Equal("custom.txt", a.FileName);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     // --- size-guard tests ---
 
     [Fact] public void Local_file_exceeding_maxEmbedBytes_is_link_only_with_too_large_warning()
