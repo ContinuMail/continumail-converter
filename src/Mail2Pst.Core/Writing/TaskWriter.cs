@@ -25,7 +25,7 @@ public class TaskWriter
 
         // Body with optional link-only attachment appendix (tasks are plain-text only; no HTML body).
         string? appendix = CalendarBodyAppendix.Format(t.Attachments,
-            System.Array.Empty<string>(),   // Task 5 supplies relation lines
+            t.Relations,
             existingText: t.Body);
         string? effectiveBody = appendix is null ? t.Body
             : string.IsNullOrEmpty(t.Body) ? appendix : t.Body + "\n\n" + appendix;

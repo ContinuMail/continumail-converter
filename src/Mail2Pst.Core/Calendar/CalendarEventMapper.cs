@@ -334,6 +334,17 @@ public static class CalendarEventMapper
         if (GlobalObjectIdCodec.TryDecode(group.Master?.Id, out var goid, out _))
             appt.GlobalObjectId = goid;
 
+        // --- Relations (cal_relations side-table: RELATED-TO etc.) ---
+        // Classic Outlook has no native related-appointment surface; preserve raw relation lines
+        // in the body appendix (via CalendarBodyAppendix in AppointmentWriter) + warn once per line.
+        appt.Relations = master.Relations
+            .Select(r => r.IcalString)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .ToList();
+        foreach (var rel in appt.Relations)
+            w.Add($"relation on '{appt.Subject}': preserved (not natively converted)");
+
         // --- Online-meeting join URL (Teams / Google Meet) ---
         // Only these two provider X-props trigger URL preservation; ordinary URLs in
         // DESCRIPTION or LOCATION are not promoted (no over-promotion rule).

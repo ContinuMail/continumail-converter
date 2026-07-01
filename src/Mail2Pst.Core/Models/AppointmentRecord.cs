@@ -33,6 +33,7 @@ public sealed class AppointmentRecord
     public IReadOnlyList<AppointmentException> Exceptions { get; set; } = Array.Empty<AppointmentException>();
 
     public IReadOnlyList<CalendarAttachment> Attachments { get; set; } = Array.Empty<CalendarAttachment>();
+    public IReadOnlyList<string> Relations { get; set; } = Array.Empty<string>();
 
     /// <summary>
     /// Raw 56-byte GlobalObjectId blob, hex-decoded from an Exchange-cached event id.

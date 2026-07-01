@@ -133,6 +133,17 @@ public static class CalendarTaskMapper
             }
         }
 
+        // --- Relations (cal_relations side-table: RELATED-TO etc.) ---
+        // Classic Outlook has no native related-task surface; preserve raw relation lines
+        // in the body appendix (via CalendarBodyAppendix in TaskWriter) + warn once per line.
+        t.Relations = master.Relations
+            .Select(r => r.IcalString)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .ToList();
+        foreach (var rel in t.Relations)
+            w.Add($"relation on '{t.Subject}': preserved (not natively converted)");
+
         // Task attendees/assignment deferred: Outlook task assignment is a separate MAPI surface (not PR6).
 
         // Recurrence — map RRULE if present, degrade on exceptions/completions/unrepresentable rules.

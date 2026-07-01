@@ -35,4 +35,5 @@ public sealed class TaskRecord
     public RecurrenceSpec? Recurrence { get; set; }
 
     public IReadOnlyList<CalendarAttachment> Attachments { get; set; } = Array.Empty<CalendarAttachment>();
+    public IReadOnlyList<string> Relations { get; set; } = Array.Empty<string>();
 }

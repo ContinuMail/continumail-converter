@@ -391,7 +391,7 @@ public sealed class AppointmentWriter
     {
         // Compute appendix once (dedup against the original body text before any append).
         string? appendix = CalendarBodyAppendix.Format(a.Attachments,
-            System.Array.Empty<string>(),   // Task 5 supplies relation lines
+            a.Relations,
             existingText: a.Body ?? a.BodyHtml);
 
         string? plain = a.Body;
