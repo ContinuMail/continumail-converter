@@ -6,6 +6,8 @@ using System.Collections.Generic;
 using System.Text;
 using Mail2Pst.Core.Models;
 using PSTFileFormat;
+// Alias disambiguates our model enum from PSTFileFormat.RecurrenceFrequency (the vendor blob type).
+using RecurrenceFrequency = Mail2Pst.Core.Models.RecurrenceFrequency;
 
 namespace Mail2Pst.Core.Writing;
 
@@ -164,12 +166,12 @@ public sealed class AppointmentWriter
     {
         ra.RecurrenceType = s.Frequency switch
         {
-            AppointmentRecurrenceFrequency.Daily      => RecurrenceType.EveryNDays,
-            AppointmentRecurrenceFrequency.Weekly     => RecurrenceType.EveryNWeeks,
-            AppointmentRecurrenceFrequency.Monthly    => RecurrenceType.EveryNMonths,
-            AppointmentRecurrenceFrequency.MonthlyNth => RecurrenceType.EveryNthDayOfEveryNMonths,
-            AppointmentRecurrenceFrequency.Yearly     => RecurrenceType.EveryNYears,
-            AppointmentRecurrenceFrequency.YearlyNth  => RecurrenceType.EveryNthDayOfEveryNYears,
+            RecurrenceFrequency.Daily      => RecurrenceType.EveryNDays,
+            RecurrenceFrequency.Weekly     => RecurrenceType.EveryNWeeks,
+            RecurrenceFrequency.Monthly    => RecurrenceType.EveryNMonths,
+            RecurrenceFrequency.MonthlyNth => RecurrenceType.EveryNthDayOfEveryNMonths,
+            RecurrenceFrequency.Yearly     => RecurrenceType.EveryNYears,
+            RecurrenceFrequency.YearlyNth  => RecurrenceType.EveryNthDayOfEveryNYears,
             _ => RecurrenceType.EveryNDays,
         };
 
@@ -180,9 +182,9 @@ public sealed class AppointmentWriter
         // Day: day-mask for weekly; OutlookDayOfWeek for nth-day patterns; day-of-month for others.
         ra.Day = s.Frequency switch
         {
-            AppointmentRecurrenceFrequency.Weekly =>
+            RecurrenceFrequency.Weekly =>
                 (int)ToMask(s.DaysOfWeek),
-            AppointmentRecurrenceFrequency.MonthlyNth or AppointmentRecurrenceFrequency.YearlyNth =>
+            RecurrenceFrequency.MonthlyNth or RecurrenceFrequency.YearlyNth =>
                 (int)ToOutlookDay(s.DaysOfWeek.Length > 0 ? s.DaysOfWeek[0] : DayOfWeek.Monday),
             // Day-of-month defaults to the LOCAL start day, not the UTC day: an all-day event anchored
             // to a positive-offset zone stores StartUtc as local-midnight-in-UTC (e.g. the prior day),
@@ -191,7 +193,7 @@ public sealed class AppointmentWriter
         };
 
         // DayOccurrenceNumber: only for Nth-day patterns (2nd Tuesday, Last Friday, etc.)
-        if (s.Frequency is AppointmentRecurrenceFrequency.MonthlyNth or AppointmentRecurrenceFrequency.YearlyNth)
+        if (s.Frequency is RecurrenceFrequency.MonthlyNth or RecurrenceFrequency.YearlyNth)
         {
             ra.DayOccurenceNumber = (s.NthOccurrence ?? 1) == -1
                 ? DayOccurenceNumber.Last

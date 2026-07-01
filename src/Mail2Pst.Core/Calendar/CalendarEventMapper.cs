@@ -7,9 +7,6 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using Ical.Net.CalendarComponents;
-using Ical.Net.DataTypes;
-using IcalCalendar = Ical.Net.Calendar;
 using Mail2Pst.Core.Models;
 
 namespace Mail2Pst.Core.Calendar;
@@ -422,169 +419,6 @@ public static class CalendarEventMapper
         TimeZoneResolver.Resolve(tzId).Zone ?? TimeZoneInfo.Utc;
 
     /// <summary>
-    /// Strips the <c>RRULE:</c> prefix (case-insensitive) from a raw iCal RRULE line,
-    /// returning the bare rule body consumed by <see cref="RecurrencePattern"/>.
-    /// </summary>
-    private static string StripRRulePrefix(string line)
-    {
-        const string prefix = "RRULE:";
-        return line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? line.Substring(prefix.Length)
-            : line;
-    }
-
-    /// <summary>
-    /// Returns a non-null reason string when the parsed recurrence cannot be faithfully
-    /// represented in the <see cref="RecurrenceSpec"/> model, or <c>null</c> when the
-    /// rule is mappable.
-    /// </summary>
-    private static string? DegradeReason(ParsedRecurrence p, List<string> lines)
-    {
-        // 1. Unknown FREQ (ical.net returned ParsedFrequency.Unknown for an unrecognised value).
-        if (p.Frequency == ParsedFrequency.Unknown) return "Unknown FREQ";
-
-        // 2. BYSETPOS (e.g. "last Monday of month") — not representable in RecurrenceSpec.
-        if (p.BySetPosition.Count > 0) return "BYSETPOS";
-
-        // 3. RDATE — additional explicit dates outside of the RRULE pattern.
-        if (p.RDates.Count > 0) return "RDATE";
-
-        // 4. Multiple RRULE lines — we only handle a single rule.
-        int rruleCount = lines.Count(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
-        if (rruleCount > 1) return "multiple RRULE";
-
-        // 5. WKST when INTERVAL > 1 — the work-week start shifts grouping boundaries; degrade.
-        bool hasWkst = lines.Any(l => l.Contains("WKST=", StringComparison.OrdinalIgnoreCase));
-        if (hasWkst && p.Interval > 1) return "WKST interval-sensitive";
-
-        // 6 & 7. Cardinality rules for Monthly / Yearly.
-        if (p.Frequency == ParsedFrequency.Monthly)
-        {
-            // MonthlyNth: exactly one BYDAY with a supported offset (1..4 or -1).
-            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is { } off)
-                return (off is >= 1 and <= 4 or -1) ? null : "unrepresentable monthly/yearly pattern";
-
-            // Monthly-by-day: exactly one BYMONTHDAY, no BYDAY.
-            if (p.ByMonthDay.Count == 1 && p.ByDay.Count == 0) return null;
-
-            // Bare FREQ=MONTHLY (no BY* parts): RFC 5545 recurs on the DTSTART day-of-month.
-            // The writer defaults RecurringAppointment.Day to FirstStartUtc.Day.
-            if (p.ByDay.Count == 0 && p.ByMonthDay.Count == 0) return null;
-
-            return "unrepresentable monthly/yearly pattern";
-        }
-
-        if (p.Frequency == ParsedFrequency.Yearly)
-        {
-            // YearlyNth: one BYDAY with a supported offset (1..4 or -1) + one BYMONTH.
-            if (p.ByDay.Count == 1 && p.ByDay[0].Offset is { } off && p.ByMonth.Count == 1)
-                return (off is >= 1 and <= 4 or -1) ? null : "unrepresentable monthly/yearly pattern";
-
-            // Yearly: one BYMONTH + one BYMONTHDAY, no BYDAY.
-            if (p.ByMonth.Count == 1 && p.ByMonthDay.Count == 1 && p.ByDay.Count == 0)
-                return null;
-
-            // Bare FREQ=YEARLY (no BY* parts): RFC 5545 recurs on the DTSTART month + day-of-month.
-            // The writer defaults Day to FirstStartUtc.Day; Outlook derives the month from the start date.
-            if (p.ByDay.Count == 0 && p.ByMonth.Count == 0 && p.ByMonthDay.Count == 0) return null;
-
-            return "unrepresentable monthly/yearly pattern";
-        }
-
-        // Daily / Weekly — always mappable.
-        return null;
-    }
-
-    /// <summary>Maps a <see cref="ParsedRecurrence"/> frequency to the model enum.
-    /// <see cref="DegradeReason"/> must return <c>null</c> before this is called.</summary>
-    private static AppointmentRecurrenceFrequency MapFreq(ParsedRecurrence p) => p.Frequency switch
-    {
-        ParsedFrequency.Daily   => AppointmentRecurrenceFrequency.Daily,
-        ParsedFrequency.Weekly  => AppointmentRecurrenceFrequency.Weekly,
-        ParsedFrequency.Monthly =>
-            p.ByDay.Count == 1 && p.ByDay[0].Offset is not null
-                ? AppointmentRecurrenceFrequency.MonthlyNth
-                : AppointmentRecurrenceFrequency.Monthly,
-        ParsedFrequency.Yearly  =>
-            p.ByDay.Count == 1 && p.ByDay[0].Offset is not null
-                ? AppointmentRecurrenceFrequency.YearlyNth
-                : AppointmentRecurrenceFrequency.Yearly,
-        _ => throw new InvalidOperationException($"Unmapped ParsedFrequency: {p.Frequency}"),
-    };
-
-    /// <summary>
-    /// Computes the UTC start of the last occurrence of a recurrence rule.
-    /// Returns <c>null</c> for <see cref="RecurrenceEndKind.NoEnd"/>.
-    /// For <see cref="RecurrenceEndKind.Until"/> returns <see cref="RecurrenceSpec.UntilUtc"/> directly
-    /// (no enumeration).  For <see cref="RecurrenceEndKind.Count"/> enumerates the COUNT-th raw occurrence
-    /// (EXDATE does NOT reduce the COUNT).
-    /// </summary>
-    private static DateTime? ComputeLastInstanceUtc(RecurrenceSpec s)
-    {
-        switch (s.EndKind)
-        {
-            case RecurrenceEndKind.NoEnd:
-                return null;
-
-            case RecurrenceEndKind.Until:
-                // UNTIL bound is the last-occurrence date: no enumeration needed.
-                return s.UntilUtc;
-
-            case RecurrenceEndKind.Count:
-            {
-                // Build a minimal VCALENDAR anchored at FirstStartLocal (floating — no TZ suffix)
-                // so Ical.Net enumerates in local time without any IANA / Windows zone lookups.
-                // Calendar.GetOccurrences respects COUNT: it will return exactly COUNT occurrences.
-                var anchor = s.FirstStartLocal;
-                string dtFmt = anchor.ToString("yyyyMMddTHHmmss", CultureInfo.InvariantCulture);
-                string calText =
-                    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ContinuMail//recurrence//EN\r\n" +
-                    "BEGIN:VEVENT\r\nUID:count-enum@continmail\r\n" +
-                    $"DTSTART:{dtFmt}\r\n" +
-                    $"DTEND:{dtFmt}\r\n" +
-                    $"RRULE:{s.RawRRuleBody}\r\n" +
-                    "END:VEVENT\r\nEND:VCALENDAR\r\n";
-
-                try
-                {
-                    var enumCal = IcalCalendar.Load(calText);
-                    if (enumCal?.Events.Count == 0) return null;
-
-                    // In Ical.Net 5.x, GetOccurrences(CalDateTime startTime) returns all occurrences
-                    // from startTime onward, respecting COUNT. No end-date parameter needed.
-                    var startDt = new CalDateTime(
-                        anchor.Year, anchor.Month, anchor.Day,
-                        anchor.Hour, anchor.Minute, anchor.Second, string.Empty);
-
-                    var occs = enumCal.GetOccurrences(startDt)
-                                      .OrderBy(o => o.Period.StartTime)
-                                      .ToList();
-
-                    int idx = (s.Count ?? 0) - 1;
-                    if (idx < 0 || idx >= occs.Count) return null;
-
-                    var lastLocalRaw = occs[idx].Period.StartTime.Value;
-                    var lastLocal    = new DateTime(
-                        lastLocalRaw.Year, lastLocalRaw.Month, lastLocalRaw.Day,
-                        lastLocalRaw.Hour, lastLocalRaw.Minute, lastLocalRaw.Second,
-                        DateTimeKind.Unspecified);
-
-                    return s.TimeZone != null
-                        ? TimeZoneInfo.ConvertTimeToUtc(lastLocal, s.TimeZone)
-                        : DateTime.SpecifyKind(lastLocal, DateTimeKind.Utc);
-                }
-                catch
-                {
-                    return null;
-                }
-            }
-
-            default:
-                return null;
-        }
-    }
-
-    /// <summary>
     /// Converts a raw EXDATE date/datetime string to a <see cref="RecurrenceInstanceId"/>.
     /// For date-only values (<paramref name="isDateOnly"/>), the local midnight in
     /// <paramref name="tzId"/> is used as the reference point.
@@ -748,6 +582,8 @@ public static class CalendarEventMapper
     /// Applies RRULE/EXDATE recurrence data and override exceptions to <paramref name="appt"/>.
     /// Degrades to a single occurrence (no <c>Recurrence</c> set) with a warning when the rule
     /// cannot be faithfully mapped; a degraded result is still returned (never null).
+    /// Spec-building is delegated to <see cref="RecurrenceMapping.FromIcal"/>;
+    /// EXDATE/override mapping (appointment-only concerns) stays here.
     /// </summary>
     private static void ApplyRecurrence(
         AppointmentRecord appt, RawEvent master, RawEventGroup group, List<string> w)
@@ -758,6 +594,7 @@ public static class CalendarEventMapper
             .Select(s => s!)
             .ToList();
 
+        // Parse first to emit any parse warnings and to obtain p.ExDates for later use.
         ParseResult<ParsedRecurrence> pr = ICalTextParser.ParseRecurrence(lines);
         foreach (var pw in pr.Warnings) w.Add(pw);
         ParsedRecurrence? p = pr.Value;
@@ -770,75 +607,34 @@ public static class CalendarEventMapper
             return;
         }
 
-        string? reason = DegradeReason(p, lines);
-        if (reason is not null)
+        DateTime firstStartLocal = appt.TimeZone is { } tz0
+            ? TimeZoneInfo.ConvertTimeFromUtc(appt.StartUtc, tz0)
+            : appt.StartUtc;
+
+        var (spec, degradeReason) = RecurrenceMapping.FromIcal(
+            lines, appt.StartUtc, firstStartLocal, appt.TimeZone, master.EventStartTz);
+
+        if (degradeReason is not null)
         {
-            w.Add($"recurrence unsupported ({reason}); wrote first occurrence only: '{appt.Subject}'");
+            if (degradeReason == "COUNT enumeration failed")
+                w.Add($"recurrence COUNT could not be resolved; wrote first occurrence only: '{appt.Subject}'");
+            else
+                w.Add($"recurrence unsupported ({degradeReason}); wrote first occurrence only: '{appt.Subject}'");
             return;  // appt.Recurrence remains null — degraded single occurrence
         }
 
-        // Build the RRULE body for Ical.Net (strip the "RRULE:" prefix).
-        string rruleLine = lines.First(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
-        // Trim() strips the trailing CRLF Mozilla stores on each property so the RRULE body embedded
-        // in the COUNT-enumeration VCALENDAR text is a clean single line.
-        string rawRRuleBody = StripRRulePrefix(IcalParseSupport.UnfoldIcalLines(rruleLine).Trim());
-
-        var spec = new RecurrenceSpec
-        {
-            Frequency    = MapFreq(p),
-            Interval     = Math.Max(1, p.Interval),
-            DaysOfWeek   = p.ByDay.Select(d => d.DayOfWeek).Distinct().ToArray(),
-            DayOfMonth   = p.ByMonthDay.Count == 1 ? p.ByMonthDay[0] : (int?)null,
-            NthOccurrence = p.ByDay.Count == 1 ? p.ByDay[0].Offset : null,
-            Month        = p.ByMonth.Count == 1 ? p.ByMonth[0] : (int?)null,
-            FirstStartUtc   = appt.StartUtc,
-            FirstStartLocal = appt.TimeZone is { } tz0
-                ? TimeZoneInfo.ConvertTimeFromUtc(appt.StartUtc, tz0)
-                : appt.StartUtc,
-            TimeZone             = appt.TimeZone,
-            OriginatingTimeZoneId = master.EventStartTz,
-            RawRRuleBody         = rawRRuleBody,
-        };
-
-        // RFC 5545 §3.3.10: a bare FREQ=WEEKLY with no BYDAY recurs on the DTSTART weekday.
-        if (spec.Frequency == AppointmentRecurrenceFrequency.Weekly && spec.DaysOfWeek.Length == 0)
-            spec.DaysOfWeek = new[] { spec.FirstStartLocal.DayOfWeek };
-
-        if (p.Count > 0)
-        {
-            spec.EndKind = RecurrenceEndKind.Count;
-            spec.Count   = p.Count;
-        }
-        else if (p.UntilUtc is { } until)
-        {
-            spec.EndKind  = RecurrenceEndKind.Until;
-            spec.UntilUtc = until;
-        }
-        else
-        {
-            spec.EndKind = RecurrenceEndKind.NoEnd;
-        }
-
-        spec.LastInstanceStartUtc = ComputeLastInstanceUtc(spec);
-
-        // Defensive guard: ComputeLastInstanceUtc failed (near-unreachable path — requires
-        // Ical.Net to throw during COUNT enumeration). Degrade to single occurrence rather
-        // than silently producing an unbounded series via the NoEnd sentinel.
-        if (spec.EndKind == RecurrenceEndKind.Count && spec.LastInstanceStartUtc is null)
-        {
-            w.Add($"recurrence COUNT could not be resolved; wrote first occurrence only: '{appt.Subject}'");
-            return;
-        }
+        if (spec is null)
+            return; // (null, null) — near-unreachable; p was non-null but FromIcal found nothing mappable
 
         appt.Recurrence = spec;
 
-        // Map EXDATEs to deleted-occurrence identities.
+        // Map EXDATEs to deleted-occurrence identities (appointment-only; stays here).
         appt.DeletedOccurrences = p.ExDates
             .SelectMany(dl => dl.Values.Select(v =>
                 ToInstanceId(v, dl.TzId ?? master.EventStartTz, dl.IsDateOnly)))
             .ToList();
 
-        // Map override exceptions.
+        // Map override exceptions (appointment-only; stays here).
         appt.Exceptions = group.Overrides
             .Select(o => ToException(o, w))
             .Where(e => e is not null)

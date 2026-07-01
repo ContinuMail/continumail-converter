@@ -87,7 +87,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(result);
         Assert.NotNull(result!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Daily, result.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Daily, result.Recurrence!.Frequency);
         Assert.Empty(warnings);
     }
 
@@ -684,7 +684,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.NotNull(appt!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Daily, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Daily, appt.Recurrence!.Frequency);
         Assert.Equal("Europe/Copenhagen", appt.OriginatingTimeZoneId);
         Assert.Equal("Europe/Copenhagen", appt.Recurrence.OriginatingTimeZoneId);
     }
@@ -742,7 +742,7 @@ public class CalendarEventMapperTests
         Assert.NotNull(appt);
         Assert.True(appt!.IsAllDay);
         Assert.NotNull(appt.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
         Assert.Contains(DayOfWeek.Monday, appt.Recurrence.DaysOfWeek);
         Assert.Equal(RecurrenceEndKind.Count, appt.Recurrence.EndKind);
         Assert.Equal(4, appt.Recurrence.Count);
@@ -946,7 +946,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.NotNull(appt!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Weekly, appt.Recurrence!.Frequency);
         // RFC 5545: bare FREQ=WEEKLY (no BYDAY) must recur on the DTSTART weekday (Monday here).
         Assert.Equal(new[] { DayOfWeek.Monday }, appt.Recurrence.DaysOfWeek);
         Assert.Empty(warnings);
@@ -976,7 +976,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.NotNull(appt!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Yearly, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Yearly, appt.Recurrence!.Frequency);
         Assert.Empty(warnings);
     }
 
@@ -998,7 +998,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.NotNull(appt!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.Monthly, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.Monthly, appt.Recurrence!.Frequency);
         Assert.Empty(warnings);
     }
 
@@ -1045,7 +1045,7 @@ public class CalendarEventMapperTests
 
         Assert.NotNull(appt);
         Assert.NotNull(appt!.Recurrence);
-        Assert.Equal(AppointmentRecurrenceFrequency.YearlyNth, appt.Recurrence!.Frequency);
+        Assert.Equal(RecurrenceFrequency.YearlyNth, appt.Recurrence!.Frequency);
         Assert.Equal(2, appt.Recurrence.NthOccurrence);
         Assert.Empty(warnings);
     }

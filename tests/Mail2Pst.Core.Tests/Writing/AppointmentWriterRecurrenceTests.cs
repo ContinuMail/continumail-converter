@@ -8,6 +8,8 @@ using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Writing;
 using PSTFileFormat;
+// Alias disambiguates our model enum from PSTFileFormat.RecurrenceFrequency (the vendor blob type).
+using RecurrenceFrequency = Mail2Pst.Core.Models.RecurrenceFrequency;
 using Xunit;
 
 namespace Mail2Pst.Core.Tests.Writing;
@@ -84,7 +86,7 @@ public class AppointmentWriterRecurrenceTests
         OriginatingTimeZoneId = "UTC",
         Recurrence = new RecurrenceSpec
         {
-            Frequency           = AppointmentRecurrenceFrequency.Weekly,
+            Frequency           = RecurrenceFrequency.Weekly,
             Interval            = 1,
             DaysOfWeek          = new[] { DayOfWeek.Monday, DayOfWeek.Wednesday },
             EndKind             = RecurrenceEndKind.Count,
@@ -107,7 +109,7 @@ public class AppointmentWriterRecurrenceTests
         OriginatingTimeZoneId = "Asia/Bangkok",
         Recurrence = new RecurrenceSpec
         {
-            Frequency             = AppointmentRecurrenceFrequency.Daily,
+            Frequency             = RecurrenceFrequency.Daily,
             Interval              = 1,
             DaysOfWeek            = Array.Empty<DayOfWeek>(),
             EndKind               = RecurrenceEndKind.NoEnd,
@@ -175,7 +177,7 @@ public class AppointmentWriterRecurrenceTests
             OriginatingTimeZoneId = "Asia/Bangkok",
             Recurrence = new RecurrenceSpec
             {
-                Frequency             = AppointmentRecurrenceFrequency.Yearly,
+                Frequency             = RecurrenceFrequency.Yearly,
                 Interval              = 1,
                 DaysOfWeek            = Array.Empty<DayOfWeek>(),
                 EndKind               = RecurrenceEndKind.NoEnd,
@@ -234,7 +236,7 @@ public class AppointmentWriterRecurrenceTests
             OriginatingTimeZoneId = null,             // triggers UTC fallback
             Recurrence = new RecurrenceSpec
             {
-                Frequency    = AppointmentRecurrenceFrequency.Daily,
+                Frequency    = RecurrenceFrequency.Daily,
                 Interval     = 1,
                 DaysOfWeek   = Array.Empty<DayOfWeek>(),
                 EndKind      = RecurrenceEndKind.NoEnd,
@@ -430,7 +432,7 @@ public class AppointmentWriterRecurrenceTests
             OriginatingTimeZoneId = "Asia/Bangkok",
             Recurrence = new RecurrenceSpec
             {
-                Frequency             = AppointmentRecurrenceFrequency.Daily,
+                Frequency             = RecurrenceFrequency.Daily,
                 Interval              = 1,
                 DaysOfWeek            = Array.Empty<DayOfWeek>(),
                 EndKind               = RecurrenceEndKind.NoEnd,

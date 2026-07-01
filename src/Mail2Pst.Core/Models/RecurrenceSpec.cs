@@ -3,7 +3,7 @@
 using System;
 namespace Mail2Pst.Core.Models;
 
-public enum AppointmentRecurrenceFrequency { Daily, Weekly, Monthly, MonthlyNth, Yearly, YearlyNth }
+public enum RecurrenceFrequency { Daily, Weekly, Monthly, MonthlyNth, Yearly, YearlyNth }
 public enum RecurrenceEndKind { NoEnd, Count, Until }
 
 /// <summary>Original-occurrence identity. TimeZoneId is the canonical IANA/Olson id (or a tzone:// Windows id) verbatim from TB.</summary>
@@ -19,7 +19,7 @@ public enum AppointmentExceptionChangeFlags
 
 public sealed class RecurrenceSpec
 {
-    public AppointmentRecurrenceFrequency Frequency { get; set; }
+    public RecurrenceFrequency Frequency { get; set; }
     public int Interval { get; set; } = 1;     // in RecurrenceType natural units (years for yearly)
     public DayOfWeek[] DaysOfWeek { get; set; } = Array.Empty<DayOfWeek>();
     public int? DayOfMonth { get; set; }
