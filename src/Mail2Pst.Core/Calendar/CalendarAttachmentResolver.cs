@@ -11,8 +11,13 @@ namespace Mail2Pst.Core.Calendar;
 public sealed class CalendarAttachmentResolver
 {
     private readonly string? _exportRoot;   // canonical full path; null ⇒ no file resolution allowed
-    public CalendarAttachmentResolver(string? exportRoot) =>
+    private readonly long _maxEmbedBytes;   // attachments larger than this degrade to LinkOnly
+
+    public CalendarAttachmentResolver(string? exportRoot, long maxEmbedBytes = int.MaxValue)
+    {
         _exportRoot = string.IsNullOrWhiteSpace(exportRoot) ? null : Path.GetFullPath(exportRoot);
+        _maxEmbedBytes = maxEmbedBytes;
+    }
 
     public (IReadOnlyList<CalendarAttachment> Attachments, IReadOnlyList<string> Warnings)
         ResolveAll(IEnumerable<RawSideText> rawAttachLines, string subjectForWarnings)
@@ -37,6 +42,12 @@ public sealed class CalendarAttachmentResolver
 
             if (p.InlineData is { Length: > 0 })
             {
+                if (p.InlineData.Length > _maxEmbedBytes)
+                {
+                    warns.Add($"attachment on '{subjectForWarnings}': inline attachment too large to embed — preserved as link");
+                    atts.Add(new CalendarAttachment(CalendarAttachmentKind.LinkOnly, fileName, mime, null, null, null));
+                    continue;
+                }
                 atts.Add(new CalendarAttachment(CalendarAttachmentKind.InlineBytes, fileName, mime, p.InlineData, null, null));
                 continue;
             }
@@ -90,6 +101,8 @@ public sealed class CalendarAttachmentResolver
         catch (Exception) { return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable"); }
         try { using var _ = File.OpenRead(full); }
         catch (Exception) { return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable"); }
+        if (new FileInfo(full).Length > _maxEmbedBytes)
+            return (CalendarAttachmentKind.LinkOnly, null, "local file too large to embed (>2 GB)");
         return (CalendarAttachmentKind.LocalFileByValue, full, null);
     }
 

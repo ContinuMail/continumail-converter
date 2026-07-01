@@ -24,7 +24,7 @@ public sealed class AttachmentWriter
     private readonly bool _streamingDisabled;
 
     public AttachmentWriter() : this(16L * 1024 * 1024,
-        Environment.GetEnvironmentVariable("MAIL2PST_DISABLE_ATTACHMENT_STREAMING") == "1") { }
+        Environment.GetEnvironmentVariable("MAIL2PST_NO_ATTACH_STREAM") is { Length: > 0 }) { }
 
     public AttachmentWriter(long streamingThresholdBytes, bool streamingDisabled)
     {

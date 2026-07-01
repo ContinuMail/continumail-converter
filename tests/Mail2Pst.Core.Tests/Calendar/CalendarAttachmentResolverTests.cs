@@ -85,6 +85,62 @@ public class CalendarAttachmentResolverTests
         finally { Directory.Delete(root, true); }
     }
 
+    // --- size-guard tests ---
+
+    [Fact] public void Local_file_exceeding_maxEmbedBytes_is_link_only_with_too_large_warning()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string f = Path.Combine(root, "big.bin");
+            File.WriteAllBytes(f, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }); // 10 bytes
+            var r = new CalendarAttachmentResolver(root, maxEmbedBytes: 4);        // threshold = 4
+            var (atts, warns) = r.ResolveAll(new[] { Line($"ATTACH;FILENAME=big.bin:{FileUri(f)}") }, "evt");
+            Assert.Equal(CalendarAttachmentKind.LinkOnly, Assert.Single(atts).Kind);
+            Assert.Contains(warns, w => w.Contains("too large"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact] public void Inline_data_exceeding_maxEmbedBytes_is_link_only_with_too_large_warning()
+    {
+        // "hello" = 5 bytes when decoded; maxEmbedBytes = 4 forces LinkOnly
+        var r = new CalendarAttachmentResolver(exportRoot: null, maxEmbedBytes: 4);
+        var (atts, warns) = r.ResolveAll(new[] {
+            Line("ATTACH;FILENAME=big.txt;VALUE=BINARY;ENCODING=BASE64;FMTTYPE=text/plain:aGVsbG8=") }, "evt");
+        var a = Assert.Single(atts);
+        Assert.Equal(CalendarAttachmentKind.LinkOnly, a.Kind);
+        Assert.Contains(warns, w => w.Contains("too large"));
+    }
+
+    [Fact] public void Default_threshold_small_inline_still_classifies_as_inline_bytes()
+    {
+        // Regression: default maxEmbedBytes = int.MaxValue must not affect normal small data
+        var r = new CalendarAttachmentResolver(exportRoot: null);
+        var (atts, warns) = r.ResolveAll(new[] {
+            Line("ATTACH;FILENAME=hi.txt;VALUE=BINARY;ENCODING=BASE64;FMTTYPE=text/plain:aGk=") }, "evt");
+        var a = Assert.Single(atts);
+        Assert.Equal(CalendarAttachmentKind.InlineBytes, a.Kind);
+        Assert.Empty(warns);
+    }
+
+    [Fact] public void Default_threshold_small_local_file_still_classifies_as_by_value()
+    {
+        // Regression: default maxEmbedBytes = int.MaxValue must not affect normal small files
+        string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string f = Path.Combine(root, "ok.bin");
+            File.WriteAllBytes(f, new byte[] { 9, 9 });
+            var r = new CalendarAttachmentResolver(root);
+            var (atts, _) = r.ResolveAll(new[] { Line($"ATTACH;FILENAME=ok.bin:{FileUri(f)}") }, "evt");
+            Assert.Equal(CalendarAttachmentKind.LocalFileByValue, Assert.Single(atts).Kind);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [SkippableFact]   // symlink creation needs privilege on Windows; skip if it throws
     public void Local_file_symlink_inside_root_is_rejected()
     {
