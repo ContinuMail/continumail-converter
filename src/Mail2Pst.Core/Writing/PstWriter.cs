@@ -46,6 +46,9 @@ public class PstWriter
     // multi-output / parallel WritePlan work — concurrent WritePlan calls on one PstWriter would race this field.
     private CancellationToken _activeCancellationToken;
 
+    // built in WritePlan from the current streaming config
+    private AttachmentWriter _attachmentWriter = null!;
+
     // Number of successfully-written messages between on-disk size checks.
     private readonly int _checkIntervalMessages;
 
@@ -113,6 +116,7 @@ public class PstWriter
         // Pre-flight: if already cancelled, create nothing so DeletedFiles stays empty.
         cancellationToken.ThrowIfCancellationRequested();
         _activeCancellationToken = cancellationToken;
+        _attachmentWriter = new AttachmentWriter(StreamingThresholdBytes, _attachmentStreamingDisabled);
 
         var contactWriter = new ContactWriter();
         var taskWriter = new TaskWriter();
@@ -553,12 +557,10 @@ public class PstWriter
     // this flat constant under-counts the aggregate.
     private const long PerAttachmentOverheadBytes = 512;
 
-    // MAPI bit flags for PidTagMessageFlags (MS-OXCMSG) and the inline-attachment
-    // PidTagAttachFlags value (MS-OXCMSG ATT_MHTML_REF). Named here so the bit math
+    // MAPI bit flags for PidTagMessageFlags (MS-OXCMSG). Named here so the bit math
     // at the write sites reads intentionally instead of as raw hex.
     private const int MSGFLAG_READ = 0x0001;
     private const int MSGFLAG_HASATTACH = 0x0010;
-    private const int ATT_MHTML_REF = 4;
 
     internal static long EstimateMessageSize(MailMessage message)
     {
@@ -739,57 +741,10 @@ public class PstWriter
 
     private void WriteAttachment(PSTFile file, Note note, MailAttachment a)
     {
-        note.CreateSubnodeBTreeIfNotExist();
-        AttachmentObject attachment = AttachmentObject.CreateNewAttachmentObject(file, note.SubnodeBTree);
-
-        attachment.PC.SetStringProperty(PropertyID.PidTagAttachLongFilename, a.FileName);
-        attachment.PC.SetStringProperty(PropertyID.PidTagAttachFilename, a.FileName);
-        attachment.PC.SetStringProperty(PropertyID.PidTagDisplayName, a.FileName);
-        attachment.PC.SetStringProperty(PropertyID.PidTagAttachExtension, Path.GetExtension(a.FileName));
-        attachment.PC.SetStringProperty(PropertyID.PidTagAttachMimeTag, a.MimeType);
-        attachment.PC.SetInt32Property(PropertyID.PidTagAttachMethod, (int)AttachMethod.ByValue);
-        // [M1] Only large attachments stream; small/medium keep the proven byte[] path (zero memory
-        // benefit below tens of MB). [A9] streaming requires NDB_CRYPT_PERMUTE. [L4] kill-switch.
-        bool canStream = a.Content.Length >= StreamingThresholdBytes
-            && file.Header.bCryptMethod == bCryptMethodName.NDB_CRYPT_PERMUTE
-            && !_attachmentStreamingDisabled;
-        if (canStream)
-        {
-            using Stream attachStream = a.Content.OpenRead();   // [R2:H2] closed before finally deletes the temp file
-            attachment.PC.SetExternalProperty(PropertyID.PidTagAttachData, PropertyTypeName.PtypBinary,
-                attachStream, a.Content.Length, _activeCancellationToken);
-        }
-        else
-        {
-            attachment.PC.SetBytesProperty(PropertyID.PidTagAttachData, a.Content.ReadAllBytes());   // small/medium or non-PERMUTE
-        }
-        attachment.PC.SetInt32Property(PropertyID.PidTagAttachSize, (int)a.Content.Length);
-
-        if (!string.IsNullOrEmpty(a.ContentId))
-        {
-            attachment.PC.SetStringProperty(PropertyID.PidTagAttachContentId, a.ContentId);
-        }
-
-        if (!string.IsNullOrEmpty(a.ContentLocation))
-        {
-            attachment.PC.SetStringProperty(PropertyID.PidTagAttachContentLocation, a.ContentLocation);
-        }
-
-        if (a.IsInline)
-        {
-            attachment.PC.SetInt32Property(PropertyID.PidTagAttachFlags, ATT_MHTML_REF);
-            // Hide inline (CID) images from the attachment list so Outlook does
-            // not render a paperclip for body-embedded images.
-            attachment.PC.SetBooleanProperty(PropertyID.PidTagAttachmentHidden, true);
-        }
-
-        // attachment.PC's property writes above only update the in-memory
-        // property context; SaveChanges(note.SubnodeBTree) flushes it to the
-        // attachment's data tree and updates the entry this subnode occupies
-        // in the note's subnode B-tree (Subnode.SaveChanges(SubnodeBTree)),
-        // so the attachment's properties survive a reopen of the PST.
-        attachment.SaveChanges(note.SubnodeBTree);
-        note.AddAttachment(attachment);
+        _attachmentWriter.Write(file, note, new AttachmentSpec(
+            a.FileName, a.MimeType, a.Content,
+            ContentId: a.ContentId, ContentLocation: a.ContentLocation,
+            IsInline: a.IsInline), _activeCancellationToken);
     }
 
     // Windows FILETIME epoch is 1601-01-01. DateTime.ToFileTimeUtc() throws

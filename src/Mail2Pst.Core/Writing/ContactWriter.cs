@@ -62,21 +62,8 @@ public class ContactWriter
         string ext = ExtFromMediaType(mime);
         string name = "ContactPicture" + ext;
 
-        // EXACT mirror of PstWriter.WriteAttachment's create/persist shape:
-        msg.CreateSubnodeBTreeIfNotExist();
-        AttachmentObject att = AttachmentObject.CreateNewAttachmentObject(file, msg.SubnodeBTree);
-        att.PC.SetStringProperty(PropertyID.PidTagAttachLongFilename, name);
-        att.PC.SetStringProperty(PropertyID.PidTagAttachFilename, name);
-        att.PC.SetStringProperty(PropertyID.PidTagDisplayName, name);
-        att.PC.SetStringProperty(PropertyID.PidTagAttachExtension, ext);
-        att.PC.SetStringProperty(PropertyID.PidTagAttachMimeTag, mime);
-        att.PC.SetInt32Property(PropertyID.PidTagAttachMethod, (int)AttachMethod.ByValue);
-        att.PC.SetBytesProperty(PropertyID.PidTagAttachData, photo.Bytes);
-        att.PC.SetInt32Property(PropertyID.PidTagAttachSize, photo.Bytes.Length);
-        att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentContactPhoto, true);
-        att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentHidden, false);
-        att.SaveChanges(msg.SubnodeBTree);   // REQUIRED — flushes the attachment to the subnode B-tree
-        msg.AddAttachment(att);              // sets MSGFLAG_HASATTACH automatically — leave it (contacts aren't mail)
+        new AttachmentWriter().Write(file, msg, new AttachmentSpec(
+            name, mime, AttachmentContent.FromBytes(photo.Bytes), IsContactPhoto: true));
 
         PropertyID hasPic = file.NameToIDMap.ObtainIDFromName(
             new PropertyName((PropertyLongID)0x8015, PropertySetGuid.PSETID_Address)); // PidLidHasPicture
