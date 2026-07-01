@@ -46,8 +46,12 @@ public static class CalendarTaskMapper
             _            => TaskStatusKind.NotStarted, // NEEDS-ACTION, null, unknown
         };
 
-        // PercentComplete
-        t.PercentComplete = Math.Clamp(master.TodoComplete ?? 0, 0, 100);
+        // PercentComplete — cal_todos.todo_complete when populated; otherwise fall back to the
+        // PERCENT-COMPLETE cal_properties row, which is where Thunderbird's storage calendar
+        // actually persists it (leaving the column NULL — observed on a real TB 140 profile).
+        int percent = master.TodoComplete
+            ?? (int.TryParse(PropValue(master, "PERCENT-COMPLETE"), out int pc) ? pc : 0);
+        t.PercentComplete = Math.Clamp(percent, 0, 100);
 
         // Status/percent invariants (Outlook treats these as coupled)
         if (t.PercentComplete == 100)

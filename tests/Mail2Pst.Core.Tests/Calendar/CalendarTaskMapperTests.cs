@@ -169,6 +169,73 @@ public class CalendarTaskMapperTests
     }
 
     // -----------------------------------------------------------------------
+    // PercentComplete fallback (cal_properties PERCENT-COMPLETE)
+    // -----------------------------------------------------------------------
+    // Thunderbird's storage calendar persists PERCENT-COMPLETE only as a
+    // cal_properties row (TEXT), leaving cal_todos.todo_complete NULL —
+    // observed on a real profile (ICS import, TB 140). The column, when
+    // populated, stays authoritative.
+
+    [Fact]
+    public void PercentComplete_FallsBackToProperty_WhenColumnIsNull()
+    {
+        var group = SimpleGroup(t =>
+        {
+            t.IcalStatus   = "IN-PROCESS";
+            t.TodoComplete = null;
+            t.Properties.Add(new RawProperty("PERCENT-COMPLETE", Utf8("50"), null, null));
+        });
+        var task = CalendarTaskMapper.Map(group, out _);
+
+        Assert.NotNull(task);
+        Assert.Equal(50, task.PercentComplete);
+    }
+
+    [Fact]
+    public void PercentComplete_ColumnWins_OverProperty()
+    {
+        var group = SimpleGroup(t =>
+        {
+            t.TodoComplete = 25;
+            t.Properties.Add(new RawProperty("PERCENT-COMPLETE", Utf8("75"), null, null));
+        });
+        var task = CalendarTaskMapper.Map(group, out _);
+
+        Assert.NotNull(task);
+        Assert.Equal(25, task.PercentComplete);
+    }
+
+    [Fact]
+    public void PercentComplete_PropertyOf100_ForcesStatusComplete()
+    {
+        var group = SimpleGroup(t =>
+        {
+            t.IcalStatus   = "IN-PROCESS";
+            t.TodoComplete = null;
+            t.Properties.Add(new RawProperty("PERCENT-COMPLETE", Utf8("100"), null, null));
+        });
+        var task = CalendarTaskMapper.Map(group, out _);
+
+        Assert.NotNull(task);
+        Assert.Equal(100, task.PercentComplete);
+        Assert.Equal(TaskStatusKind.Complete, task.Status);
+    }
+
+    [Fact]
+    public void PercentComplete_NonNumericProperty_IsIgnored()
+    {
+        var group = SimpleGroup(t =>
+        {
+            t.TodoComplete = null;
+            t.Properties.Add(new RawProperty("PERCENT-COMPLETE", Utf8("half"), null, null));
+        });
+        var task = CalendarTaskMapper.Map(group, out _);
+
+        Assert.NotNull(task);
+        Assert.Equal(0, task.PercentComplete);
+    }
+
+    // -----------------------------------------------------------------------
     // Status/percent invariants
     // -----------------------------------------------------------------------
 
