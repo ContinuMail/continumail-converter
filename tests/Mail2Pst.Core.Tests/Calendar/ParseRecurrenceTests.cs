@@ -26,6 +26,35 @@ public class ParseRecurrenceTests
         Assert.Equal("20250516", ex.Values.Single());
     }
 
+    [Fact]
+    public void Rrule_with_trailing_crlf_parses_successfully()
+    {
+        // Real Thunderbird cal_recurrence stores each property with a trailing CRLF line
+        // terminator. The final token (WKST=SU) must not carry the "\r\n" into Ical.Net,
+        // which rejects "SU\r\n" as an invalid day-of-week indicator.
+        var r = ICalTextParser.ParseRecurrence(new[] {
+            "RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20260901T120000Z;WKST=SU\r\n" });
+        Assert.Empty(r.Warnings);
+        var v = r.Value!;
+        Assert.Equal(ParsedFrequency.Weekly, v.Frequency);
+        Assert.Equal(System.DayOfWeek.Monday, v.ByDay.Single().DayOfWeek);
+        Assert.NotNull(v.UntilUtc);
+    }
+
+    [Fact]
+    public void Exdate_with_trailing_crlf_value_is_clean()
+    {
+        // The trailing CRLF must be stripped from the EXDATE value, or the downstream
+        // date parse (yyyyMMddTHHmmss) fails and the deletion is silently lost.
+        var r = ICalTextParser.ParseRecurrence(new[] {
+            "RRULE:FREQ=WEEKLY;BYDAY=MO\r\n",
+            "EXDATE;TZID=Europe/Copenhagen:20260706T140000\r\n" });
+        Assert.Empty(r.Warnings);
+        var ex = Assert.Single(r.Value!.ExDates);
+        Assert.Equal("Europe/Copenhagen", ex.TzId);
+        Assert.Equal("20260706T140000", ex.Values.Single());
+    }
+
     [Theory]
     [InlineData("RRULE:FREQ=DAILY", ParsedFrequency.Daily)]
     [InlineData("RRULE:FREQ=MONTHLY;BYDAY=2MO;COUNT=5", ParsedFrequency.Monthly)]

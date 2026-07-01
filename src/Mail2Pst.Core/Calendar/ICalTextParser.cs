@@ -92,8 +92,11 @@ public static class ICalTextParser
 
         foreach (var raw in icalLines)
         {
-            // Unfold each individual line (handles wrapped continuations).
-            var line = IcalParseSupport.UnfoldIcalLines(raw);
+            // Unfold each individual line (handles wrapped continuations), then strip any trailing
+            // line terminator. Mozilla's cal_recurrence stores each property with a trailing CRLF;
+            // left in place it corrupts the final RRULE token (Ical.Net rejects "SU\r\n") and every
+            // EXDATE/RDATE value (the date parse fails and the deletion is silently lost).
+            var line = IcalParseSupport.UnfoldIcalLines(raw).Trim();
             if (line.StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
             {
                 rruleLine ??= line;   // first RRULE wins

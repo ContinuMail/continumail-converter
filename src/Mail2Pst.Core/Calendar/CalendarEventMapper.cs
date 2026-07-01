@@ -771,7 +771,9 @@ public static class CalendarEventMapper
 
         // Build the RRULE body for Ical.Net (strip the "RRULE:" prefix).
         string rruleLine = lines.First(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
-        string rawRRuleBody = StripRRulePrefix(IcalParseSupport.UnfoldIcalLines(rruleLine));
+        // Trim() strips the trailing CRLF Mozilla stores on each property so the RRULE body embedded
+        // in the COUNT-enumeration VCALENDAR text is a clean single line.
+        string rawRRuleBody = StripRRulePrefix(IcalParseSupport.UnfoldIcalLines(rruleLine).Trim());
 
         var spec = new RecurrenceSpec
         {
