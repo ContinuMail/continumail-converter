@@ -467,6 +467,10 @@ public static class CalendarEventMapper
             // Monthly-by-day: exactly one BYMONTHDAY, no BYDAY.
             if (p.ByMonthDay.Count == 1 && p.ByDay.Count == 0) return null;
 
+            // Bare FREQ=MONTHLY (no BY* parts): RFC 5545 recurs on the DTSTART day-of-month.
+            // The writer defaults RecurringAppointment.Day to FirstStartUtc.Day.
+            if (p.ByDay.Count == 0 && p.ByMonthDay.Count == 0) return null;
+
             return "unrepresentable monthly/yearly pattern";
         }
 
@@ -479,6 +483,10 @@ public static class CalendarEventMapper
             // Yearly: one BYMONTH + one BYMONTHDAY, no BYDAY.
             if (p.ByMonth.Count == 1 && p.ByMonthDay.Count == 1 && p.ByDay.Count == 0)
                 return null;
+
+            // Bare FREQ=YEARLY (no BY* parts): RFC 5545 recurs on the DTSTART month + day-of-month.
+            // The writer defaults Day to FirstStartUtc.Day; Outlook derives the month from the start date.
+            if (p.ByDay.Count == 0 && p.ByMonth.Count == 0 && p.ByMonthDay.Count == 0) return null;
 
             return "unrepresentable monthly/yearly pattern";
         }

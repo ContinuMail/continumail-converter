@@ -158,6 +158,39 @@ public class AppointmentWriterRecurrenceTests
     }
 
     /// <summary>
+    /// Regression: an all-day event anchored to a positive-offset zone stores StartUtc as
+    /// local-midnight-in-UTC (July 1 00:00 Bangkok = June 30 17:00 UTC). The recurrence
+    /// day-of-month must be derived from the LOCAL date (1), not the UTC date (30).
+    /// </summary>
+    [Fact]
+    public void Yearly_all_day_local_anchor_uses_local_day_of_month()
+    {
+        var startUtc = new DateTime(2026, 6, 30, 17, 0, 0, DateTimeKind.Utc); // = July 1 00:00 Bangkok (UTC+7)
+        var rec = new AppointmentRecord
+        {
+            Subject  = "Bare yearly all-day",
+            StartUtc = startUtc,
+            EndUtc   = startUtc.AddDays(1),
+            IsAllDay = true,
+            OriginatingTimeZoneId = "Asia/Bangkok",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = AppointmentRecurrenceFrequency.Yearly,
+                Interval              = 1,
+                DaysOfWeek            = Array.Empty<DayOfWeek>(),
+                EndKind               = RecurrenceEndKind.NoEnd,
+                FirstStartUtc         = startUtc,                          // .Day == 30 (UTC)
+                FirstStartLocal       = new DateTime(2026, 7, 1, 0, 0, 0), // .Day == 1 (local)
+                OriginatingTimeZoneId = "Asia/Bangkok",
+            },
+        };
+
+        var (_, _, appt) = WriteAndReadAppointment(rec);
+        var ra = Assert.IsType<RecurringAppointment>(appt);
+        Assert.Equal(1, ra.Day);   // day-of-month = LOCAL day (July 1), not UTC day (June 30)
+    }
+
+    /// <summary>
     /// A recurring appointment with OriginatingTimeZoneId="Asia/Bangkok" must produce
     /// a non-null PidLidTimeZoneStruct (0x8233) AND PidLidAppointmentTimeZoneDefinitionStartDisplay
     /// (0x825E) on the written item — proving SetOriginalTimeZone was called with the Bangkok zone.

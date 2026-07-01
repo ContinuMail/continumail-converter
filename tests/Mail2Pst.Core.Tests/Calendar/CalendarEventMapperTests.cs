@@ -953,6 +953,56 @@ public class CalendarEventMapperTests
     }
 
     // -----------------------------------------------------------------------
+    // Bare FREQ=YEARLY / FREQ=MONTHLY (no BY* parts) — recur on DTSTART, don't degrade
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Yearly_bare_rrule_maps_to_yearly_not_degraded()
+    {
+        // RRULE:FREQ=YEARLY with no BY* parts recurs on the DTSTART month + day-of-month
+        // (RFC 5545). It is representable (writer defaults day from DTSTART, Outlook derives
+        // the month from the start date) and must NOT degrade to a single occurrence.
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Bare Yearly";
+            e.EventStart   = MicrosFor(2026, 7, 1, 9, 0);
+            e.EventEnd     = MicrosFor(2026, 7, 1, 10, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=YEARLY"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Yearly, appt.Recurrence!.Frequency);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void Monthly_bare_rrule_maps_to_monthly_not_degraded()
+    {
+        // RRULE:FREQ=MONTHLY with no BY* parts recurs on the DTSTART day-of-month (RFC 5545).
+        var group = SimpleGroup(e =>
+        {
+            e.Title        = "Bare Monthly";
+            e.EventStart   = MicrosFor(2026, 7, 15, 9, 0);
+            e.EventEnd     = MicrosFor(2026, 7, 15, 10, 0);
+            e.EventStartTz = "UTC";
+            e.EventEndTz   = "UTC";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=MONTHLY"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.NotNull(appt!.Recurrence);
+        Assert.Equal(AppointmentRecurrenceFrequency.Monthly, appt.Recurrence!.Frequency);
+        Assert.Empty(warnings);
+    }
+
+    // -----------------------------------------------------------------------
     // Yearly recurrence — offset-range guard (finding 1 follow-up tests)
     // -----------------------------------------------------------------------
 

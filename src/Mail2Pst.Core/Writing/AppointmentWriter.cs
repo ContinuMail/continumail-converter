@@ -184,7 +184,10 @@ public sealed class AppointmentWriter
                 (int)ToMask(s.DaysOfWeek),
             AppointmentRecurrenceFrequency.MonthlyNth or AppointmentRecurrenceFrequency.YearlyNth =>
                 (int)ToOutlookDay(s.DaysOfWeek.Length > 0 ? s.DaysOfWeek[0] : DayOfWeek.Monday),
-            _ => s.DayOfMonth ?? s.FirstStartUtc.Day,
+            // Day-of-month defaults to the LOCAL start day, not the UTC day: an all-day event anchored
+            // to a positive-offset zone stores StartUtc as local-midnight-in-UTC (e.g. the prior day),
+            // so FirstStartUtc.Day would be off by one. FirstStartLocal == FirstStartUtc when no zone.
+            _ => s.DayOfMonth ?? s.FirstStartLocal.Day,
         };
 
         // DayOccurrenceNumber: only for Nth-day patterns (2nd Tuesday, Last Friday, etc.)
