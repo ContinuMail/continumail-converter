@@ -23,8 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store (`local.sqlite`/`cache.sqlite`) become Outlook appointments (`IPM.Appointment`) in a per-calendar
   Calendar folder, carrying subject, start/end with **timezone**, **all-day**, location, busy/free, sensitivity
   (incl. Private), importance, body (plain **and** HTML), categories, and reminder. Events are included
-  automatically when you convert a profile; a `--no-appointments` flag opts out. _Event attachments and
-  online-meeting links (Teams/Google Meet) are deferred to a later release._
+  automatically when you convert a profile; a `--no-appointments` flag opts out.
 - **Meeting attendees now convert to PST appointment recipients.** Events with attendees become proper
   Outlook meetings (`IPM.Appointment` with meeting-request state). Required, optional, and resource
   attendees map to the correct MAPI recipient types (To/Cc/Bcc); the organizer is recorded in the
@@ -45,6 +44,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regenerates the next occurrence when you complete one. A recurring task with deleted or overridden
   occurrences, a completed recurring task, or an unrepresentable rule is written as a single task with
   a warning rather than being dropped.
+- **Calendar and task attachments now convert to PST.** File attachments on Thunderbird events and to-dos
+  are written into the appointment/task as normal Outlook attachments. Embedded/inline attachments are
+  decoded and attached; a **remote-URL** attachment (e.g. a Google-Drive link) is preserved as a link in
+  the item body — the converter **never fetches from the network**; and a **local-file** attachment is
+  embedded only when the file still exists and resolves **inside the Thunderbird profile** (symlinks and
+  out-of-profile paths are refused), otherwise its reference is preserved in the body with a warning.
+- **Online-meeting join links are preserved.** When a Thunderbird event carries a Microsoft Teams or
+  Google Meet link, the join URL is kept clickable in the appointment body. (Classic Outlook — which is
+  what opens a local PST — has no separate "Join" button; the link in the body is what actually works.)
+  Ordinary links in an event are left as-is and never misidentified as an online meeting.
+- **Cached Exchange meetings keep their identity.** For events synced from an Exchange/Microsoft 365
+  calendar, the meeting's global object identifier is carried across (`PidLidGlobalObjectId` /
+  `PidLidCleanGlobalObjectId`) so Outlook recognises it as the same meeting. Local calendar events are
+  unaffected — Outlook assigns identity on demand as usual.
+- **Item relations are preserved.** Thunderbird `RELATED-TO` links between calendar items — which have no
+  native Outlook equivalent — are preserved as a readable note appended to the item body, with a warning,
+  rather than being silently dropped.
 
 ### Internal
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
@@ -82,6 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (EXDATE/RDATE/overrides, completed-recurring) degrade to a single item plus a warning — counted as
   converted, never silently dropped. The independent `pst-validate` gate confirms recurrence adds no
   phantom folder items.
+- Edge-fidelity pipeline: the mail and contact attachment writers were consolidated into one shared
+  `AttachmentWriter` (behavior-preserving), which the calendar/task writers reuse. A pure, root-aware
+  `CalendarAttachmentResolver` classifies each iCal `ATTACH` into embedded-bytes / in-profile-file /
+  link-only, enforcing the security boundaries (no network fetch, no path traversal, symlinks refused,
+  oversized attachments degraded to a link). Link-only attachments and preserved `RELATED-TO` relations
+  share one dedup-aware `CalendarBodyAppendix` applied to both the plain and HTML body. `GlobalObjectId`
+  is hex-decoded verbatim from the cached-Exchange source id (never synthesized). Online-meeting handling
+  writes no native props by design — docs confirm classic Outlook renders no Join affordance from them,
+  so the join URL is preserved in the body. Unicode round-trip locks and an opt-in real-corpus smoke pin
+  the behavior.
 
 ## [0.2.3] — 2026-06-28
 
