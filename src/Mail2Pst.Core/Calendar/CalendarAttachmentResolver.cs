@@ -1,0 +1,98 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Mail2Pst.Core.Models;
+
+namespace Mail2Pst.Core.Calendar;
+
+public sealed class CalendarAttachmentResolver
+{
+    private readonly string? _exportRoot;   // canonical full path; null ⇒ no file resolution allowed
+    public CalendarAttachmentResolver(string? exportRoot) =>
+        _exportRoot = string.IsNullOrWhiteSpace(exportRoot) ? null : Path.GetFullPath(exportRoot);
+
+    public (IReadOnlyList<CalendarAttachment> Attachments, IReadOnlyList<string> Warnings)
+        ResolveAll(IEnumerable<RawSideText> rawAttachLines, string subjectForWarnings)
+    {
+        var atts = new List<CalendarAttachment>();
+        var warns = new List<string>();
+        foreach (RawSideText raw in rawAttachLines)
+        {
+            if (string.IsNullOrWhiteSpace(raw.IcalString)) continue;
+            var parsed = ICalTextParser.ParseAttachment(raw.IcalString!);
+            if (parsed.Value is null)
+            {
+                var errorMsg = parsed.Warnings.Count > 0 ? parsed.Warnings[0] : "parse error";
+                warns.Add($"attachment on '{subjectForWarnings}': parse failed ({errorMsg}) — preserved raw ATTACH text in body");
+                atts.Add(new CalendarAttachment(CalendarAttachmentKind.LinkOnly,
+                    FileNameOrDefault(null), "application/octet-stream", null, null, raw.IcalString));
+                continue;
+            }
+            ParsedAttachment p = parsed.Value;
+            string fileName = FileNameOrDefault(p.FileName);
+            string mime = string.IsNullOrWhiteSpace(p.FormatType) ? "application/octet-stream" : p.FormatType!;
+
+            if (p.InlineData is { Length: > 0 })
+            {
+                atts.Add(new CalendarAttachment(CalendarAttachmentKind.InlineBytes, fileName, mime, p.InlineData, null, null));
+                continue;
+            }
+
+            string? uri = p.Uri;
+            if (uri is not null && uri.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            {
+                (CalendarAttachmentKind kind, string? localPath, string? reason) = ResolveLocalFile(uri);
+                if (kind == CalendarAttachmentKind.LocalFileByValue)
+                {
+                    atts.Add(new CalendarAttachment(kind, fileName, mime, null, localPath, null));
+                }
+                else
+                {
+                    warns.Add($"attachment on '{subjectForWarnings}': {reason} — preserved as link");
+                    atts.Add(new CalendarAttachment(CalendarAttachmentKind.LinkOnly, fileName, mime, null, null, uri));
+                }
+                continue;
+            }
+
+            // Remote URL (http/https/webcal/…): never fetched.
+            warns.Add($"attachment on '{subjectForWarnings}': remote URL preserved as link, not fetched");
+            atts.Add(new CalendarAttachment(CalendarAttachmentKind.LinkOnly, fileName, mime, null, null, uri));
+        }
+        return (atts, warns);
+    }
+
+    // Path comparison is a SAFETY boundary: case-insensitive on Windows (its FS is), case-sensitive
+    // elsewhere (Linux/macOS FS is) — OrdinalIgnoreCase everywhere would be more permissive than the FS.
+    private static readonly StringComparison RootComparison =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private (CalendarAttachmentKind, string?, string?) ResolveLocalFile(string fileUri)
+    {
+        if (_exportRoot is null) return (CalendarAttachmentKind.LinkOnly, null, "local file outside export root");
+        string full;
+        try { full = Path.GetFullPath(new Uri(fileUri).LocalPath); }
+        catch (Exception) { return (CalendarAttachmentKind.LinkOnly, null, "local file path unreadable"); }
+
+        string rootWithSep = _exportRoot!.EndsWith(Path.DirectorySeparatorChar)
+            ? _exportRoot! : _exportRoot! + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(rootWithSep, RootComparison))
+            return (CalendarAttachmentKind.LinkOnly, null, "local file outside export root");
+        if (!File.Exists(full))
+            return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable");
+        // Reject symlinks/reparse points — a link inside the root can target a file OUTSIDE it (escape),
+        // and the StartsWith check above only guards the LITERAL path, not the link's target. Mirrors the
+        // existing MailTreeDiscovery/MailProfileDiscovery symlink-skip policy.
+        try { if ((File.GetAttributes(full) & FileAttributes.ReparsePoint) != 0)
+            return (CalendarAttachmentKind.LinkOnly, null, "local file is a symlink/reparse point"); }
+        catch (Exception) { return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable"); }
+        try { using var _ = File.OpenRead(full); }
+        catch (Exception) { return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable"); }
+        return (CalendarAttachmentKind.LocalFileByValue, full, null);
+    }
+
+    private static string FileNameOrDefault(string? n) =>
+        string.IsNullOrWhiteSpace(n) ? "attachment" : n!;
+}
