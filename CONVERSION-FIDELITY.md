@@ -2,6 +2,20 @@
 
 _What gets converted from Thunderbird into an Outlook PST, field by field — and what doesn't, with the reason why._
 
+**Status column:** `Converted` = full fidelity · `Partial` = comes across but approximated/optional (see Notes) · `Planned` = not yet, a deferred follow-up · `Not conv.` = not converted, Notes says why.
+
+> **Mail flag/tag fidelity needs a Thunderbird _profile_.** Pointed at a full profile, the converter reads each folder's `.msf` index for authoritative read/unread, replied/forwarded, starred, junk and tag state. From a bare **mbox** file, those are recovered only where inline `X-Mozilla-Status` headers exist. Calendar, Contacts and Tasks always come from the profile's own stores.
+
+<!--
+  EDITING THIS FILE (hand-maintained — no generator is committed):
+  * The tables are fenced box-drawing grids; every character INSIDE a box must be single-width.
+    No emoji, CJK or other double-width glyphs in any cell — they wobble the borders.
+  * The Status column is text-only: Converted / Partial / Planned / Not conv.
+  * To edit: pad each cell to its column width, and redraw the ├─┼─┤ separators to match if a
+    column widens. Columns align by character count. Keep it user-facing — no PR numbers,
+    issue IDs or branch names anywhere in the doc.
+-->
+
 ---
 
 ## ✉️ Mail
@@ -167,5 +181,7 @@ _Thunderbird to-dos → PST tasks_
 │ Task attachments            │ PST attachments        │ Converted │ Inline embedded; links in body     │ (attachment table)          │
 ├─────────────────────────────┼────────────────────────┼───────────┼────────────────────────────────────┼─────────────────────────────┤
 │ Item relations (RELATED-TO) │ Preserved note in body │ Partial   │ No native Outlook relation slot    │ PidTagBody                  │
+├─────────────────────────────┼────────────────────────┼───────────┼────────────────────────────────────┼─────────────────────────────┤
+│ Assignees / task attendees  │ Task assignment        │ Planned   │ Deferred follow-up                 │ —                           │
 └─────────────────────────────┴────────────────────────┴───────────┴────────────────────────────────────┴─────────────────────────────┘
 ```
