@@ -266,3 +266,12 @@ describe("defaultOptions enrichment defaults", () => {
     expect(o.dropExpunged).toBe(false);
   });
 });
+
+describe("defaultOptions", () => {
+  it("defaults the three data-type toggles ON", () => {
+    const o = defaultOptions();
+    expect(o.includeAppointments).toBe(true);
+    expect(o.includeTasks).toBe(true);
+    expect(o.includeContacts).toBe(true);
+  });
+});

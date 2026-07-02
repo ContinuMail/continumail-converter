@@ -19,6 +19,9 @@ export interface OptionsState {
   flattenFolderName: string;
   junkHandling: "Off" | "Category" | "Folder";
   dropExpunged: boolean;
+  includeAppointments: boolean;
+  includeTasks: boolean;
+  includeContacts: boolean;
 }
 
 /** Fresh default options (factory, so callers never share a mutable object). */
@@ -31,6 +34,9 @@ export function defaultOptions(): OptionsState {
     flattenFolderName: FLATTEN_DEFAULT_NAME,
     junkHandling: "Off",
     dropExpunged: false,
+    includeAppointments: true,
+    includeTasks: true,
+    includeContacts: true,
   };
 }
 
