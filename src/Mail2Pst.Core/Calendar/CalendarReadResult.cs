@@ -23,9 +23,12 @@ public readonly record struct CalendarItemKey(
 public static class PrTime
 {
     /// <summary>Thunderbird PRTime = microseconds since the Unix epoch (UTC). Raw model keeps the
-    /// long? micros; this helper is for later mapping/tests. Null -> null.</summary>
+    /// long? micros; this helper is for later mapping/tests. Null -> null. Uses ticks (1 µs = 10 ticks)
+    /// so sub-millisecond precision is preserved and pre-1970 (negative) values are not truncated toward
+    /// zero. `checked` makes an absurd out-of-range micros throw (contained per-item by the runner)
+    /// rather than silently wrapping.</summary>
     public static System.DateTimeOffset? FromMicros(long? micros) =>
-        micros is null ? null : System.DateTimeOffset.FromUnixTimeMilliseconds(micros.Value / 1000L);
+        micros is null ? null : System.DateTimeOffset.UnixEpoch.AddTicks(checked(micros.Value * 10L));
 }
 
 // ---------------------------------------------------------------------------
