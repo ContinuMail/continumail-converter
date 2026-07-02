@@ -157,6 +157,50 @@ public class DiscoverCommandE2ETests
         }
     }
 
+    [Fact]
+    public void Discover_Profile_EmitsAddressBooksArray_WithContactCount()
+    {
+        // Build a minimal Thunderbird profile: Mail/LocalFolders triggers "thunderbird-profile"
+        // layout which calls DiscoverAddressBooks. An abook.sqlite with two distinct cards should
+        // surface as one address book with contactCount == 2 in the emitted JSON.
+        string profile = Path.Combine(Path.GetTempPath(), "m2p-abook-e2e-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(profile, "Mail", "Local Folders"));
+        try
+        {
+            string abookPath = Path.Combine(profile, "abook.sqlite");
+            using (var conn = new SqliteConnection($"Data Source={abookPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText =
+                    "CREATE TABLE properties (card TEXT, name TEXT, value TEXT);" +
+                    "INSERT INTO properties VALUES ('c1','DisplayName','A'),('c1','PrimaryEmail','a@example.test')," +
+                    "('c2','DisplayName','B');";
+                cmd.ExecuteNonQuery();
+            }
+
+            (int exit, string stdout, string stderr) = RunCli($"discover --input \"{profile}\"");
+            Assert.True(exit == 0, $"expected exit 0, got {exit}. stderr: {stderr}");
+
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement root = doc.RootElement;
+            Assert.Equal("discovery", root.GetProperty("type").GetString());
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+
+            JsonElement addressBooks = root.GetProperty("addressBooks");
+            Assert.Equal(1, addressBooks.GetArrayLength());
+            JsonElement book = addressBooks.EnumerateArray().Single();
+            Assert.EndsWith("abook.sqlite", book.GetProperty("path").GetString());
+            Assert.Equal("thunderbird-sqlite", book.GetProperty("format").GetString());
+            Assert.Equal(2, book.GetProperty("contactCount").GetInt32());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(profile, true);
+        }
+    }
+
     // Minimal cal store (mirrors DiscoverCalendarsTests.MakeCalStore).
     private static void MakeCalStore(string path, string calId, bool addEvent = true)
     {

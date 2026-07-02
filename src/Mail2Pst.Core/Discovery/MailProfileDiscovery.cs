@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Calendar;
 using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Contacts;
 using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Discovery;
@@ -297,16 +298,24 @@ public static class MailProfileDiscovery
         {
             string name = Path.GetFileName(sqlite);
             if (name is "abook.sqlite" or "history.sqlite" || name.StartsWith("abook", StringComparison.OrdinalIgnoreCase))
-                yield return new DiscoveredAddressBook
+            {
+                var book = new DiscoveredAddressBook
                 {
                     DisplayName = FriendlyBookName(name), Path = sqlite, Format = "thunderbird-sqlite",
                 };
+                book.ContactCount = AddressBookContactCounter.TryCount(book);
+                yield return book;
+            }
         }
         foreach (string mab in Directory.EnumerateFiles(profileDir, "*.mab"))
-            yield return new DiscoveredAddressBook
+        {
+            var book = new DiscoveredAddressBook
             {
                 DisplayName = FriendlyBookName(Path.GetFileName(mab)), Path = mab, Format = "thunderbird-mab",
             };
+            book.ContactCount = AddressBookContactCounter.TryCount(book); // null for mab
+            yield return book;
+        }
     }
 
     private static string FriendlyBookName(string fileName) => fileName switch

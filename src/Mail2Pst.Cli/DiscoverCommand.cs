@@ -69,6 +69,11 @@ internal static class DiscoverCommand
                     defaultCalendarFolderPath = c.DefaultCalendarFolderPath,
                     defaultTaskFolderPath = c.DefaultTaskFolderPath,
                 }),
+                addressBooks = r.AddressBooks.Select(b => new
+                {
+                    displayName = b.DisplayName, path = b.Path, format = b.Format,
+                    contactCount = b.ContactCount, // int? -> JSON number or null
+                }),
             };
             Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
             return 0;

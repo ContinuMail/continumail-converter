@@ -28,6 +28,7 @@ public sealed class DiscoveredAddressBook
     public string DisplayName { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public string Format { get; set; } = string.Empty; // "thunderbird-sqlite" | "thunderbird-mab"
+    public int? ContactCount { get; set; }              // null = unknown/count-failed
 }
 
 public sealed class DiscoveredCalendarSource
