@@ -101,14 +101,18 @@ internal static class ConvertInput
 
         // --config only (existing behaviour).
         // --no-tasks and --no-appointments still apply here: the runner ignores those
-        // mappings even for explicit configs.
+        // mappings even for explicit configs. --no-contacts is honored by stripping the config's
+        // contact sources (there is no runner-level contact skip flag; the end result is identical).
         bool noTasksExplicit = args.Contains("--no-tasks", StringComparer.Ordinal);
         bool noAppointmentsExplicit = args.Contains("--no-appointments", StringComparer.Ordinal);
+        bool noContactsExplicit = args.Contains("--no-contacts", StringComparer.Ordinal);
         if (!File.Exists(configPath!))
             return new(null, null, null, $"Config not found: {configPath}");
         try
         {
             ConversionConfig config = ConfigLoader.Load(configPath!);
+            if (noContactsExplicit)
+                foreach (OutputGroupConfig o in config.Outputs) o.Contacts.Clear();
             return new(config, outputDir, configPath, null, expectedTotal, NoTasks: noTasksExplicit, NoAppointments: noAppointmentsExplicit);
         }
         catch (Exception ex)

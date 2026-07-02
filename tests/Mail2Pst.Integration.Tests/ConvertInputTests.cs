@@ -140,4 +140,28 @@ public class ConvertInputTests
             new[] { "--config", "c.json", "--output", "out", "--expected-total", "-5" });
         Assert.NotNull(r.Error);
     }
+
+    /// <summary>
+    /// Should-fix (SF-C): --no-contacts must be honored in explicit --config mode (it was silently
+    /// ignored there while --no-tasks/--no-appointments were honored). Contact sources are stripped.
+    /// </summary>
+    [Fact]
+    public void Resolve_ConfigWithNoContacts_StripsContactSources()
+    {
+        string cfg = Path.Combine(Path.GetTempPath(), "mail2pst-nc-" + Guid.NewGuid() + ".json");
+        File.WriteAllText(cfg,
+            "{\"outputs\":[{\"name\":\"Out\",\"sources\":[]," +
+            "\"contacts\":[{\"path\":\"abook.sqlite\",\"format\":\"thunderbird-sqlite\"}]}]}");
+        try
+        {
+            ConvertResolution with = ConvertInput.Resolve(new[] { "--config", cfg, "--output", "out" });
+            Assert.Null(with.Error);
+            Assert.Single(with.Config!.Outputs[0].Contacts);   // present without the flag
+
+            ConvertResolution without = ConvertInput.Resolve(new[] { "--config", cfg, "--output", "out", "--no-contacts" });
+            Assert.Null(without.Error);
+            Assert.Empty(without.Config!.Outputs[0].Contacts);  // stripped by --no-contacts
+        }
+        finally { File.Delete(cfg); }
+    }
 }
