@@ -1,0 +1,29 @@
+{
+  "_comment": "Manual mutation-testing gate for the Thunderbird calendar/tasks code. NOT run in CI (slow). Run: `dotnet-stryker` from this directory. See TESTING.md.",
+  "stryker-config": {
+    "project": "Mail2Pst.Core.csproj",
+    "mutate": [
+      "**/Calendar/CalendarEventMapper.cs",
+      "**/Calendar/CalendarTaskMapper.cs",
+      "**/Calendar/RecurrenceMapping.cs",
+      "**/Calendar/CalendarAttachmentResolver.cs",
+      "**/Calendar/GlobalObjectIdCodec.cs",
+      "**/Calendar/ICalTextParser.cs",
+      "**/Calendar/IcalDataUri.cs",
+      "**/Calendar/IcalParseSupport.cs",
+      "**/Calendar/TimeZoneResolver.cs",
+      "**/Calendar/SqliteCalendarReader.cs",
+      "**/Calendar/CalendarReadResult.cs",
+      "**/Calendar/CalendarRegistryReader.cs",
+      "**/Writing/AppointmentWriter.cs",
+      "**/Writing/TaskWriter.cs",
+      "**/Writing/TaskRecurrenceBlob.cs",
+      "**/Writing/AttachmentWriter.cs",
+      "**/Writing/CalendarBodyAppendix.cs",
+      "**/Config/FolderNameValidator.cs"
+    ],
+    "reporters": ["html", "progress"],
+    "concurrency": 6,
+    "thresholds": { "high": 85, "low": 70, "break": 0 }
+  }
+}

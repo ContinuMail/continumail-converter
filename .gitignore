@@ -24,6 +24,10 @@ fixtures/takeout-test-config.json
 _manualtest/
 
 # Private dev artifacts — single public-primary repo model (2026-06-18). Kept local on disk,
+# Stryker.NET mutation-testing output (regenerable; the run is driven by the committed
+# tests/Mail2Pst.Core.Tests/stryker-config.json — see TESTING.md).
+StrykerOutput/
+
 # OneDrive-synced, NEVER committed. The .githooks/ leak-check enforces this mechanically.
 docs/
 reviews/

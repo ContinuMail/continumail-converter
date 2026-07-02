@@ -67,6 +67,26 @@ fully-filled contact shows every field AND its photo on the contact card. `pst-v
 proves structure and message/contact counts only, not photo rendering, so this manual
 check is required before a release that includes contacts.
 
+## Mutation testing (Stryker.NET) — manual quality gate
+
+The calendar/tasks code has a scoped [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/)
+config so you can check how well the tests actually *catch* changes (not just that they pass).
+It is a **manual** gate — a full run takes ~15–20 min (it instruments the whole `Mail2Pst.Core`
+project once to capture coverage), so it is **not** wired into CI.
+
+```bash
+dotnet tool install -g dotnet-stryker      # one-time
+cd tests/Mail2Pst.Core.Tests
+dotnet-stryker                             # uses the committed stryker-config.json
+# HTML report -> tests/Mail2Pst.Core.Tests/StrykerOutput/<timestamp>/reports/mutation-report.html
+```
+
+`stryker-config.json` scopes mutation to the calendar/task source (the vendored
+`PSTFileFormat` byte-writers are byte-gated separately and excluded). `StrykerOutput/` is
+gitignored. Mutation score is a **diagnostic, not a pass/fail metric** (`break` threshold is
+`0`): warning-string and defensive-branch mutants survive by design and aren't worth chasing —
+use the surviving-mutant list to find genuinely under-tested *logic*.
+
 ## Validating your own conversion
 
 You can build the same confidence with your own mail:
