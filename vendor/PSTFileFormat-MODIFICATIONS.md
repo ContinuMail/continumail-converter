@@ -222,4 +222,14 @@ authoritative description of the local PSTFileFormat modifications.
   byte-identical. The end-by-date (UNTIL) branch is unchanged (it still uses the heuristic, which
   matches Outlook there). Proven by `AppointmentWriterRecurrenceTests.Count_series_month_overflow_writes_exact_occurrence_count`.
 
+- `Messaging/Messages/RecurrencePatternStructure/AppointmentRecurrencePatternStructure.cs` (`GetBytes`):
+  emit the `ExceptionInfo` and `ExtendedException` arrays sorted ascending by `NewStartDT` (a sorted copy;
+  caller state untouched) instead of in insertion order (ContinuMail addition 2026: appointment recurrence
+  write, pre-merge review #10). `WriteRecurrencePattern` already writes `ModifiedInstanceDates` sorted, and
+  MS-OXOCAL 2.2.1.44 requires the exception arrays to be in the same ascending order and to correspond
+  positionally. Overrides can arrive in arbitrary (SQLite row) order, which desynced the two arrays and
+  risked scanpst `RepairRequired`. Single-exception and already-ordered cases sort to the same bytes, so
+  existing blob gates are unaffected. Proven by
+  `AppointmentWriterRecurrenceTests.Out_of_order_overrides_keep_exception_and_modified_date_arrays_corresponding`.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

@@ -409,6 +409,44 @@ public class AppointmentWriterRecurrenceTests
     }
 
     /// <summary>
+    /// Pre-merge review #10: MS-OXOCAL 2.2.1.44 requires the ExceptionInfo array and ModifiedInstanceDates
+    /// to be in the SAME ascending order and to correspond positionally. Overrides can arrive in arbitrary
+    /// (SQLite row) order; here two are supplied newest-first. ModifiedInstanceDates is always written
+    /// sorted, so before the fix the unsorted ExceptionInfo array desynced from it. After the fix both are
+    /// ascending and ExceptionInfo[i].NewStartDT.Date == ModifiedInstanceDates[i].
+    /// </summary>
+    [Fact]
+    public void Out_of_order_overrides_keep_exception_and_modified_date_arrays_corresponding()
+    {
+        var rec = WeeklyRecord();
+        rec.Exceptions = new[]
+        {
+            // Jul 15 first (later), then Jul 8 (earlier) — reverse chronological input order.
+            new AppointmentException {
+                OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,15,1,0,0,DateTimeKind.Utc),
+                    new DateTime(2026,7,15,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+                NewStartUtc = new(2026,7,15,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,15,7,30,0,DateTimeKind.Utc),
+                Subject = "Later moved", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd },
+            new AppointmentException {
+                OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                    new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+                NewStartUtc = new(2026,7,8,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,7,30,0,DateTimeKind.Utc),
+                Subject = "Earlier moved", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd },
+        };
+
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+
+        Assert.Equal(2, s.ExceptionList.Count);
+        Assert.Equal(2, s.ModifiedInstanceDates.Count);
+        // ExceptionInfo array must be ascending by new start...
+        Assert.True(s.ExceptionList[0].NewStartDT < s.ExceptionList[1].NewStartDT);
+        // ...and correspond positionally to ModifiedInstanceDates (both ascending).
+        for (int i = 0; i < s.ExceptionList.Count; i++)
+            Assert.Equal(s.ModifiedInstanceDates[i], s.ExceptionList[i].NewStartDT.Date);
+    }
+
+    /// <summary>
     /// A unicode subject on an overridden occurrence must round-trip through the embedded
     /// <c>method=5</c> attachment's <see cref="ModifiedAppointmentInstance.Subject"/> property
     /// (stored as MAPI PT_UNICODE — full UTF-16, not the ANSI blob ExceptionInfo field).

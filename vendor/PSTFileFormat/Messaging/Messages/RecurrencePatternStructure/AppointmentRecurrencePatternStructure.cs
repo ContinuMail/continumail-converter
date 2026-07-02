@@ -211,8 +211,16 @@ namespace PSTFileFormat
             LittleEndianWriter.WriteUInt32(stream, StartTimeOffset);
             LittleEndianWriter.WriteUInt32(stream, EndTimeOffset);
 
-            LittleEndianWriter.WriteUInt16(stream, (ushort)ExceptionList.Count);
-            foreach (ExceptionInfoStructure exception in ExceptionList)
+            // [ContinuMail 2026] MS-OXOCAL 2.2.1.44: the ExceptionInfo/ExtendedException arrays MUST be in
+            // the same ascending order as ModifiedInstanceDates (written sorted by WriteRecurrencePattern
+            // above). Overrides may be supplied in arbitrary (e.g. SQLite row) order, so sort a copy by
+            // NewStartDT — the same key ModifiedInstanceDates is derived from (its day-start) — keeping the
+            // two arrays positionally corresponding. A copy is sorted so caller state is not mutated.
+            List<ExceptionInfoStructure> orderedExceptions = new List<ExceptionInfoStructure>(ExceptionList);
+            orderedExceptions.Sort((a, b) => a.NewStartDT.CompareTo(b.NewStartDT));
+
+            LittleEndianWriter.WriteUInt16(stream, (ushort)orderedExceptions.Count);
+            foreach (ExceptionInfoStructure exception in orderedExceptions)
             {
                 exception.WriteBytes(stream);
             }
@@ -220,7 +228,7 @@ namespace PSTFileFormat
             uint reservedBlock1Size = 0;
             LittleEndianWriter.WriteUInt32(stream, reservedBlock1Size);
 
-            foreach (ExceptionInfoStructure exception in ExceptionList)
+            foreach (ExceptionInfoStructure exception in orderedExceptions)
             {
                 exception.WriteExtendedException(stream, writerCompatibilityMode);
             }
