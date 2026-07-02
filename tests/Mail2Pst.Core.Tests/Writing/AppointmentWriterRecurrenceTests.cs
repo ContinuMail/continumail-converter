@@ -345,6 +345,41 @@ public class AppointmentWriterRecurrenceTests
         Assert.Equal((uint)5, s.OccurrenceCount);
     }
 
+    /// <summary>
+    /// Should-fix (SF-A): a weekly series with an empty day-mask must fall back to the DTSTART weekday
+    /// (matching TaskRecurrenceBlob), not write Day=0 (an invalid empty weekly pattern). 2026-07-01 is a
+    /// Wednesday, so the mask must be non-zero.
+    /// </summary>
+    [Fact]
+    public void Weekly_empty_day_mask_falls_back_to_start_weekday()
+    {
+        var start = new DateTime(2026, 7, 1, 1, 0, 0, DateTimeKind.Utc); // Wednesday
+        var rec = new AppointmentRecord
+        {
+            Subject  = "Weekly no mask",
+            StartUtc = start,
+            EndUtc   = start.AddMinutes(30),
+            TimeZone = TimeZoneInfo.Utc,
+            OriginatingTimeZoneId = "UTC",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = RecurrenceFrequency.Weekly,
+                Interval              = 1,
+                DaysOfWeek            = Array.Empty<DayOfWeek>(),   // empty mask
+                EndKind               = RecurrenceEndKind.Count,
+                Count                 = 3,
+                LastInstanceStartUtc  = new DateTime(2026, 7, 15, 1, 0, 0, DateTimeKind.Utc),
+                FirstStartUtc         = start,
+                FirstStartLocal       = start,
+                TimeZone              = TimeZoneInfo.Utc,
+                OriginatingTimeZoneId = "UTC",
+            },
+        };
+        var (_, _, appt) = WriteAndReadAppointment(rec);
+        var ra = Assert.IsType<RecurringAppointment>(appt);
+        Assert.NotEqual(0, ra.Day);   // fell back to the DTSTART weekday mask
+    }
+
     // -----------------------------------------------------------------------
     // Task 4: EXDATE deleted occurrences
     // -----------------------------------------------------------------------

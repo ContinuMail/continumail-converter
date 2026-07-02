@@ -229,10 +229,19 @@ public static class CalendarEventMapper
             {
                 if (alarm.AbsoluteTimeUtc is { } absUtc)
                 {
-                    // Absolute trigger — compute minutes before StartUtc
-                    appt.ReminderSet = true;
-                    appt.ReminderMinutesBefore =
-                        (int)Math.Max(0, Math.Round((appt.StartUtc - absUtc).TotalMinutes));
+                    // Absolute trigger — minutes before StartUtc. A trigger at/after start would clamp to
+                    // fire-at-start; drop it with a warning instead (symmetry with the relative path).
+                    double minutesBefore = (appt.StartUtc - absUtc).TotalMinutes;
+                    if (minutesBefore > 0)
+                    {
+                        appt.ReminderSet = true;
+                        appt.ReminderMinutesBefore = (int)Math.Round(minutesBefore);
+                    }
+                    else
+                    {
+                        w.Add($"event '{title}': reminder fires at/after the event start — not converted");
+                        AppendRawTriggerToBody(appt, rawBlock);
+                    }
                 }
                 else if (alarm.RelativeOffset is { } offset)
                 {
@@ -260,6 +269,12 @@ public static class CalendarEventMapper
                         w.Add($"event '{title}': reminder fires at/after the anchor — not converted");
                         AppendRawTriggerToBody(appt, rawBlock);
                     }
+                }
+                else
+                {
+                    // Parsed but no usable trigger (e.g. a VALARM with no TRIGGER line); don't drop silently.
+                    w.Add($"event '{title}': alarm has no usable trigger — not converted");
+                    AppendRawTriggerToBody(appt, rawBlock);
                 }
             }
             else
@@ -480,9 +495,13 @@ public static class CalendarEventMapper
     /// For date-only values (<paramref name="isDateOnly"/>), the local midnight in
     /// <paramref name="tzId"/> is used as the reference point.
     /// </summary>
-    private static RecurrenceInstanceId ToInstanceId(string value, string? tzId, bool isDateOnly)
+    // Returns null when the value cannot be parsed, so the caller skips that EXDATE with a warning
+    // instead of emitting a default(0001-01-01) date that would break the vendored serializer.
+    // internal for direct unit testing (via InternalsVisibleTo).
+    internal static RecurrenceInstanceId? ToInstanceId(string value, string? tzId, bool isDateOnly)
     {
         var zone = ResolveZone(tzId);
+        value = value?.Trim() ?? "";   // tolerate whitespace-padded EXDATE tokens
 
         if (isDateOnly)
         {
@@ -494,7 +513,7 @@ public static class CalendarEventMapper
                 var utc = TimeZoneInfo.ConvertTimeToUtc(localMidnight, zone);
                 return new RecurrenceInstanceId(utc, localMidnight, tzId, IsDateOnly: true);
             }
-            return new RecurrenceInstanceId(default, default, tzId, IsDateOnly: true);
+            return null;
         }
         else
         {
@@ -521,7 +540,7 @@ public static class CalendarEventMapper
                 }
                 return new RecurrenceInstanceId(utc, local, tzId, IsDateOnly: false);
             }
-            return new RecurrenceInstanceId(default, default, tzId, IsDateOnly: false);
+            return null;
         }
     }
 
@@ -686,10 +705,16 @@ public static class CalendarEventMapper
         appt.Recurrence = spec;
 
         // Map EXDATEs to deleted-occurrence identities (appointment-only; stays here).
-        appt.DeletedOccurrences = p.ExDates
-            .SelectMany(dl => dl.Values.Select(v =>
-                ToInstanceId(v, dl.TzId ?? master.EventStartTz, dl.IsDateOnly)))
-            .ToList();
+        // An unparseable EXDATE is skipped with a warning rather than emitted as a default(0001-01-01).
+        var deleted = new List<RecurrenceInstanceId>();
+        foreach (var dl in p.ExDates)
+            foreach (var v in dl.Values)
+            {
+                var id = ToInstanceId(v, dl.TzId ?? master.EventStartTz, dl.IsDateOnly);
+                if (id is not null) deleted.Add(id);
+                else w.Add($"event '{appt.Subject}': unparseable EXDATE '{v}' skipped");
+            }
+        appt.DeletedOccurrences = deleted;
 
         // Map override exceptions (appointment-only; stays here).
         appt.Exceptions = group.Overrides

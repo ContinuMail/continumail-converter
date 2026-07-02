@@ -218,8 +218,11 @@ public sealed class AppointmentWriter
         // Day: day-mask for weekly; OutlookDayOfWeek for nth-day patterns; day-of-month for others.
         ra.Day = s.Frequency switch
         {
+            // Empty weekly day-mask → fall back to the DTSTART weekday (matches TaskRecurrenceBlob);
+            // a zero mask is an invalid weekly pattern. The mapper normally fills this, but the writer
+            // is called directly too, so guard here.
             RecurrenceFrequency.Weekly =>
-                (int)ToMask(s.DaysOfWeek),
+                (int)(ToMask(s.DaysOfWeek) is { } m && m != 0 ? m : ToMask(new[] { s.FirstStartLocal.DayOfWeek })),
             RecurrenceFrequency.MonthlyNth or RecurrenceFrequency.YearlyNth =>
                 (int)ToOutlookDay(s.DaysOfWeek.Length > 0 ? s.DaysOfWeek[0] : DayOfWeek.Monday),
             // Day-of-month defaults to the LOCAL start day, not the UTC day: an all-day event anchored
@@ -525,6 +528,10 @@ public sealed class AppointmentWriter
         PropertyID signalId = file.NameToIDMap.ObtainIDFromName(
             new PropertyName(PropertyLongID.PidLidReminderSignalTime, PropertySetGuid.PSETID_Common));
         // Signal time = start − delta (UTC). This is the instant Outlook fires the reminder.
+        // A past-dated signal is written verbatim (not suppressed): the reminder is a faithful property
+        // of the source event, and the past instant is correct. NOTE: Outlook shows overdue reminders
+        // when a PST carrying past signals is *imported* into the default mailbox (not when merely opened
+        // as a data file) — a one-time dismiss-all is the expected user action, by design.
         DateTime signalTime = a.StartUtc.AddMinutes(-a.ReminderMinutesBefore);
         appt.PC.SetDateTimeProperty(signalId, signalTime);
     }

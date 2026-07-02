@@ -643,6 +643,59 @@ public class CalendarEventMapperTests
     }
 
     /// <summary>
+    /// Should-fix (SF-A): a malformed EXDATE value must be skipped (null), not coerced to
+    /// default(0001-01-01) which would feed the vendored serializer an invalid date; whitespace around a
+    /// valid value must be trimmed.
+    /// </summary>
+    [Fact]
+    public void ToInstanceId_malformed_returns_null_and_trims_whitespace()
+    {
+        Assert.Null(CalendarEventMapper.ToInstanceId("notadate", "UTC", isDateOnly: true));
+
+        var ok = CalendarEventMapper.ToInstanceId("  20260708  ", "UTC", isDateOnly: true);
+        Assert.NotNull(ok);
+        Assert.Equal(new DateTime(2026, 7, 8), ok!.OriginalStartLocal.Date);
+    }
+
+    /// <summary>
+    /// Should-fix (SF-A): an absolute alarm firing AT or AFTER the event start must be dropped with a
+    /// warning (not silently clamped to fire-at-start), matching the relative-trigger path.
+    /// </summary>
+    [Fact]
+    public void Alarm_AbsoluteAtOrAfterStart_NotConvertedAndWarnAndBodyPreserved()
+    {
+        // SimpleGroup starts 2026-07-10 14:00 UTC; absolute trigger at 15:00 UTC is after start.
+        var group = SimpleGroup(e => e.Alarms.Add(new RawSideText(
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260710T150000Z\r\nEND:VALARM")));
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.False(appt!.ReminderSet);
+        Assert.Equal(0, appt.ReminderMinutesBefore);
+        Assert.Contains(warnings, x => x.Contains("at/after"));
+        Assert.NotNull(appt.Body);
+        Assert.Contains("[Thunderbird alarm not converted:", appt.Body);
+    }
+
+    /// <summary>
+    /// Should-fix (SF-A): a VALARM that parses but yields no usable trigger (no TRIGGER line) must be
+    /// dropped with a warning, not silently ignored. (There is no TRIGGER text to preserve in the body.)
+    /// </summary>
+    [Fact]
+    public void Alarm_NoTrigger_NotConvertedAndWarned()
+    {
+        var group = SimpleGroup(e => e.Alarms.Add(new RawSideText(
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nEND:VALARM")));
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.False(appt!.ReminderSet);
+        Assert.Contains(warnings, x => x.Contains("no usable trigger"));
+    }
+
+    /// <summary>
     /// Pre-merge review #6: a RELATED=END reminder must fire relative to the event END, not START.
     /// For the 60-min SimpleGroup event (14:00–15:00 UTC) with TRIGGER;RELATED=END:-PT15M the reminder
     /// fires at 14:45 = 45 min AFTER start, so PidLidReminderDelta (minutes-before-start) is -45 and the

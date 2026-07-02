@@ -176,7 +176,7 @@ public class ConversionRunner
                         taskFolders.Add(tm.TargetFolderPath);
                         CalendarReadResult read;
                         try { read = ReadCalendarStore(tm.Source.StorePath, w => report.RecordTaskWarning(w)); }
-                        catch (Exception ex) when (ex is IOException or SqliteException)
+                        catch (Exception ex) when (ex is IOException or SqliteException or UnauthorizedAccessException)
                         {
                             report.RecordTaskWarning($"Calendar store skipped [{tm.Source.StorePath}]: {ex.Message}");
                             continue;
@@ -243,7 +243,7 @@ public class ConversionRunner
                         appointmentFolders.Add(am.TargetFolderPath);
                         CalendarReadResult read;
                         try { read = ReadCalendarStore(am.Source.StorePath, w => report.RecordAppointmentWarning(w)); }
-                        catch (Exception ex) when (ex is IOException or SqliteException)
+                        catch (Exception ex) when (ex is IOException or SqliteException or UnauthorizedAccessException)
                         {
                             report.RecordAppointmentWarning($"Calendar store skipped [{am.Source.StorePath}]: {ex.Message}");
                             continue;
