@@ -89,4 +89,42 @@ describe("parseDiscover", () => {
     });
     expect(parseDiscover(json).accounts[0].addressResolution).toBe("not-found");
   });
+
+  it("parses calendars and addressBooks", () => {
+    const stdout = JSON.stringify({
+      type: "discovery", root: "/p", layout: "thunderbird-profile",
+      sources: [], warnings: [], skipped: [],
+      pairing: { pairedMsfCount: 0, unpairedMboxCount: 0, orphanMsfCount: 0 },
+      accounts: [],
+      calendars: [{ calId: "c1", displayName: "Home", storeKind: "local", storePath: "/p/local.sqlite",
+        calendarType: "both", isVisibleInThunderbird: true, eventCount: 12, taskCount: 3,
+        defaultCalendarFolderPath: ["Calendar"], defaultTaskFolderPath: ["Tasks"] }],
+      addressBooks: [{ displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4 },
+        { displayName: "Collected", path: "/p/history.mab", format: "thunderbird-mab", contactCount: null }],
+    });
+    const r = parseDiscover(stdout);
+    expect(r.calendars).toHaveLength(1);
+    expect(r.calendars[0].eventCount).toBe(12);
+    expect(r.addressBooks).toHaveLength(2);
+    expect(r.addressBooks[1].contactCount).toBeNull();
+  });
+
+  it("defaults calendars/addressBooks to [] when absent", () => {
+    const stdout = JSON.stringify({
+      type: "discovery", root: "/p", layout: "x", sources: [], warnings: [], skipped: [],
+      pairing: { pairedMsfCount: 0, unpairedMboxCount: 0, orphanMsfCount: 0 }, accounts: [],
+    });
+    const r = parseDiscover(stdout);
+    expect(r.calendars).toEqual([]);
+    expect(r.addressBooks).toEqual([]);
+  });
+
+  it("coerces a malformed contactCount to null (never NaN)", () => {
+    const stdout = JSON.stringify({
+      type: "discovery", root: "/p", layout: "x", sources: [], warnings: [], skipped: [],
+      pairing: { pairedMsfCount: 0, unpairedMboxCount: 0, orphanMsfCount: 0 }, accounts: [],
+      addressBooks: [{ displayName: "B", path: "/b", format: "thunderbird-sqlite", contactCount: "oops" }],
+    });
+    expect(parseDiscover(stdout).addressBooks[0].contactCount).toBeNull();
+  });
 });

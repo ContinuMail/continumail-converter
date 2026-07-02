@@ -4,7 +4,7 @@
 import { extractJsonObjects, isRecord, EngineParseError } from "./parse";
 import type {
   DiscoverResult, DiscoveredSource, DiscoverWarning, DiscoverSkipped, DiscoverPairing,
-  Account, AddressResolution,
+  Account, AddressResolution, DiscoveredCalendar, DiscoveredAddressBook,
 } from "./types";
 
 /** Parse the engine's single pretty-printed `discovery` object (tolerates dev-build
@@ -51,6 +51,34 @@ export function parseDiscover(stdout: string): DiscoverResult {
     };
   });
 
+  const calendars = (Array.isArray(obj.calendars) ? obj.calendars : []).map((c) => {
+    const cc = c as Record<string, unknown>;
+    return {
+      calId: String(cc.calId ?? ""),
+      displayName: String(cc.displayName ?? ""),
+      storeKind: String(cc.storeKind ?? ""),
+      storePath: String(cc.storePath ?? ""),
+      calendarType: String(cc.calendarType ?? ""),
+      isVisibleInThunderbird: Boolean(cc.isVisibleInThunderbird),
+      eventCount: Number(cc.eventCount ?? 0),
+      taskCount: Number(cc.taskCount ?? 0),
+      defaultCalendarFolderPath: Array.isArray(cc.defaultCalendarFolderPath) ? cc.defaultCalendarFolderPath.map(String) : [],
+      defaultTaskFolderPath: Array.isArray(cc.defaultTaskFolderPath) ? cc.defaultTaskFolderPath.map(String) : [],
+    };
+  });
+  const addressBooks = (Array.isArray(obj.addressBooks) ? obj.addressBooks : []).map((b) => {
+    const bb = b as Record<string, unknown>;
+    const rawCount = bb.contactCount == null ? null : Number(bb.contactCount);
+    return {
+      displayName: String(bb.displayName ?? ""),
+      path: String(bb.path ?? ""),
+      format: String(bb.format ?? ""),
+      // Guard: a malformed count must become unknown (null), never NaN, or it would
+      // poison alsoConvertInfo's sums.
+      contactCount: rawCount == null || Number.isNaN(rawCount) ? null : rawCount,
+    };
+  });
+
   return {
     root: String(obj.root ?? ""),
     layout: String(obj.layout ?? ""),
@@ -59,6 +87,8 @@ export function parseDiscover(stdout: string): DiscoverResult {
     skipped,
     pairing,
     accounts,
+    calendars,
+    addressBooks,
     schemaVersion: obj.schemaVersion as number | undefined,
   };
 }

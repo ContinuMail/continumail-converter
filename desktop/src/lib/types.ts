@@ -145,6 +145,26 @@ export interface DiscoverPairing {
   orphanMsfCount: number;
 }
 
+export interface DiscoveredCalendar {
+  calId: string;
+  displayName: string;
+  storeKind: string;
+  storePath: string;
+  calendarType: string; // "calendar" | "task" | "both"
+  isVisibleInThunderbird: boolean;
+  eventCount: number;
+  taskCount: number;
+  defaultCalendarFolderPath: string[];
+  defaultTaskFolderPath: string[];
+}
+
+export interface DiscoveredAddressBook {
+  displayName: string;
+  path: string;
+  format: string; // "thunderbird-sqlite" | "thunderbird-mab"
+  contactCount: number | null; // null = unknown
+}
+
 export interface DiscoverResult {
   root: string;
   layout: string;
@@ -153,6 +173,8 @@ export interface DiscoverResult {
   skipped: DiscoverSkipped[];
   pairing: DiscoverPairing;
   accounts: Account[];
+  calendars: DiscoveredCalendar[];
+  addressBooks: DiscoveredAddressBook[];
   schemaVersion?: number;
 }
 
