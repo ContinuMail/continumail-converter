@@ -232,4 +232,16 @@ authoritative description of the local PSTFileFormat modifications.
   existing blob gates are unaffected. Proven by
   `AppointmentWriterRecurrenceTests.Out_of_order_overrides_keep_exception_and_modified_date_arrays_corresponding`.
 
+- `Messaging/Messages/RecurrencePatternStructure/AppointmentRecurrencePatternStructure.cs`: extracted the
+  RecurrencePattern prefix bytes (ReaderVersion … EndDate) of `GetBytes` into a private
+  `WriteRecurrencePattern(MemoryStream)` and added a public `byte[] GetRecurrencePatternBytes()` that emits
+  ONLY that prefix — the bare MS-OXOCAL RecurrencePattern with no AppointmentRecurrencePattern tail
+  (ContinuMail addition 2026: needed because `PidLidTaskRecurrence` (0x8116, PSETID_Task) stores a bare
+  RecurrencePattern). `GetBytes` delegates the prefix to `WriteRecurrencePattern` and stays byte-identical
+  for every appointment path. Supporting: `Messaging/Enums/PropertyLongID.cs` added
+  `PidLidTaskRecurrence = 0x00008116`; `Messaging/NamedProperties/PropertyNames.cs` registered
+  `PidLidTaskFRecurring` + `PidLidTaskRecurrence` under `PSETID_Task`. Byte-gated by
+  `tests/Mail2Pst.Core.Tests/Vendor/RecurringAppointmentBlobTests.cs`
+  (`GetRecurrencePatternBytes_is_the_prefix_of_GetBytes` + `Bare_pattern_matches_task_GT_oracle`).
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

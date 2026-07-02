@@ -488,9 +488,8 @@ public sealed class AppointmentWriter
     {
         if (a.GlobalObjectId is null) return;
 
-        // Derive CleanGlobalObjectId: clone, zero exception-date bytes [16..20).
-        byte[] clean = (byte[])a.GlobalObjectId.Clone();
-        for (int i = 16; i < 20; i++) clean[i] = 0;
+        // CleanGlobalObjectId = GlobalObjectId with exception-date bytes [16..20) zeroed (shared codec).
+        byte[] clean = Calendar.GlobalObjectIdCodec.ToCleanGlobalObjectId(a.GlobalObjectId);
 
         PropertyID goidPropId = file.NameToIDMap.ObtainIDFromName(
             new PropertyName(PropertyLongID.PidLidGlobalObjectId, PropertySetGuid.PSETID_Meeting));

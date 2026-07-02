@@ -34,8 +34,19 @@ public static class GlobalObjectIdCodec
         if (!id.StartsWith(EdkPrefix, System.StringComparison.OrdinalIgnoreCase)) return false;
         try { goid = System.Convert.FromHexString(id); } catch { return false; }
         if (goid.Length != 56) { goid = System.Array.Empty<byte>(); return false; }
-        cleanGoid = (byte[])goid.Clone();
-        for (int i = 16; i < 20; i++) cleanGoid[i] = 0;   // clean = exception-date bytes zeroed
+        cleanGoid = ToCleanGlobalObjectId(goid);
         return true;
+    }
+
+    /// <summary>
+    /// Returns a clone of <paramref name="goid"/> with the exception-date bytes [16..20) zeroed —
+    /// the <c>PidLidCleanGlobalObjectId</c> derivation. Shared by <see cref="TryDecode"/> and the
+    /// appointment writer so the derivation lives in exactly one place.
+    /// </summary>
+    public static byte[] ToCleanGlobalObjectId(byte[] goid)
+    {
+        byte[] clean = (byte[])goid.Clone();
+        for (int i = 16; i < 20 && i < clean.Length; i++) clean[i] = 0;
+        return clean;
     }
 }
