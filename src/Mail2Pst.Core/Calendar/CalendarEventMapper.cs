@@ -688,7 +688,7 @@ public static class CalendarEventMapper
             : appt.StartUtc;
 
         var (spec, degradeReason) = RecurrenceMapping.FromIcal(
-            lines, appt.StartUtc, firstStartLocal, appt.TimeZone, master.EventStartTz);
+            lines, appt.StartUtc, firstStartLocal, appt.TimeZone, master.EventStartTz, p);   // reuse the parse above
 
         if (degradeReason is not null)
         {

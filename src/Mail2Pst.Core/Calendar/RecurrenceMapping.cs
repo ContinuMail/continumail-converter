@@ -41,14 +41,16 @@ public static class RecurrenceMapping
         DateTime firstStartUtc,
         DateTime firstStartLocal,
         TimeZoneInfo? zone,
-        string? originatingTzId)
+        string? originatingTzId,
+        ParsedRecurrence? parsedRecurrence = null)
     {
         var lines = icalLines
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
 
-        ParseResult<ParsedRecurrence> pr = ICalTextParser.ParseRecurrence(lines);
-        ParsedRecurrence? p = pr.Value;
+        // Reuse a recurrence the caller already parsed (the appointment path parses once up front to
+        // harvest warnings + EXDATEs); only parse here when the caller didn't (the task path).
+        ParsedRecurrence? p = parsedRecurrence ?? ICalTextParser.ParseRecurrence(lines).Value;
 
         if (p is null)
             return (null, null); // no RRULE or parse failure — caller handles
