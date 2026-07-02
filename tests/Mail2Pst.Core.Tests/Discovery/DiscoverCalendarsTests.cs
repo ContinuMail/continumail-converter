@@ -77,6 +77,37 @@ public class DiscoverCalendarsTests
         finally { Directory.Delete(profile, true); }
     }
 
+    /// <summary>
+    /// Pre-merge review #9: a calendar whose Thunderbird name contains a folder-invalid character
+    /// (e.g. "Home / Work") must still yield a VALID synthesized folder path. Before the fix the raw
+    /// name flowed into ["Calendars", name] and ConfigValidator hard-failed, aborting the ENTIRE
+    /// conversion (mail + all other calendars). DisplayName keeps the real name; the folder leaf is sanitized.
+    /// </summary>
+    [Fact]
+    public void DiscoverCalendars_InvalidCharInName_SynthesizesValidFolderPath()
+    {
+        string profile = Path.Combine(Path.GetTempPath(), $"m2p-badname-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(profile);
+        string calDataDir = Path.Combine(profile, "calendar-data");
+        Directory.CreateDirectory(calDataDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(profile, "prefs.js"),
+                "user_pref(\"calendar.registry.BAD.name\", \"Home / Work\");\n" +
+                "user_pref(\"calendar.registry.BAD.type\", \"storage\");\n");
+            MakeCalStore(Path.Combine(calDataDir, "local.sqlite"), "BAD", addEvent: true, addTodo: true);
+
+            var res = MailProfileDiscovery.DiscoverCalendars(profile);
+            var cal = Assert.Single(res.Calendars, c => c.CalId == "BAD");
+
+            Assert.Equal("Home / Work", cal.DisplayName);   // real name preserved for display
+            // Synthesized folder paths must pass the engine's folder-name validator (no throw).
+            Mail2Pst.Core.Config.FolderNameValidator.ValidatePath(cal.DefaultCalendarFolderPath);
+            Mail2Pst.Core.Config.FolderNameValidator.ValidatePath(cal.DefaultTaskFolderPath);
+        }
+        finally { Directory.Delete(profile, true); }
+    }
+
     [Fact]
     public void DiscoverCalendars_RegistryPlusOrphan()
     {

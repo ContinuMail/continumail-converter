@@ -4,6 +4,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Mail2Pst.Core.Config;
@@ -48,6 +49,24 @@ public static class FolderNameValidator
 
         if (ReservedName.IsMatch(trimmed))
             throw new ConfigValidationException("Folder name is reserved on Windows.");
+    }
+
+    /// <summary>
+    /// Coerces an arbitrary display name (e.g. a Thunderbird calendar name, which may contain '/',
+    /// control chars, leading/trailing spaces or dots, or be a reserved device name) into a folder
+    /// segment that always passes <see cref="Validate"/>. Path separators and control characters become
+    /// spaces; leading/trailing whitespace and dots are trimmed; an empty or reserved result falls back
+    /// to <paramref name="fallback"/>. Used by discovery to synthesize folder paths so a bad calendar
+    /// name can never abort the whole conversion at config validation.
+    /// </summary>
+    public static string Sanitize(string? name, string fallback)
+    {
+        var sb = new StringBuilder((name ?? string.Empty).Length);
+        foreach (char ch in name ?? string.Empty)
+            sb.Append(ch is '/' or '\\' || ch < 0x20 ? ' ' : ch);
+
+        string s = sb.ToString().Trim().Trim('.').Trim();   // no leading/trailing space or dot
+        return s.Length == 0 || ReservedName.IsMatch(s) ? fallback : s;
     }
 
     public const int MaxDepth = 32;

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Mail2Pst.Core.Calendar;
+using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Msf;
 
 namespace Mail2Pst.Core.Discovery;
@@ -262,6 +263,13 @@ public static class MailProfileDiscovery
             int eventCount = chosenRead.EventGroups.Count;
             int taskCount  = chosenRead.TodoGroups.Count;
 
+            // Sanitize the raw registry name into a valid PST folder segment (it may contain '/',
+            // control chars, etc.). DisplayName keeps the real name for the UI; only the synthesized
+            // folder leaf is coerced, so an odd calendar name can't fail ConfigValidator and abort the
+            // whole conversion (pre-merge review #9).
+            string folderLeaf = FolderNameValidator.Sanitize(
+                displayName, "Calendar " + calId[..Math.Min(8, calId.Length)]);
+
             result.Calendars.Add(new DiscoveredCalendarSource
             {
                 CalId                    = calId,
@@ -272,9 +280,9 @@ public static class MailProfileDiscovery
                 IsVisibleInThunderbird   = visible,
                 EventCount               = eventCount,
                 TaskCount                = taskCount,
-                DefaultCalendarFolderPath = new[] { "Calendars", displayName },
+                DefaultCalendarFolderPath = new[] { "Calendars", folderLeaf },
                 DefaultTaskFolderPath    = taskCount > 0
-                    ? new[] { "Tasks", displayName }
+                    ? new[] { "Tasks", folderLeaf }
                     : Array.Empty<string>(),
             });
         }
