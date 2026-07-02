@@ -658,6 +658,66 @@ public class CalendarEventMapperTests
     }
 
     /// <summary>
+    /// Mutation-coverage (Stryker): a resolved-zone (non-floating) all-day event must anchor its start to
+    /// LOCAL midnight in that zone, not read the raw UTC instant's date. For an all-day event stored as
+    /// 2026-07-09 17:00 UTC with tz=Asia/Bangkok (= Jul 10 00:00 local), StartUtc must be Jul 9 17:00 UTC.
+    /// Kills the `allDayFloating ? rawUtc.Date : ConvertTimeFromUtc(...)` conditional mutations.
+    /// </summary>
+    [Fact]
+    public void AllDay_resolved_zone_anchors_start_to_local_midnight()
+    {
+        var group = SimpleGroup(e =>
+        {
+            e.Flags        = 8; // EVENT_ALLDAY
+            e.EventStart   = MicrosFor(2026, 7, 9, 17, 0);   // Jul 10 00:00 Asia/Bangkok (UTC+7)
+            e.EventStartTz = "Asia/Bangkok";
+            e.EventEnd     = MicrosFor(2026, 7, 10, 17, 0);  // next day
+            e.EventEndTz   = "Asia/Bangkok";
+        });
+
+        var appt = CalendarEventMapper.Map(group, out _);
+
+        Assert.NotNull(appt);
+        Assert.True(appt!.IsAllDay);
+        Assert.Equal(new DateTime(2026, 7, 9, 17, 0, 0, DateTimeKind.Utc), appt.StartUtc);
+    }
+
+    /// <summary>
+    /// Mutation-coverage (Stryker): an absolute alarm firing EXACTLY at the event start (delta 0) must be
+    /// dropped, pinning the `minutesBefore &gt; 0` boundary (kills the `&gt;= 0` mutation that would keep it).
+    /// </summary>
+    [Fact]
+    public void Alarm_AbsoluteExactlyAtStart_NotConverted()
+    {
+        // SimpleGroup starts 2026-07-10 14:00 UTC; trigger exactly at start.
+        var group = SimpleGroup(e => e.Alarms.Add(new RawSideText(
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260710T140000Z\r\nEND:VALARM")));
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.False(appt!.ReminderSet);
+        Assert.Contains(warnings, x => x.Contains("at/after"));
+    }
+
+    /// <summary>
+    /// Mutation-coverage (Stryker): a relative alarm with a ZERO offset (TRIGGER:PT0M, fires at start) must
+    /// be dropped, pinning the `offset &lt; TimeSpan.Zero` boundary (kills the `&lt;= Zero` mutation).
+    /// </summary>
+    [Fact]
+    public void Alarm_RelativeZeroOffset_NotConverted()
+    {
+        var group = SimpleGroup(e => e.Alarms.Add(new RawSideText(
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:PT0M\r\nEND:VALARM")));
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.False(appt!.ReminderSet);
+        Assert.Contains(warnings, x => x.Contains("at/after"));
+    }
+
+    /// <summary>
     /// Should-fix (SF-A): an absolute alarm firing AT or AFTER the event start must be dropped with a
     /// warning (not silently clamped to fire-at-start), matching the relative-trigger path.
     /// </summary>
