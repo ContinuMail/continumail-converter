@@ -134,6 +134,46 @@ public class PstWriterAppointmentPhaseTests
         finally { Directory.Delete(dir, true); }
     }
 
+    /// <summary>
+    /// Pre-merge review #7: the appointment/task size estimate (used for maxSizeMB split sizing) must
+    /// include attachment bytes — otherwise a folder of large-attachment events silently blows past the
+    /// split cap. A 10 KB inline attachment must add ≥ 10 KB to the estimate.
+    /// </summary>
+    [Fact]
+    public void EstimateAppointmentSize_IncludesAttachmentBytes()
+    {
+        var without = new AppointmentRecord { Subject = "s" };
+        var with = new AppointmentRecord
+        {
+            Subject = "s",
+            Attachments = new[]
+            {
+                new CalendarAttachment(CalendarAttachmentKind.InlineBytes, "f.bin",
+                    "application/octet-stream", new byte[10_000], null, null),
+            },
+        };
+        long delta = PstWriter.EstimateAppointmentSize(with) - PstWriter.EstimateAppointmentSize(without);
+        Assert.True(delta >= 10_000, $"attachment bytes must be counted in the estimate; delta={delta}");
+    }
+
+    /// <summary>Pre-merge review #7: the task estimate must also include attachment bytes.</summary>
+    [Fact]
+    public void EstimateTaskSize_IncludesAttachmentBytes()
+    {
+        var without = new TaskRecord { Subject = "s" };
+        var with = new TaskRecord
+        {
+            Subject = "s",
+            Attachments = new[]
+            {
+                new CalendarAttachment(CalendarAttachmentKind.InlineBytes, "f.bin",
+                    "application/octet-stream", new byte[10_000], null, null),
+            },
+        };
+        long delta = PstWriter.EstimateTaskSize(with) - PstWriter.EstimateTaskSize(without);
+        Assert.True(delta >= 10_000, $"attachment bytes must be counted in the estimate; delta={delta}");
+    }
+
     [Fact]
     public void WritePlan_EmptyAppointmentFolders_StillCreatesIPFAppointmentFolder()
     {

@@ -467,12 +467,39 @@ public class PstWriter
     // A contact is far smaller than a mail message; add photo bytes when present.
     private static long EstimateContactSize(ContactRecord c) => 2048 + (c.Photo?.Bytes.Length ?? 0);
 
-    // A task is small; body is plain text (UTF-16 in PST → 2 bytes/char).
-    private static long EstimateTaskSize(TaskRecord t) => 2048 + (t.Body?.Length ?? 0) * 2;
+    // A task is small; body is plain text (UTF-16 in PST → 2 bytes/char) + attachment bytes.
+    internal static long EstimateTaskSize(TaskRecord t) =>
+        2048 + (t.Body?.Length ?? 0) * 2 + EstimateAttachmentsSize(t.Attachments);
 
-    // An appointment: fixed overhead + plain body (UTF-16, 2 bytes/char) + HTML body (2× char count — conservative upper bound for split sizing, not UTF-8).
-    private static long EstimateAppointmentSize(AppointmentRecord a) =>
-        2048 + (a.Body?.Length ?? 0) * 2 + (a.BodyHtml?.Length ?? 0) * 2;
+    // An appointment: fixed overhead + plain body (UTF-16, 2 bytes/char) + HTML body (2× char count —
+    // conservative upper bound for split sizing, not UTF-8) + attachment bytes.
+    internal static long EstimateAppointmentSize(AppointmentRecord a) =>
+        2048 + (a.Body?.Length ?? 0) * 2 + (a.BodyHtml?.Length ?? 0) * 2 + EstimateAttachmentsSize(a.Attachments);
+
+    // Attachment bytes for split sizing: inline decoded bytes, or the local-file length for ByValue
+    // (LinkOnly carries no PST attachment row — its reference lives in the body, already counted).
+    // A local file that cannot be stat'd contributes only per-attachment overhead (estimate only).
+    private static long EstimateAttachmentsSize(IReadOnlyList<CalendarAttachment> atts)
+    {
+        long size = 0;
+        foreach (CalendarAttachment att in atts)
+        {
+            switch (att.Kind)
+            {
+                case CalendarAttachmentKind.InlineBytes:
+                    size += (att.InlineData?.Length ?? 0) + PerAttachmentOverheadBytes;
+                    break;
+                case CalendarAttachmentKind.LocalFileByValue:
+                    long len = 0;
+                    try { if (att.LocalPath is not null) len = new FileInfo(att.LocalPath).Length; }
+                    catch { /* estimate only — an unreadable file contributes overhead only */ }
+                    size += len + PerAttachmentOverheadBytes;
+                    break;
+                // LinkOnly → no PST attachment row.
+            }
+        }
+        return size;
+    }
 
     private static string GetPlainTextBody(MailMessage message)
     {
