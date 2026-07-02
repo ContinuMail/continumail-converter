@@ -53,6 +53,39 @@ public class CalendarAttachmentResolverTests
         finally { Directory.Delete(root, true); File.Delete(outside); }
     }
 
+    [Fact] public void Sensitive_profile_file_is_never_embedded()
+    {
+        // A file:// ATTACH pointing at a Thunderbird credential/key file inside the export root must NOT
+        // be embedded (defense-in-depth against a crafted calendar exfiltrating secrets), even though it
+        // passes the in-root check. Degrades to link-only with a warning.
+        string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string secret = Path.Combine(root, "logins.json");
+        File.WriteAllText(secret, "{\"secret\":true}");
+        try
+        {
+            var r = new CalendarAttachmentResolver(root);
+            var (atts, warns) = r.ResolveAll(new[] { Line($"ATTACH:{FileUri(secret)}") }, "evt");
+            Assert.Equal(CalendarAttachmentKind.LinkOnly, Assert.Single(atts).Kind);
+            Assert.Contains(warns, w => w.Contains("sensitive"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact] public void Oversized_inline_is_dropped_with_accurate_warning()
+    {
+        // maxEmbedBytes small so a 100-byte inline attachment exceeds it. Inline data has no external
+        // reference, so the warning must say it was DROPPED, not "preserved as link".
+        var r = new CalendarAttachmentResolver(exportRoot: null, maxEmbedBytes: 8);
+        string big = Convert.ToBase64String(new byte[100]);
+        var (atts, warns) = r.ResolveAll(new[] {
+            Line($"ATTACH;FILENAME=big.bin;VALUE=BINARY;ENCODING=BASE64;FMTTYPE=application/octet-stream:{big}") }, "evt");
+        var a = Assert.Single(atts);
+        Assert.Equal(CalendarAttachmentKind.LinkOnly, a.Kind);
+        Assert.Contains(warns, w => w.Contains("dropped"));
+        Assert.DoesNotContain(warns, w => w.Contains("preserved as link"));
+    }
+
     [Fact] public void Local_file_missing_is_link_only_with_warning()
     {
         string root = Path.Combine(Path.GetTempPath(), $"root-{Guid.NewGuid():N}");

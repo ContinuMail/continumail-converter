@@ -44,7 +44,8 @@ public sealed class CalendarAttachmentResolver
             {
                 if (p.InlineData.Length > _maxEmbedBytes)
                 {
-                    warns.Add($"attachment on '{subjectForWarnings}': inline attachment too large to embed — preserved as link");
+                    // Inline data has no external reference, so it is dropped (not "preserved as link").
+                    warns.Add($"attachment on '{subjectForWarnings}': inline attachment too large to embed — dropped");
                     atts.Add(new CalendarAttachment(CalendarAttachmentKind.LinkOnly, fileName, mime, null, null, null));
                     continue;
                 }
@@ -87,6 +88,15 @@ public sealed class CalendarAttachmentResolver
     private static readonly StringComparison RootComparison =
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
+    // Defense-in-depth: Thunderbird credential/key stores that must never be embedded even when a
+    // file:// ATTACH resolves to one inside the export root (a crafted calendar could otherwise
+    // exfiltrate secrets into the output PST). Matched by file name, case-insensitively.
+    private static readonly HashSet<string> SensitiveFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "logins.json", "logins-backup.json", "key3.db", "key4.db",
+        "cert8.db", "cert9.db", "signons.sqlite", "credentialstate.sqlite",
+    };
+
     private (CalendarAttachmentKind, string?, string?) ResolveLocalFile(string fileUri)
     {
         if (_exportRoot is null) return (CalendarAttachmentKind.LinkOnly, null, "local file outside export root");
@@ -98,6 +108,8 @@ public sealed class CalendarAttachmentResolver
             ? _exportRoot! : _exportRoot! + Path.DirectorySeparatorChar;
         if (!full.StartsWith(rootWithSep, RootComparison))
             return (CalendarAttachmentKind.LinkOnly, null, "local file outside export root");
+        if (SensitiveFileNames.Contains(Path.GetFileName(full)))
+            return (CalendarAttachmentKind.LinkOnly, null, "sensitive profile file, not embedded");
         if (!File.Exists(full))
             return (CalendarAttachmentKind.LinkOnly, null, "local file missing / unreadable");
         // Reject symlinks/reparse points — a link inside the root can target a file OUTSIDE it (escape),
