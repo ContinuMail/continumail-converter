@@ -309,6 +309,42 @@ public class AppointmentWriterRecurrenceTests
         Assert.NotNull(tzStruct);
     }
 
+    /// <summary>
+    /// Pre-merge review #5: for a COUNT-terminated series the blob's OccurrenceCount must be the RRULE
+    /// COUNT, not a date-span heuristic. A month-overflow pattern (BYMONTHDAY=31 skips 30-day months)
+    /// exposes the bug: 5 occurrences of "day 31" from Jan 2026 land on Jan/Mar/May/Jul/Aug 31, a
+    /// 7-month span → the old heuristic wrote 8. Outlook must see exactly 5.
+    /// </summary>
+    [Fact]
+    public void Count_series_month_overflow_writes_exact_occurrence_count()
+    {
+        var rec = new AppointmentRecord
+        {
+            Subject  = "Day-31 monthly",
+            StartUtc = new DateTime(2026, 1, 31, 9, 0, 0, DateTimeKind.Utc),
+            EndUtc   = new DateTime(2026, 1, 31, 9, 30, 0, DateTimeKind.Utc),
+            TimeZone = TimeZoneInfo.Utc,
+            OriginatingTimeZoneId = "UTC",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = RecurrenceFrequency.Monthly,
+                Interval              = 1,
+                DayOfMonth            = 31,
+                DaysOfWeek            = Array.Empty<DayOfWeek>(),
+                EndKind               = RecurrenceEndKind.Count,
+                Count                 = 5,
+                LastInstanceStartUtc  = new DateTime(2026, 8, 31, 9, 0, 0, DateTimeKind.Utc), // Jan,Mar,May,Jul,Aug
+                FirstStartUtc         = new DateTime(2026, 1, 31, 9, 0, 0, DateTimeKind.Utc),
+                FirstStartLocal       = new DateTime(2026, 1, 31, 9, 0, 0),
+                TimeZone              = TimeZoneInfo.Utc,
+                OriginatingTimeZoneId = "UTC",
+            },
+        };
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+        Assert.Equal((uint)5, s.OccurrenceCount);
+    }
+
     // -----------------------------------------------------------------------
     // Task 4: EXDATE deleted occurrences
     // -----------------------------------------------------------------------

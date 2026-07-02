@@ -211,4 +211,15 @@ authoritative description of the local PSTFileFormat modifications.
   unchanged. Output PSTs are byte-for-byte unchanged (all `RecurringAppointmentBlobTests` full-blob
   gates still pass); proven by `RecurringAppointmentBlobTests.SetOriginalTimeZone_is_cached_not_re_derived_from_registry`.
 
+- `Messaging/Messages/RecurringAppointment.cs` (new nullable `OccurrenceCount` field +
+  `GetRecurrencePattern` end-after-N branch): when the caller supplies an explicit occurrence count
+  (`OccurrenceCount > 0`), write it verbatim as the blob's `OccurrenceCount` instead of the date-span
+  heuristic `CalendarHelper.CalculateNumberOfOccurences(...)` (ContinuMail addition 2026: appointment
+  recurrence write, pre-merge review #5). The heuristic overcounts period-skipping COUNT series (e.g.
+  `FREQ=MONTHLY;BYMONTHDAY=31;COUNT=5` spans 7 months → wrote 8; Feb-29 yearly `COUNT=3` → wrote 9),
+  producing phantom occurrences in Outlook. The field is null for callers that do not set it (the
+  vendor blob tests set `EndAfterNumberOfOccurences` directly), so those keep the heuristic and stay
+  byte-identical. The end-by-date (UNTIL) branch is unchanged (it still uses the heuristic, which
+  matches Outlook there). Proven by `AppointmentWriterRecurrenceTests.Count_series_month_overflow_writes_exact_occurrence_count`.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

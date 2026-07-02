@@ -316,6 +316,33 @@ public class TaskWriterTests
             $"Bytes differ.\nExpected: {Convert.ToHexString(oracle)}\nActual:   {Convert.ToHexString(actual)}");
     }
 
+    /// <summary>
+    /// Pre-merge review #5 (task path): for a COUNT-terminated task series the blob's OccurrenceCount
+    /// must be the RRULE COUNT, not a date-span heuristic. Month-overflow (BYMONTHDAY=31 skips 30-day
+    /// months) exposes the bug: 5 "day 31" occurrences from Jan 2026 span 7 months → the old heuristic
+    /// wrote 8. OccurrenceCount is a 4-byte LE field at offset 30 in the bare RecurrencePattern
+    /// (22-byte header + 4-byte pattern field + 4-byte EndType).
+    /// </summary>
+    [Fact]
+    public void Count_task_month_overflow_writes_exact_occurrence_count()
+    {
+        var spec = new RecurrenceSpec
+        {
+            Frequency            = RecurrenceFrequency.Monthly,
+            Interval             = 1,
+            DayOfMonth           = 31,
+            DaysOfWeek           = Array.Empty<DayOfWeek>(),
+            EndKind              = RecurrenceEndKind.Count,
+            Count                = 5,
+            FirstStartUtc        = new DateTime(2026, 1, 31, 0, 0, 0, DateTimeKind.Utc),
+            FirstStartLocal      = new DateTime(2026, 1, 31, 0, 0, 0),
+            LastInstanceStartUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc), // Jan,Mar,May,Jul,Aug
+        };
+
+        byte[] blob = TaskRecurrenceBlob.Build(spec, TimeZoneInfo.Utc);
+        Assert.Equal((uint)5, BitConverter.ToUInt32(blob, 30));
+    }
+
     [Fact]
     public void Recurring_task_writes_TaskRecurrence_and_FRecurring_true()
     {

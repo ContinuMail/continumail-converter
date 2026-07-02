@@ -125,8 +125,13 @@ internal static class TaskRecurrenceBlob
             structure.EndType = isCount
                 ? PSTFileFormat.RecurrenceEndType.EndAfterNOccurrences
                 : PSTFileFormat.RecurrenceEndType.EndAfterDate;
-            structure.OccurrenceCount = (uint)CalendarHelper.CalculateNumberOfOccurences(
-                spec.FirstStartUtc, last, recType, period, dayForCount);
+            // For a COUNT series, OccurrenceCount is the RRULE COUNT itself — NOT a date-span heuristic,
+            // which overcounts period-skipping patterns (e.g. BYMONTHDAY=31 skips 30-day months). The
+            // heuristic is retained only for the end-by-date (UNTIL) branch, where it matches Outlook.
+            structure.OccurrenceCount = isCount
+                ? (uint)Math.Max(1, spec.Count ?? 1)   // must not be 0 (Outlook 2003 recurrence-window guard)
+                : (uint)CalendarHelper.CalculateNumberOfOccurences(
+                    spec.FirstStartUtc, last, recType, period, dayForCount);
             structure.LastInstanceStartDate = last;
         }
         else // NoEnd

@@ -242,6 +242,10 @@ public sealed class AppointmentWriter
             && s.LastInstanceStartUtc is { } last)
         {
             ra.EndAfterNumberOfOccurences = (s.EndKind == RecurrenceEndKind.Count);
+            // For a COUNT series, write the RRULE COUNT verbatim (not the date-span heuristic, which
+            // overcounts period-skipping patterns like BYMONTHDAY=31). UNTIL keeps the heuristic path.
+            if (s.EndKind == RecurrenceEndKind.Count)
+                ra.OccurrenceCount = s.Count;
             ra.LastInstanceStartDate = last;
         }
         else // NoEnd

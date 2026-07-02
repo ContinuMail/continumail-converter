@@ -20,6 +20,11 @@ namespace PSTFileFormat
         public RecurrenceType RecurrenceType;
         private DateTime m_lastInstanceStartDate;
         public bool EndAfterNumberOfOccurences;
+        // [ContinuMail 2026] Explicit occurrence count for a COUNT-terminated series. When set (>0) and
+        // EndAfterNumberOfOccurences is true, it is written verbatim as the blob's OccurrenceCount instead
+        // of the date-span heuristic (which overcounts period-skipping patterns, e.g. BYMONTHDAY=31).
+        // Null for callers that do not supply it (e.g. the vendor blob tests) — they keep the heuristic.
+        public int? OccurrenceCount;
         public int Period;
         public int Day; // Day of Week / Day Of Month
         public DayOccurenceNumber DayOccurenceNumber;
@@ -150,7 +155,13 @@ namespace PSTFileFormat
             structure.LastInstanceStartDate = m_lastInstanceStartDate;
             if (EndAfterNumberOfOccurences)
             {
-                structure.OccurrenceCount = (uint)CalendarHelper.CalculateNumberOfOccurences(StartDTUtc, m_lastInstanceStartDate, this.RecurrenceType, Period, Day);
+                // [ContinuMail 2026] Prefer the explicit COUNT when supplied; the date-span heuristic
+                // overcounts period-skipping patterns (e.g. BYMONTHDAY=31 skips 30-day months). Falls
+                // back to the heuristic when OccurrenceCount is unset (blob-test callers), preserving
+                // byte-identity there. Must be >= 1 (Outlook 2003 recurrence-window guard).
+                structure.OccurrenceCount = (OccurrenceCount is { } oc && oc > 0)
+                    ? (uint)oc
+                    : (uint)CalendarHelper.CalculateNumberOfOccurences(StartDTUtc, m_lastInstanceStartDate, this.RecurrenceType, Period, Day);
                 structure.EndType = RecurrenceEndType.EndAfterNOccurrences;
             }
             else if (m_lastInstanceStartDate.Year >= 4500)

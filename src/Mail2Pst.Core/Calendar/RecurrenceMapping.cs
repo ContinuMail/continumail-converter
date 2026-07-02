@@ -147,6 +147,11 @@ public static class RecurrenceMapping
         bool hasWkst = lines.Any(l => l.Contains("WKST=", StringComparison.OrdinalIgnoreCase));
         if (hasWkst && p.Interval > 1) return "WKST interval-sensitive";
 
+        // 5b. Negative or out-of-range BYMONTHDAY (e.g. -1 = last day of month; emitted by Google
+        // Calendar) is not representable as a fixed day-of-month — (uint)(-1) would corrupt the
+        // recurrence blob. Degrade to a single occurrence + warning.
+        if (p.ByMonthDay.Count == 1 && p.ByMonthDay[0] is < 1 or > 31) return "unrepresentable BYMONTHDAY";
+
         // 6 & 7. Cardinality rules for Monthly / Yearly.
         if (p.Frequency == ParsedFrequency.Monthly)
         {
