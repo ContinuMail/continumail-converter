@@ -67,6 +67,15 @@ public sealed class AppointmentWriter
         //     TimeZoneInfo.Local when OriginalTimeZone is unset, breaking cross-platform builds.
         //     UTC is always a safe fallback for the blob's KeyName.
         TimeZoneInfo? zone = ResolveWindowsZone(a) ?? (a.Recurrence is null ? null : TimeZoneInfo.Utc);
+        // Recurring appointments write the legacy PidLidTimeZoneStruct via TimeZoneStructure.FromTimeZoneInfo,
+        // which THROWS on a zone with >1 DST rule (real Windows/IANA zones such as "Eastern Standard Time"
+        // carry historical rules). Collapse to a single-rule static zone — keeping the FIRST rule, the same
+        // rule the vendor's GetFirstRule/FromTimeZoneInfo select for a natively single-rule zone — so the
+        // blob stays consistent and a 0/1-rule zone (UTC / Asia-Bangkok, owner-validated) is returned
+        // UNCHANGED (byte-identical). Single appointments never touch the throwing path (they use the
+        // tolerant TimeZoneDefinitionStructure overload with an explicit effective rule), so leave them be.
+        if (zone is not null && a.Recurrence is not null)
+            zone = ToStaticSingleRuleZone(zone);
         if (zone is not null)
             appt.SetOriginalTimeZone(zone);   // MUST precede SetStartAndDuration (RecurringAppointment ClipStart depends on the zone)
 
@@ -159,6 +168,29 @@ public sealed class AppointmentWriter
         // anchored to a floating all-day event) so the recurrence/tz blob matches StartWhole;
         // UTC only as a last resort. (No warning — mapper already warned for a bogus id.)
         return a.TimeZone ?? TimeZoneInfo.Utc;
+    }
+
+    /// <summary>
+    /// Collapses a timezone that carries multiple DST adjustment rules into an equivalent single-rule
+    /// static zone, keeping only the FIRST rule — the same rule the vendor's <c>GetFirstRule</c> /
+    /// <c>TimeZoneStructure.FromTimeZoneInfo</c> select for a natively single-rule zone. Zones with 0 or 1
+    /// rules are returned UNCHANGED, so their serialized timezone blobs stay byte-identical to the pre-fix
+    /// output (preserving the owner-validated UTC / Asia-Bangkok recurrence path).
+    ///
+    /// Required for the recurring path: <see cref="RecurringAppointment.SetOriginalTimeZone(TimeZoneInfo, TimeZoneInfo, int)"/>
+    /// writes the legacy <c>PidLidTimeZoneStruct</c> via <see cref="TimeZoneStructure.FromTimeZoneInfo"/>,
+    /// which throws <see cref="ArgumentException"/> on a zone with &gt;1 rule — aborting the whole
+    /// conversion (pre-merge review #1).
+    /// </summary>
+    private static TimeZoneInfo ToStaticSingleRuleZone(TimeZoneInfo zone)
+    {
+        TimeZoneInfo.AdjustmentRule[] rules = zone.GetAdjustmentRules();
+        if (rules.Length <= 1)
+            return zone;   // already static (0 or 1 rule) — unchanged, preserves byte-identity
+
+        return TimeZoneInfo.CreateCustomTimeZone(
+            zone.Id, zone.BaseUtcOffset, zone.DisplayName, zone.StandardName, zone.DaylightName,
+            new[] { rules[0] });
     }
 
     /// <summary>

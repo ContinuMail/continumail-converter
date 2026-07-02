@@ -254,6 +254,61 @@ public class AppointmentWriterRecurrenceTests
         Assert.NotNull(tzStruct);
     }
 
+    /// <summary>
+    /// Regression (pre-merge review #1, CRITICAL): a recurring appointment in a timezone that carries
+    /// MULTIPLE DST adjustment rules (e.g. America/New_York → "Eastern Standard Time", which has
+    /// historical rules) must NOT throw. The recurring path writes the legacy PidLidTimeZoneStruct via
+    /// <c>TimeZoneStructure.FromTimeZoneInfo</c>, which throws <see cref="ArgumentException"/> on a zone
+    /// with &gt;1 DST rule — aborting the ENTIRE conversion. Every prior recurrence test used a
+    /// zero/one-rule zone (UTC / Asia-Bangkok), so this crash was invisible to CI and the owner's
+    /// Thailand render-gate. The writer must collapse the resolved zone to a single-rule static zone
+    /// (keeping the first rule, matching the vendor's own <c>GetFirstRule</c> choice) before handing it
+    /// to the vendor blob writer.
+    /// </summary>
+    [Fact]
+    public void Recurring_with_multi_DST_rule_timezone_does_not_throw()
+    {
+        // Precondition: resolve the Windows zone the same way the writer does and confirm it is genuinely
+        // multi-rule, so this test exercises the crash path (not a vacuous pass).
+        TimeZoneInfo winZone =
+            TimeZoneInfo.TryConvertIanaIdToWindowsId("America/New_York", out string? winId) && winId is not null
+                ? TimeZoneInfo.FindSystemTimeZoneById(winId)
+                : TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+        Assert.True(winZone.GetAdjustmentRules().Length > 1,
+            "test precondition: America/New_York must resolve to a multi-DST-rule zone");
+
+        var rec = new AppointmentRecord
+        {
+            Subject               = "Eastern weekly",
+            StartUtc              = new DateTime(2026, 7, 1, 13, 0, 0, DateTimeKind.Utc), // 09:00 EDT
+            EndUtc                = new DateTime(2026, 7, 1, 13, 30, 0, DateTimeKind.Utc),
+            TimeZone              = winZone,
+            OriginatingTimeZoneId = "America/New_York",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = RecurrenceFrequency.Weekly,
+                Interval              = 1,
+                DaysOfWeek            = new[] { DayOfWeek.Wednesday },
+                EndKind               = RecurrenceEndKind.Count,
+                Count                 = 6,
+                LastInstanceStartUtc  = new DateTime(2026, 8, 5, 13, 0, 0, DateTimeKind.Utc),
+                FirstStartUtc         = new DateTime(2026, 7, 1, 13, 0, 0, DateTimeKind.Utc),
+                FirstStartLocal       = new DateTime(2026, 7, 1, 9, 0, 0),
+                TimeZone              = winZone,
+                OriginatingTimeZoneId = "America/New_York",
+            },
+        };
+
+        // Must not throw (currently throws ArgumentException "...multiple DST rules").
+        var (count, blob, appt) = WriteAndReadAppointment(rec);
+        Assert.Equal(1, count);
+        Assert.NotNull(blob);
+
+        // Legacy PidLidTimeZoneStruct must be present (proving SetOriginalTimeZone succeeded).
+        byte[]? tzStruct = appt.PC.GetBytesProperty(PropertyNames.PidLidTimeZoneStruct);
+        Assert.NotNull(tzStruct);
+    }
+
     // -----------------------------------------------------------------------
     // Task 4: EXDATE deleted occurrences
     // -----------------------------------------------------------------------

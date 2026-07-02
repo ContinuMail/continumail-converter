@@ -26,6 +26,13 @@ namespace PSTFileFormat
         public List<DateTime> DeletedInstanceDates = new List<DateTime>(); // In timezone time
         public List<ExceptionInfoStructure> ExceptionList = new List<ExceptionInfoStructure>();
 
+        // [ContinuMail 2026] Caches the zone passed to SetOriginalTimeZone so the write path
+        // (StartDTUtc/LastInstanceStartDate setters, SaveChanges) does NOT re-derive it from the
+        // serialized blob via RegistryTimeZoneUtils — which throws PlatformNotSupportedException
+        // off-Windows and, for an unknown key name, silently falls back to the local system zone.
+        // Null when the object was constructed by reading an existing file (getter derives from blob).
+        private TimeZoneInfo m_originalTimeZone;
+
         public RecurringAppointment(PSTNode node) : base(node)
         {
             this.Recurring = true;
@@ -212,6 +219,7 @@ namespace PSTFileFormat
         /// <param name="dynamicTimeZone">can be set to null if not available</param>
         public override void SetOriginalTimeZone(TimeZoneInfo staticTimeZone, TimeZoneInfo dynamicTimeZone, int effectiveYear)
         {
+            this.m_originalTimeZone = staticTimeZone; // [ContinuMail 2026] cache for the write path (see field comment)
             this.TimeZoneStructure = TimeZoneStructure.FromTimeZoneInfo(staticTimeZone);
             this.TimeZoneDescription = staticTimeZone.DisplayName;
             if (this.File.WriterCompatibilityMode >= WriterCompatibilityMode.Outlook2003SP3)
@@ -266,6 +274,13 @@ namespace PSTFileFormat
         {
             get
             {
+                // [ContinuMail 2026] On the write path the zone was supplied via SetOriginalTimeZone;
+                // return it directly instead of re-deriving from the blob (registry-dependent, off-Windows fatal).
+                if (this.m_originalTimeZone != null)
+                {
+                    return this.m_originalTimeZone;
+                }
+
                 TimeZoneStructure timezoneStructure = this.TimeZoneStructure;
                 TimeZoneDefinitionStructure timezoneDefinitionStructure = this.TimeZoneDefinitionRecurStructure;
 

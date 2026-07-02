@@ -295,6 +295,45 @@ public class RecurringAppointmentBlobTests
         Assert.Equal(oracle, s.GetRecurrencePatternBytes());
     }
 
+    // ────────────────── Pre-merge review #2: write path must not depend on the registry ──────────────────
+
+    /// <summary>
+    /// Regression (pre-merge review #2, cross-platform): the recurring-appointment write path
+    /// (StartDTUtc setter, LastInstanceStartDate setter, SaveChanges) reads <c>OriginalTimeZone</c>
+    /// repeatedly. Before the fix the getter re-derived the zone from the serialized blob via
+    /// <c>RegistryTimeZoneUtils</c>, which throws <see cref="PlatformNotSupportedException"/> off-Windows
+    /// (and, for a zone whose key name is not in the registry, silently falls back to the local system
+    /// zone). The fix caches the zone passed to <c>SetOriginalTimeZone</c> and returns it directly.
+    ///
+    /// Proven by identity: after SetOriginalTimeZone the getter returns the EXACT instance we set — a
+    /// zone with a made-up key name that does not exist in the Windows registry, so a blob round-trip
+    /// could not reconstruct it. This is deterministic on every platform.
+    /// </summary>
+    [Fact]
+    public void SetOriginalTimeZone_is_cached_not_re_derived_from_registry()
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone(
+            "M2P Cross-Platform Test Zone",           // NOT a Windows time-zone key name
+            TimeSpan.FromMinutes(330),                // UTC+05:30 — distinct from any test host's local zone
+            "(UTC+05:30) M2P Test", "M2P Test");
+
+        string path = Path.Combine(Path.GetTempPath(), $"recur-tzcache-{Guid.NewGuid():N}.pst");
+        PSTFile.CreateEmptyStore(path);
+        PSTFile? file = null;
+        try
+        {
+            file = new PSTFile(path, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
+            file.BeginSavingChanges();
+            PSTFolder cal = file.TopOfPersonalFolders.CreateChildFolder("Calendar", FolderItemTypeName.Appointment);
+            RecurringAppointment appt = RecurringAppointment.CreateNewRecurringAppointment(file, cal.NodeID);
+            appt.SetOriginalTimeZone(zone);
+
+            // Cached field short-circuits the registry-backed blob derivation.
+            Assert.Same(zone, appt.OriginalTimeZone);
+        }
+        finally { file?.CloseFile(); if (File.Exists(path)) File.Delete(path); }
+    }
+
     private static byte[] HexBytes(string hex)
     {
         string[] parts = hex.Split(' ', StringSplitOptions.RemoveEmptyEntries);

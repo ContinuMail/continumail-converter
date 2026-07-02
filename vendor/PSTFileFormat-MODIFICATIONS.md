@@ -199,4 +199,16 @@ authoritative description of the local PSTFileFormat modifications.
   `tests/Mail2Pst.Core.Tests/Vendor/RecurringAppointmentBlobTests.Monthly_2ndTuesday_full_blob_matches_dump`
   (full-blob byte equality). The end-after-N and never-end branches are unchanged.
 
+- `Messaging/Messages/RecurringAppointment.cs` (`OriginalTimeZone` getter + `SetOriginalTimeZone` +
+  new `m_originalTimeZone` field): cache the zone supplied to `SetOriginalTimeZone` and return it
+  directly from the `OriginalTimeZone` getter on the write path, instead of re-deriving it from the
+  serialized `PidLidTimeZoneStruct` blob via `RegistryTimeZoneUtils` (ContinuMail addition 2026:
+  cross-platform recurrence write). The getter is read repeatedly while writing (the `StartDTUtc` and
+  `LastInstanceStartDate` setters and `SaveChanges`); the upstream blob-derivation path calls
+  `Microsoft.Win32.Registry`, which throws `PlatformNotSupportedException` on Linux/macOS (and, for a
+  zone whose key name is absent from the registry, silently falls back to the local system zone). The
+  cached field is null when the object is constructed by reading an existing file, so the read path is
+  unchanged. Output PSTs are byte-for-byte unchanged (all `RecurringAppointmentBlobTests` full-blob
+  gates still pass); proven by `RecurringAppointmentBlobTests.SetOriginalTimeZone_is_cached_not_re_derived_from_registry`.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
