@@ -343,6 +343,32 @@ public class TaskWriterTests
         Assert.Equal((uint)5, BitConverter.ToUInt32(blob, 30));
     }
 
+    /// <summary>
+    /// Mutation-coverage (Stryker): the MonthlyNth "Nth weekday" task blob path was entirely uncovered.
+    /// For MonthNth the bare RecurrencePattern writes DayOfWeek (uint at offset 22) then DayOccurenceNumber
+    /// (uint at offset 26). "2nd Tuesday" → Tuesday(0x04)/Second(2); "Last Friday" → Friday(0x20)/Last(5).
+    /// </summary>
+    [Theory]
+    [InlineData(DayOfWeek.Tuesday, 2,  (uint)OutlookDayOfWeek.Tuesday, (uint)DayOccurenceNumber.Second)]
+    [InlineData(DayOfWeek.Friday, -1,  (uint)OutlookDayOfWeek.Friday,  (uint)DayOccurenceNumber.Last)]
+    public void MonthlyNth_task_blob_writes_day_and_occurrence(DayOfWeek day, int nth, uint expectDow, uint expectOcc)
+    {
+        var spec = new RecurrenceSpec
+        {
+            Frequency       = RecurrenceFrequency.MonthlyNth,
+            Interval        = 1,
+            DaysOfWeek      = new[] { day },
+            NthOccurrence   = nth,
+            EndKind         = RecurrenceEndKind.NoEnd,
+            FirstStartUtc   = new DateTime(2026, 7, 14, 0, 0, 0, DateTimeKind.Utc),
+            FirstStartLocal = new DateTime(2026, 7, 14, 0, 0, 0),
+        };
+
+        byte[] blob = TaskRecurrenceBlob.Build(spec, TimeZoneInfo.Utc);
+        Assert.Equal(expectDow, BitConverter.ToUInt32(blob, 22));   // DayOfWeek
+        Assert.Equal(expectOcc, BitConverter.ToUInt32(blob, 26));   // DayOccurenceNumber
+    }
+
     [Fact]
     public void Recurring_task_writes_TaskRecurrence_and_FRecurring_true()
     {

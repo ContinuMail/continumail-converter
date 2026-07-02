@@ -380,6 +380,61 @@ public class AppointmentWriterRecurrenceTests
         Assert.NotEqual(0, ra.Day);   // fell back to the DTSTART weekday mask
     }
 
+    /// <summary>
+    /// Mutation-coverage (Stryker): the MonthlyNth "Nth weekday" appointment path was uncovered.
+    /// "2nd Tuesday of every month" must map to RecurrenceType=EveryNthDayOfEveryNMonths, Day=Tuesday
+    /// (OutlookDayOfWeek 0x04), DayOccurenceNumber=Second.
+    /// </summary>
+    [Fact]
+    public void MonthlyNth_second_Tuesday_sets_day_and_occurrence()
+    {
+        var (ra, _) = WriteMonthlyNth(new[] { DayOfWeek.Tuesday }, nth: 2);
+        Assert.Equal(RecurrenceType.EveryNthDayOfEveryNMonths, ra.RecurrenceType);
+        Assert.Equal((int)OutlookDayOfWeek.Tuesday, ra.Day);
+        Assert.Equal(DayOccurenceNumber.Second, ra.DayOccurenceNumber);
+    }
+
+    /// <summary>
+    /// Mutation-coverage (Stryker): "Last Friday of the month" (NthOccurrence=-1) must map to
+    /// Day=Friday (0x20) and DayOccurenceNumber=Last — the previously-untested `Last` branch.
+    /// </summary>
+    [Fact]
+    public void MonthlyNth_last_Friday_sets_occurrence_Last()
+    {
+        var (ra, _) = WriteMonthlyNth(new[] { DayOfWeek.Friday }, nth: -1);
+        Assert.Equal((int)OutlookDayOfWeek.Friday, ra.Day);
+        Assert.Equal(DayOccurenceNumber.Last, ra.DayOccurenceNumber);
+    }
+
+    // Writes a MonthlyNth (Nth weekday of every month, no end) master and returns the reopened
+    // RecurringAppointment + its recur blob.
+    private static (RecurringAppointment ra, byte[] blob) WriteMonthlyNth(DayOfWeek[] days, int nth)
+    {
+        var start = new DateTime(2026, 7, 14, 9, 0, 0, DateTimeKind.Utc); // 2nd Tuesday of Jul 2026
+        var rec = new AppointmentRecord
+        {
+            Subject  = "Nth-day monthly",
+            StartUtc = start,
+            EndUtc   = start.AddMinutes(30),
+            TimeZone = TimeZoneInfo.Utc,
+            OriginatingTimeZoneId = "UTC",
+            Recurrence = new RecurrenceSpec
+            {
+                Frequency             = RecurrenceFrequency.MonthlyNth,
+                Interval              = 1,
+                DaysOfWeek            = days,
+                NthOccurrence         = nth,
+                EndKind               = RecurrenceEndKind.NoEnd,
+                FirstStartUtc         = start,
+                FirstStartLocal       = start,
+                TimeZone              = TimeZoneInfo.Utc,
+                OriginatingTimeZoneId = "UTC",
+            },
+        };
+        var (_, blob, appt) = WriteAndReadAppointment(rec);
+        return (Assert.IsType<RecurringAppointment>(appt), blob!);
+    }
+
     // -----------------------------------------------------------------------
     // Task 4: EXDATE deleted occurrences
     // -----------------------------------------------------------------------

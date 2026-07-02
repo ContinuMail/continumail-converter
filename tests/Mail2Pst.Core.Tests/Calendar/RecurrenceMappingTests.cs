@@ -51,6 +51,27 @@ public class RecurrenceMappingTests
         Assert.Contains("BYMONTHDAY", reason);
     }
 
+    /// <summary>
+    /// Mutation-coverage (Stryker): pins the exact valid BYMONTHDAY boundaries. Both 1 and 31 must MAP
+    /// (they are in range). This kills the surviving `&lt;1`→`&lt;=1`, `&gt;31`→`&gt;=31`, and
+    /// `&gt;31`→`&lt;31` boundary mutations — each would wrongly degrade day 1 or day 31. (Out-of-range
+    /// values like 32/0 are rejected by the iCal parser upstream, so they never reach this guard.)
+    /// </summary>
+    [Theory]
+    [InlineData(1)]    // first of month — must map, not degrade
+    [InlineData(31)]   // 31st — upper boundary, must map
+    public void FromIcal_valid_bymonthday_boundaries_map(int day)
+    {
+        var (spec, reason) = RecurrenceMapping.FromIcal(
+            new[] { $"RRULE:FREQ=MONTHLY;BYMONTHDAY={day};COUNT=3" },
+            new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 15, 0, 0, 0), null, "UTC");
+
+        Assert.NotNull(spec);
+        Assert.Null(reason);
+        Assert.Equal(day, spec!.DayOfMonth);
+    }
+
     /// <summary>Pre-merge review #4: negative BYMONTHDAY on a yearly rule degrades too.</summary>
     [Fact]
     public void FromIcal_negative_bymonthday_yearly_degrades()
