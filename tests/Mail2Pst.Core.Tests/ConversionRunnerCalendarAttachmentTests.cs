@@ -92,6 +92,69 @@ public class ConversionRunnerCalendarAttachmentTests
     }
 
     // -----------------------------------------------------------------------
+    // Pre-merge review #3: one bad item must not abort the whole conversion.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A single event whose data throws inside the mapper (here: an out-of-range event_start that
+    /// overflows during date construction) must be recorded as a skip, NOT abort the entire run —
+    /// a good event in the same calendar must still convert. Before the fix the uncaught exception
+    /// escaped ConversionRunner.Run and aborted mail/contacts/all calendars.
+    /// </summary>
+    [Fact]
+    public void Event_that_throws_in_mapper_is_skipped_not_fatal_and_good_event_survives()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"m2p-runbad-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string dbPath = MakeCalStoreWithBadAndGoodEvent();
+        try
+        {
+            // Must not throw.
+            var report = RunConvertWith(dbPath, "test-cal", dir);
+
+            // The good event converted; the bad one was skipped (not fatal).
+            Assert.Equal(1, report.AppointmentsConverted);
+            Assert.True(report.AppointmentsSkipped >= 1,
+                $"Expected the bad event to be recorded as skipped but got {report.AppointmentsSkipped}");
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A store with one event carrying an out-of-range (overflowing) start plus one normal event.
+    /// The bad event is ordered first to prove the good one is still reached after containment.
+    /// </summary>
+    private static string MakeCalStoreWithBadAndGoodEvent()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"cal-badgood-{Guid.NewGuid():N}.sqlite");
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        CreateCalSchema(conn);
+
+        void X(string sql)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+
+        // Bad event: all-day (flags=8) with an absurd event_start that overflows date construction.
+        X($"INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,event_start_tz) " +
+          $"VALUES ('test-cal','bad-01@example.com','Bad Event',8,{long.MaxValue},{long.MaxValue},'UTC');");
+        // Good event: a normal timed event.
+        long start = MicrosFor(2026, 7, 8, 9, 0);
+        long end   = MicrosFor(2026, 7, 8, 10, 0);
+        X($"INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,event_start_tz) " +
+          $"VALUES ('test-cal','good-01@example.com','Good Event',0,{start},{end},'UTC');");
+
+        return path;
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers — synthetic SQLite stores (no real mail/PII, all example.com).
     // -----------------------------------------------------------------------
 

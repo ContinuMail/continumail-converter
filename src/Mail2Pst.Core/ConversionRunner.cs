@@ -192,24 +192,35 @@ public class ConversionRunner
                         {
                             foreach (RawTodoGroup group in cal.TodoGroups)
                             {
-                                TaskRecord? mapped = CalendarTaskMapper.Map(group, out IReadOnlyList<string> warns);
-                                foreach (string w in warns)
-                                    report.RecordTaskWarning(w);
-                                if (mapped is null)
+                                // Per-item containment: a single malformed todo must never abort the whole
+                                // conversion (mail/contacts/other calendars). Mirrors SqliteCalendarReader's
+                                // per-row catch — calendar data is fully untrusted.
+                                try
                                 {
-                                    // Map returned null; the first warning (if any) describes the reason.
-                                    report.RecordTaskSkipped(
-                                        tm.Source.StorePath,
-                                        warns.Count > 0 ? warns[0] : "unmappable task");
-                                }
-                                else
-                                {
-                                    ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
-                                    plannedTasks.Add(new PlannedTask
+                                    TaskRecord? mapped = CalendarTaskMapper.Map(group, out IReadOnlyList<string> warns);
+                                    foreach (string w in warns)
+                                        report.RecordTaskWarning(w);
+                                    if (mapped is null)
                                     {
-                                        Task = mapped,
-                                        TargetFolderPath = tm.TargetFolderPath,
-                                    });
+                                        // Map returned null; the first warning (if any) describes the reason.
+                                        report.RecordTaskSkipped(
+                                            tm.Source.StorePath,
+                                            warns.Count > 0 ? warns[0] : "unmappable task");
+                                    }
+                                    else
+                                    {
+                                        ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
+                                        plannedTasks.Add(new PlannedTask
+                                        {
+                                            Task = mapped,
+                                            TargetFolderPath = tm.TargetFolderPath,
+                                        });
+                                    }
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException)
+                                {
+                                    report.RecordTaskSkipped(tm.Source.StorePath,
+                                        $"task '{group.Master?.Id ?? "(unknown)"}' skipped: {ex.Message}");
                                 }
                             }
                         }
@@ -248,24 +259,35 @@ public class ConversionRunner
                         {
                             foreach (RawEventGroup group in cal.EventGroups)
                             {
-                                AppointmentRecord? mapped = CalendarEventMapper.Map(group, out IReadOnlyList<string> warns);
-                                foreach (string w in warns)
-                                    report.RecordAppointmentWarning(w);
-                                if (mapped is null)
+                                // Per-item containment: a single malformed event must never abort the whole
+                                // conversion (mail/contacts/other calendars). Mirrors SqliteCalendarReader's
+                                // per-row catch — calendar data is fully untrusted.
+                                try
                                 {
-                                    // Map returned null; the first warning (if any) describes the reason.
-                                    report.RecordAppointmentSkipped(
-                                        am.Source.StorePath,
-                                        warns.Count > 0 ? warns[0] : "unmappable event");
-                                }
-                                else
-                                {
-                                    ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
-                                    plannedAppointments.Add(new PlannedAppointment
+                                    AppointmentRecord? mapped = CalendarEventMapper.Map(group, out IReadOnlyList<string> warns);
+                                    foreach (string w in warns)
+                                        report.RecordAppointmentWarning(w);
+                                    if (mapped is null)
                                     {
-                                        Appointment = mapped,
-                                        TargetFolderPath = am.TargetFolderPath,
-                                    });
+                                        // Map returned null; the first warning (if any) describes the reason.
+                                        report.RecordAppointmentSkipped(
+                                            am.Source.StorePath,
+                                            warns.Count > 0 ? warns[0] : "unmappable event");
+                                    }
+                                    else
+                                    {
+                                        ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
+                                        plannedAppointments.Add(new PlannedAppointment
+                                        {
+                                            Appointment = mapped,
+                                            TargetFolderPath = am.TargetFolderPath,
+                                        });
+                                    }
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException)
+                                {
+                                    report.RecordAppointmentSkipped(am.Source.StorePath,
+                                        $"event '{group.Master?.Id ?? "(unknown)"}' skipped: {ex.Message}");
                                 }
                             }
                         }

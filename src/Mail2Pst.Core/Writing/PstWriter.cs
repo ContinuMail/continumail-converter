@@ -371,12 +371,24 @@ public class PstWriter
             cancellationToken.ThrowIfCancellationRequested();
             long size = EstimateTaskSize(planned.Task);
             if (partManager.ShouldSplitBefore(size)) partManager.FlushAndSplit();
+            bool written = false;
             try
             {
                 partManager.WriteTask(planned.TargetFolderPath, planned.Task);
                 report.RecordTaskConverted();
+                written = true;
             }
             catch (ConfigValidationException) { throw; } // collision = fatal
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (IsRecoverableWriteError(ex) || ex is IOException or UnauthorizedAccessException)
+            {
+                // A single bad attachment (oversized, or a file:// source locked/deleted between resolve
+                // and write) must not abort the phase and delete the in-progress part. The item is added
+                // to the folder only AFTER its attachments are written, so a failed write committed
+                // nothing — skipping keeps the store consistent (mirrors the mail phase).
+                report.RecordTaskSkipped(planned.Task.SourceId, ex.Message);
+            }
+            if (!written) continue;
             partManager.OnWritten(size);
             // Additive task progress: mail Converted/Total stay as-is (phase="tasks").
             onProgress?.Invoke(new ProgressEvent(
@@ -412,12 +424,24 @@ public class PstWriter
             cancellationToken.ThrowIfCancellationRequested();
             long size = EstimateAppointmentSize(planned.Appointment);
             if (partManager.ShouldSplitBefore(size)) partManager.FlushAndSplit();
+            bool written = false;
             try
             {
                 partManager.WriteAppointment(planned.TargetFolderPath, planned.Appointment);
                 report.RecordAppointmentConverted();
+                written = true;
             }
             catch (ConfigValidationException) { throw; } // collision = fatal
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (IsRecoverableWriteError(ex) || ex is IOException or UnauthorizedAccessException)
+            {
+                // A single bad attachment (oversized, or a file:// source locked/deleted between resolve
+                // and write) must not abort the phase and delete the in-progress part. The item is added
+                // to the folder only AFTER its attachments are written, so a failed write committed
+                // nothing — skipping keeps the store consistent (mirrors the mail phase).
+                report.RecordAppointmentSkipped(planned.Appointment.SourceId, ex.Message);
+            }
+            if (!written) continue;
             partManager.OnWritten(size);
             // Additive appointment progress: mail Converted/Total stay as-is (phase="appointments").
             onProgress?.Invoke(new ProgressEvent(

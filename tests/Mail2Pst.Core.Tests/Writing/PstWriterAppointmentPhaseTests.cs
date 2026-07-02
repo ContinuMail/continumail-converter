@@ -64,6 +64,76 @@ public class PstWriterAppointmentPhaseTests
         finally { Directory.Delete(dir, true); }
     }
 
+    /// <summary>
+    /// Pre-merge review #8: a recoverable write-time attachment failure (here: a local-file ByValue
+    /// attachment whose file does not exist → IOException when read at write time) must be recorded
+    /// as a per-item skip, NOT abort the whole phase. A good appointment written afterwards must still
+    /// land, and the store must reopen cleanly. Before the fix only ConfigValidationException was
+    /// caught, so the IOException was fatal and deleted the in-progress part (all prior items).
+    /// </summary>
+    [Fact]
+    public void WritePlan_AppointmentWithUnreadableAttachment_IsSkipped_NotFatal()
+    {
+        string dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            string missing = Path.Combine(dir, "does-not-exist.bin");
+            var plan = new PstOutputPlan { Name = "Out", MaxSizeBytes = long.MaxValue };
+            var appointmentFolders = new List<IReadOnlyList<string>> { new[] { "Calendars", "Home" } };
+            var appointments = new List<PlannedAppointment>
+            {
+                new()
+                {
+                    Appointment = new AppointmentRecord
+                    {
+                        Subject = "Bad attachment", SourceId = "appt-bad",
+                        StartUtc = new DateTime(2026, 6, 30, 9, 0, 0, DateTimeKind.Utc),
+                        EndUtc   = new DateTime(2026, 6, 30, 10, 0, 0, DateTimeKind.Utc),
+                        Attachments = new[]
+                        {
+                            new CalendarAttachment(CalendarAttachmentKind.LocalFileByValue,
+                                "does-not-exist.bin", "application/octet-stream", null, missing, null),
+                        },
+                    },
+                    TargetFolderPath = new[] { "Calendars", "Home" },
+                },
+                new()
+                {
+                    Appointment = new AppointmentRecord
+                    {
+                        Subject = "Good appointment", SourceId = "appt-good",
+                        StartUtc = new DateTime(2026, 6, 30, 11, 0, 0, DateTimeKind.Utc),
+                        EndUtc   = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
+                    },
+                    TargetFolderPath = new[] { "Calendars", "Home" },
+                },
+            };
+            var report = new ConversionReport();
+
+            // Must not throw.
+            new PstWriter().WritePlan(plan, new List<PlannedMessage>(),
+                new List<PlannedContact>(), new List<IReadOnlyList<string>>(),
+                new List<PlannedTask>(), new List<IReadOnlyList<string>>(),
+                appointments, appointmentFolders, dir, report);
+
+            Assert.Equal(1, report.AppointmentsConverted);       // only the good one
+            Assert.True(report.AppointmentsSkipped >= 1);        // the bad one skipped
+
+            // Store must reopen cleanly with exactly the good appointment.
+            PSTFile? f = null;
+            try
+            {
+                f = new PSTFile(Path.Combine(dir, "Out.pst"), FileAccess.Read);
+                var cal = Assert.IsType<CalendarFolder>(
+                    f.TopOfPersonalFolders.FindChildFolder("Calendars").FindChildFolder("Home"));
+                Assert.Equal(1, cal.AppointmentCount);
+                Assert.Equal("Good appointment", cal.GetAppointment(0).Subject);
+            }
+            finally { f?.CloseFile(); }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public void WritePlan_EmptyAppointmentFolders_StillCreatesIPFAppointmentFolder()
     {
