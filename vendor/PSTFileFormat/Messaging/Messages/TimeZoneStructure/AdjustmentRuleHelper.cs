@@ -47,8 +47,20 @@ namespace PSTFileFormat
                 }
                 else
                 {
-                    // The SystemTime structure (and registry) do not support this
-                    throw new Exception("Cannot create transition time with absolute date that spans multiple years");
+                    // [ContinuMail 2026] Some non-Windows (ICU) TimeZoneInfo rules express a DST transition
+                    // as a fixed calendar date over a multi-year span, which the one-time SYSTEMTIME absolute
+                    // form (wYear != 0) cannot hold. Rather than throw (which aborts writing any appointment
+                    // in such a zone on Linux/macOS), convert to the equivalent relative-yearly rule — the Nth
+                    // weekday of the month — which the structure CAN hold. Approximate but valid; only reached
+                    // off-Windows (Windows rules are floating already, so Windows byte output is unchanged).
+                    int representativeYear = startYear != 0 ? startYear : DateTime.UtcNow.Year;
+                    int dom = Math.Min(transitionTime.Day, DateTime.DaysInMonth(representativeYear, transitionTime.Month));
+                    DateTime fixedDate = new DateTime(representativeYear, transitionTime.Month, dom);
+                    result.wYear = 0; // relative, occurs yearly
+                    result.wMonth = (ushort)transitionTime.Month;
+                    result.wDay = (ushort)Math.Min(5, (dom + 6) / 7); // occurrence within month (5 = last)
+                    result.wDayOfWeek = (ushort)fixedDate.DayOfWeek;
+                    result.TimeOfDay = transitionTime.TimeOfDay.TimeOfDay;
                 }
             }
             else

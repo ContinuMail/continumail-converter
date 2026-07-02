@@ -92,7 +92,13 @@ namespace PSTFileFormat
                 timezoneID = TimeZoneInfo.Local.Id;
             }
             string displayName = RegistryTimeZoneUtils.GetDisplayName(timezoneID, out standardDisplayName, out daylightDisplayName);
-            
+            // [ContinuMail 2026] non-Windows has no registry display names; fall back to the zone id so
+            // CreateCustomTimeZone (which rejects null names) still succeeds. Display-only — offset/DST rule
+            // come from the structure bytes, not the registry.
+            displayName ??= timezoneID;
+            standardDisplayName ??= timezoneID;
+            daylightDisplayName ??= timezoneID;
+
             if (effectiveTimeZoneRule == null)
             {
                 // no daylight savings

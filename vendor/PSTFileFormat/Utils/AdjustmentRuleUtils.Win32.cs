@@ -34,6 +34,10 @@ namespace Utilities
 
         public static TimeZoneInfo.AdjustmentRule GetStaticAdjustmentRule(RegistryTimeZoneInformation information)
         {
+            if (information == null) // [ContinuMail 2026] non-Windows: no registry TZ info, so no static DST rule.
+            {
+                return null;
+            }
             if (RegistryTimeZoneUtils.IsDaylightSavingsEnabled())
             {
                 return CreateStaticAdjustmentRule(information.Bias, information.StandardBias, information.DaylightBias, information.StandardDate, information.DaylightDate);

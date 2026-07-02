@@ -21,8 +21,10 @@ namespace Utilities
         /// /// <returns>null if the key does not contain timezone information</returns>
         public static RegistryTimeZoneInformation GetStaticTimeZoneInformation(string keyName)
         {
+            // [ContinuMail 2026] Registry.LocalMachine is null off-Windows; short-circuit BEFORE touching it.
+            if (!OperatingSystem.IsWindows()) return null;
             RegistryKey timeZonesKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Time Zones");
-            RegistryKey timeZoneKey = timeZonesKey.OpenSubKey(keyName);
+            RegistryKey timeZoneKey = timeZonesKey?.OpenSubKey(keyName);
             if (timeZoneKey == null)
             {
                 return null;
@@ -39,8 +41,15 @@ namespace Utilities
 
         public static string GetDisplayName(string keyName, out string standardDisplayName, out string daylightDisplayName)
         {
+            // [ContinuMail 2026] Registry.LocalMachine is null off-Windows; short-circuit BEFORE touching it.
+            if (!OperatingSystem.IsWindows())
+            {
+                standardDisplayName = null;
+                daylightDisplayName = null;
+                return null;
+            }
             RegistryKey timeZonesKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Time Zones");
-            RegistryKey timeZoneKey = timeZonesKey.OpenSubKey(keyName);
+            RegistryKey timeZoneKey = timeZonesKey?.OpenSubKey(keyName); // [ContinuMail 2026] null-safe: no registry on non-Windows.
             if (timeZoneKey == null)
             {
                 standardDisplayName = null;
@@ -57,7 +66,13 @@ namespace Utilities
 
         public static bool IsDaylightSavingsEnabled()
         {
+            // [ContinuMail 2026] Registry.LocalMachine is null off-Windows; short-circuit BEFORE touching it.
+            if (!OperatingSystem.IsWindows()) return true;
             RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\TimeZoneInformation");
+            if (key == null)
+            {
+                return true;
+            }
             int value = (int)key.GetValue("DisableAutoDaylightTimeSet", 0);
             return (value == 0);
         }

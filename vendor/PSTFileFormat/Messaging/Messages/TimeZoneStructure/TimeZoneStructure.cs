@@ -73,6 +73,12 @@ namespace PSTFileFormat
             string standardDisplayName;
             string daylightDisplayName;
             string displayName = RegistryTimeZoneUtils.GetDisplayName(timeZoneID, out standardDisplayName, out daylightDisplayName);
+            // [ContinuMail 2026] On non-Windows the registry has no display names; fall back to the zone id so
+            // CreateCustomTimeZone (which rejects null names) still succeeds. The zone's offset and DST transition
+            // dates are reconstructed from THIS structure's bytes, not from the registry, so this is display-only.
+            displayName ??= timeZoneID;
+            standardDisplayName ??= timeZoneID;
+            daylightDisplayName ??= timeZoneID;
 
             // Note about stStandardDate:
             // If the time zone does not support daylight saving time, the wMonth member in the SYSTEMTIME structure MUST be zero

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using PSTFileFormat;
+using Utilities;
 using Xunit;
 
 namespace Mail2Pst.Core.Tests.Vendor;
@@ -332,6 +333,53 @@ public class RecurringAppointmentBlobTests
             Assert.Same(zone, appt.OriginalTimeZone);
         }
         finally { file?.CloseFile(); if (File.Exists(path)) File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Cross-platform regression: reconstructing a zone from a TimeZoneStructure must not require the Windows
+    /// registry. On non-Windows the registry has no display names (GetDisplayName returns null), which used to
+    /// make CreateCustomTimeZone throw when a recurring appointment was read back (the calendar tests do this,
+    /// so they failed on Linux/macOS CI). Simulated on Windows by an UNKNOWN zone id: its registry key is
+    /// absent, so GetDisplayName returns null exactly as on Linux/macOS. Must fall back to the id, not throw.
+    /// </summary>
+    [Fact]
+    public void ToTimeZoneInfo_without_registry_display_names_does_not_throw()
+    {
+        var s = new TimeZoneStructure
+        {
+            lBias = -420, lStandardBias = 0, lDaylightBias = 0,   // UTC+7, no DST (like the SE Asia gate zone)
+            stStandardDate = new SystemTime(),                     // wMonth == 0 -> no-DST branch
+            stDaylightDate = new SystemTime(),
+        };
+
+        TimeZoneInfo tz = s.ToTimeZoneInfo("M2P Unknown Zone Id");   // no such registry key -> GetDisplayName null
+
+        Assert.NotNull(tz);
+        Assert.Equal("M2P Unknown Zone Id", tz.Id);
+        Assert.Equal(TimeSpan.FromHours(7), tz.BaseUtcOffset);
+    }
+
+    /// <summary>
+    /// Cross-platform regression: some non-Windows (ICU) TimeZoneInfo rules use a fixed calendar date over a
+    /// multi-year span, which SYSTEMTIME's one-time absolute form can't hold. AdjustmentRuleHelper must convert
+    /// it to a relative-yearly rule instead of throwing (which aborted writing any appointment in such a zone
+    /// on Linux/macOS). Deterministic on Windows: build such a rule directly.
+    /// </summary>
+    [Fact]
+    public void FromTransitionTime_multi_year_fixed_date_becomes_relative_rule()
+    {
+        var dstStart = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 2, 0, 0), 3, 31);   // Mar 31
+        var dstEnd   = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 3, 0, 0), 10, 31);  // Oct 31
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+            new DateTime(2000, 1, 1), new DateTime(2020, 12, 31), TimeSpan.FromHours(1), dstStart, dstEnd);
+
+        SystemTime std = AdjustmentRuleHelper.GetStandardDate(rule);   // DaylightTransitionEnd (Oct 31) — must not throw
+        Assert.Equal(0, std.wYear);    // relative (yearly), not a one-time absolute date
+        Assert.Equal(10, std.wMonth);  // October
+        Assert.Equal(5, std.wDay);     // day 31 -> last (5th) occurrence within the month
+
+        SystemTime dlt = AdjustmentRuleHelper.GetDaylightDate(rule);   // DaylightTransitionStart (Mar 31)
+        Assert.Equal(3, dlt.wMonth);   // March
     }
 
     private static byte[] HexBytes(string hex)

@@ -17,6 +17,13 @@ namespace Utilities
         public static TimeZoneInfo GetSystemStaticTimeZone(string keyName)
         {
             RegistryTimeZoneInformation information = RegistryTimeZoneUtils.GetStaticTimeZoneInformation(keyName);
+            if (information == null)
+            {
+                // [ContinuMail 2026] Registry unavailable (non-Windows). Reconstruct from the runtime's own
+                // zone database (cross-platform via ICU) instead of the Windows registry; UTC if id unknown.
+                try { return TimeZoneInfo.FindSystemTimeZoneById(keyName); }
+                catch { return TimeZoneInfo.Utc; }
+            }
             TimeZoneInfo.AdjustmentRule rule = AdjustmentRuleUtils.GetStaticAdjustmentRule(information);
             string displayName;
             string standardDisplayName;
