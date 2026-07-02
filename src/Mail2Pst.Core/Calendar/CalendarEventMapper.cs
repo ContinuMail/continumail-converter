@@ -245,9 +245,14 @@ public static class CalendarEventMapper
 
                     if (offset < TimeSpan.Zero)
                     {
-                        // Negative offset — fires before anchor; valid reminder
+                        // Negative offset — fires before the anchor; valid reminder. PidLidReminderDelta is
+                        // minutes-before-START, so an END anchor must be re-expressed relative to start:
+                        // delta = Start − (anchor + offset). For START this is just −offset (unchanged); for
+                        // END on a timed event it can be negative (fires after start, before end) — the
+                        // writer's PidLidReminderSignalTime = Start − delta still lands on the correct instant.
                         appt.ReminderSet = true;
-                        appt.ReminderMinutesBefore = (int)Math.Round(-offset.TotalMinutes);
+                        DateTime signalTime = anchor + offset;
+                        appt.ReminderMinutesBefore = (int)Math.Round((appt.StartUtc - signalTime).TotalMinutes);
                     }
                     else
                     {

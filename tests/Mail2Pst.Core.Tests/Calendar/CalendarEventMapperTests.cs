@@ -642,6 +642,30 @@ public class CalendarEventMapperTests
         Assert.Empty(warnings);
     }
 
+    /// <summary>
+    /// Pre-merge review #6: a RELATED=END reminder must fire relative to the event END, not START.
+    /// For the 60-min SimpleGroup event (14:00–15:00 UTC) with TRIGGER;RELATED=END:-PT15M the reminder
+    /// fires at 14:45 = 45 min AFTER start, so PidLidReminderDelta (minutes-before-start) is -45 and the
+    /// writer's signal time (Start − delta) lands on 14:45 = End−15. Before the fix the anchor was
+    /// ignored and the delta was 15, firing ~60 min early (15 min before START).
+    /// </summary>
+    [Fact]
+    public void Alarm_RelatedEnd_AnchorsReminderToEnd()
+    {
+        var group = SimpleGroup(e =>
+        {
+            e.Alarms.Add(new RawSideText(
+                "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;RELATED=END:-PT15M\r\nEND:VALARM"));
+        });
+
+        var appt = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(appt);
+        Assert.True(appt!.ReminderSet);
+        Assert.Equal(-45, appt.ReminderMinutesBefore);
+        Assert.Empty(warnings);
+    }
+
     [Fact]
     public void Alarm_PositiveTrigger_NoReminderAndWarnAndBodyPreserved()
     {
