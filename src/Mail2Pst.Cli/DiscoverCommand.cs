@@ -68,11 +68,13 @@ internal static class DiscoverCommand
                     eventCount = c.EventCount, taskCount = c.TaskCount,
                     defaultCalendarFolderPath = c.DefaultCalendarFolderPath,
                     defaultTaskFolderPath = c.DefaultTaskFolderPath,
+                    accountId = c.AccountId,
                 }),
                 addressBooks = r.AddressBooks.Select(b => new
                 {
                     displayName = b.DisplayName, path = b.Path, format = b.Format,
                     contactCount = b.ContactCount, // int? -> JSON number or null
+                    accountId = b.AccountId,
                 }),
             };
             Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));

@@ -201,6 +201,143 @@ public class DiscoverCommandE2ETests
         }
     }
 
+    [Fact]
+    public void Discover_Profile_EmitsCalendarAccountId_ForMatchedAndLocalCalendar()
+    {
+        // Two calendars: CAL1's registry uri resolves (via PimAccountMatcher) to the account
+        // directory "Mail/imap.example.com" (prefs.js wires host+identity email for that account);
+        // CAL2 has no uri at all, so it stays local (accountId == null).
+        string profile = Path.Combine(Path.GetTempPath(), "m2p-cal-acct-e2e-" + Guid.NewGuid());
+        string accountDir = Path.Combine(profile, "Mail", "imap.example.com");
+        Directory.CreateDirectory(accountDir);
+        Directory.CreateDirectory(Path.Combine(profile, "calendar-data"));
+        try
+        {
+            // Accounts are only registered from directories that yield >=1 mail source
+            // (MailProfileDiscovery.DiscoverStores derives `accounts` from indexed sources'
+            // origin keys) — an account directory with no mail sources never appears in
+            // `Accounts`, so PimAccountMatcher would have nothing to match against.
+            WriteMbox(Path.Combine(accountDir, "Inbox"));
+
+            File.WriteAllText(Path.Combine(profile, "prefs.js"),
+                "user_pref(\"calendar.registry.CAL1.name\", \"Work\");\n" +
+                "user_pref(\"calendar.registry.CAL1.type\", \"caldav\");\n" +
+                "user_pref(\"calendar.registry.CAL1.uri\", \"https://imap.example.com/dav/calendars/user/work\");\n" +
+                "user_pref(\"calendar.registry.CAL1.calendar-main-in-composite\", true);\n" +
+                "user_pref(\"calendar.registry.CAL2.name\", \"Personal\");\n" +
+                "user_pref(\"calendar.registry.CAL2.type\", \"storage\");\n" +
+                "user_pref(\"calendar.registry.CAL2.calendar-main-in-composite\", true);\n" +
+                "user_pref(\"mail.server.server1.directory-rel\", \"[ProfD]Mail/imap.example.com\");\n" +
+                "user_pref(\"mail.server.server1.hostname\", \"imap.example.com\");\n" +
+                "user_pref(\"mail.account.account1.server\", \"server1\");\n" +
+                "user_pref(\"mail.account.account1.identities\", \"id1\");\n" +
+                "user_pref(\"mail.identity.id1.useremail\", \"user@example.com\");\n",
+                new UTF8Encoding(false));
+
+            string calPath = Path.Combine(profile, "calendar-data", "local.sqlite");
+            MakeCalStore(calPath, "CAL1", addEvent: true);
+            using (var conn = new SqliteConnection($"Data Source={calPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,recurrence_id) " +
+                    "VALUES ('CAL2','ev2','Personal Event',0,1782810000000000,1782811800000000,NULL);";
+                cmd.ExecuteNonQuery();
+            }
+
+            (int exit, string stdout, string stderr) = RunCli($"discover --input \"{profile}\"");
+            Assert.True(exit == 0, $"expected exit 0, got {exit}. stderr: {stderr}");
+
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement root = doc.RootElement;
+            JsonElement calendars = root.GetProperty("calendars");
+            Assert.Equal(2, calendars.GetArrayLength());
+
+            JsonElement work = calendars.EnumerateArray().Single(c => c.GetProperty("calId").GetString() == "CAL1");
+            Assert.Equal(accountDir, work.GetProperty("accountId").GetString());
+
+            JsonElement personal = calendars.EnumerateArray().Single(c => c.GetProperty("calId").GetString() == "CAL2");
+            Assert.Equal(JsonValueKind.Null, personal.GetProperty("accountId").ValueKind);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(profile, true);
+        }
+    }
+
+    [Fact]
+    public void Discover_Profile_EmitsAddressBookAccountId_ForMatchedAndLocalBook()
+    {
+        // abook.sqlite's carddav.url registry entry resolves (via PimAccountMatcher) to the account
+        // directory "Mail/imap.example.com"; abook-secondary.sqlite has no registry entry, so it
+        // stays local (accountId == null).
+        string profile = Path.Combine(Path.GetTempPath(), "m2p-abook-acct-e2e-" + Guid.NewGuid());
+        string accountDir = Path.Combine(profile, "Mail", "imap.example.com");
+        Directory.CreateDirectory(accountDir);
+        try
+        {
+            // Accounts are only registered from directories that yield >=1 mail source
+            // (MailProfileDiscovery.DiscoverStores derives `accounts` from indexed sources'
+            // origin keys) — an account directory with no mail sources never appears in
+            // `Accounts`, so PimAccountMatcher would have nothing to match against.
+            WriteMbox(Path.Combine(accountDir, "Inbox"));
+
+            File.WriteAllText(Path.Combine(profile, "prefs.js"),
+                "user_pref(\"ldap_2.servers.abook1.filename\", \"abook.sqlite\");\n" +
+                "user_pref(\"ldap_2.servers.abook1.carddav.url\", \"https://imap.example.com/dav/addressbooks/user/default/\");\n" +
+                "user_pref(\"mail.server.server1.directory-rel\", \"[ProfD]Mail/imap.example.com\");\n" +
+                "user_pref(\"mail.server.server1.hostname\", \"imap.example.com\");\n" +
+                "user_pref(\"mail.account.account1.server\", \"server1\");\n" +
+                "user_pref(\"mail.account.account1.identities\", \"id1\");\n" +
+                "user_pref(\"mail.identity.id1.useremail\", \"user@example.com\");\n",
+                new UTF8Encoding(false));
+
+            string abookPath = Path.Combine(profile, "abook.sqlite");
+            using (var conn = new SqliteConnection($"Data Source={abookPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText =
+                    "CREATE TABLE properties (card TEXT, name TEXT, value TEXT);" +
+                    "INSERT INTO properties VALUES ('c1','DisplayName','A');";
+                cmd.ExecuteNonQuery();
+            }
+
+            string secondaryPath = Path.Combine(profile, "abook-secondary.sqlite");
+            using (var conn = new SqliteConnection($"Data Source={secondaryPath}"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText =
+                    "CREATE TABLE properties (card TEXT, name TEXT, value TEXT);" +
+                    "INSERT INTO properties VALUES ('c1','DisplayName','B');";
+                cmd.ExecuteNonQuery();
+            }
+
+            (int exit, string stdout, string stderr) = RunCli($"discover --input \"{profile}\"");
+            Assert.True(exit == 0, $"expected exit 0, got {exit}. stderr: {stderr}");
+
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement root = doc.RootElement;
+            JsonElement addressBooks = root.GetProperty("addressBooks");
+            Assert.Equal(2, addressBooks.GetArrayLength());
+
+            JsonElement matched = addressBooks.EnumerateArray()
+                .Single(b => b.GetProperty("path").GetString()!.EndsWith("abook.sqlite"));
+            Assert.Equal(accountDir, matched.GetProperty("accountId").GetString());
+
+            JsonElement local = addressBooks.EnumerateArray()
+                .Single(b => b.GetProperty("path").GetString()!.EndsWith("abook-secondary.sqlite"));
+            Assert.Equal(JsonValueKind.Null, local.GetProperty("accountId").ValueKind);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(profile, true);
+        }
+    }
+
     // Minimal cal store (mirrors DiscoverCalendarsTests.MakeCalStore).
     private static void MakeCalStore(string path, string calId, bool addEvent = true)
     {
