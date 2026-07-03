@@ -8,7 +8,7 @@ import { checkSchemaVersion } from "./schema";
 import { defaultOptions, type OptionsState, FLATTEN_SOURCE_ID } from "./options";
 import { sortSources, type SortField, type SortDir } from "./review";
 import { groupByAccount, accountKeyForRow } from "./accounts";
-import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget, Account } from "./types";
+import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget, Account, DiscoveredCalendar, DiscoveredAddressBook } from "./types";
 import type { ScanResult } from "./parse";
 
 export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError" | "accounts";
@@ -74,6 +74,8 @@ export interface PreConvertState {
   accounts: Account[];
   selectedAccountKeys: Set<string>;
   pstNames: Record<string, string>; // per-account edited PST name, keyed by account key
+  calendars: DiscoveredCalendar[];
+  addressBooks: DiscoveredAddressBook[];
 }
 
 function initialState(): PreConvertState {
@@ -98,6 +100,8 @@ function initialState(): PreConvertState {
     accounts: [],
     selectedAccountKeys: new Set(),
     pstNames: {},
+    calendars: [],
+    addressBooks: [],
   };
 }
 
@@ -172,6 +176,8 @@ export function useScan() {
           accounts: disc.accounts,
           selectedAccountKeys,
           pstNames,
+          calendars: disc.calendars,
+          addressBooks: disc.addressBooks,
         }));
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
@@ -208,6 +214,8 @@ export function useScan() {
         scanProgress: null,
         sortBy: "default",
         sortDir: "desc",
+        calendars: [],
+        addressBooks: [],
       }));
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -269,7 +277,7 @@ export function useScan() {
   }, []);
 
   const back = useCallback(
-    () => setState((s) => ({ ...s, stage: "select", scan: null, profileRows: [], discoverWarnings: [], errorMessage: null, sourceError: null, scanProgress: null })),
+    () => setState((s) => ({ ...s, stage: "select", scan: null, profileRows: [], discoverWarnings: [], errorMessage: null, sourceError: null, scanProgress: null, calendars: [], addressBooks: [] })),
     [],
   );
   const resetFlow = useCallback(() => setState(initialState()), []);
@@ -310,6 +318,8 @@ export function useScan() {
     toggleAccount,
     setPstName,
     discoveredAccountCount,
+    calendars: state.calendars,
+    addressBooks: state.addressBooks,
     back,
     resetFlow,
   };

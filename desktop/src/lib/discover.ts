@@ -51,7 +51,7 @@ export function parseDiscover(stdout: string): DiscoverResult {
     };
   });
 
-  const calendars = (Array.isArray(obj.calendars) ? obj.calendars : []).map((c) => {
+  const calendars: DiscoveredCalendar[] = (Array.isArray(obj.calendars) ? obj.calendars : []).map((c) => {
     const cc = c as Record<string, unknown>;
     return {
       calId: String(cc.calId ?? ""),
@@ -66,7 +66,7 @@ export function parseDiscover(stdout: string): DiscoverResult {
       defaultTaskFolderPath: Array.isArray(cc.defaultTaskFolderPath) ? cc.defaultTaskFolderPath.map(String) : [],
     };
   });
-  const addressBooks = (Array.isArray(obj.addressBooks) ? obj.addressBooks : []).map((b) => {
+  const addressBooks: DiscoveredAddressBook[] = (Array.isArray(obj.addressBooks) ? obj.addressBooks : []).map((b) => {
     const bb = b as Record<string, unknown>;
     const rawCount = bb.contactCount == null ? null : Number(bb.contactCount);
     return {
