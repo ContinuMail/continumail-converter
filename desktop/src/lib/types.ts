@@ -92,6 +92,10 @@ export type ConvertEvent = (
       bytes: number;
       currentSource?: string | null;
       currentFolder?: string | null;
+      phase?: string;
+      appointmentsConverted?: number; appointmentsTotal?: number;
+      tasksConverted?: number; tasksTotal?: number;
+      contactsConverted?: number; contactsTotal?: number;
     }
   | { type: "warning"; source: string; identifier: string; reason: string }
   | {
@@ -105,6 +109,9 @@ export type ConvertEvent = (
       elapsedMs: number;
       enrichment?: EnrichmentSummary;
       colourPlan?: ColourPlanEntry[];
+      appointmentsConverted?: number; appointmentsSkipped?: number; appointmentWarnings?: number;
+      tasksConverted?: number; tasksSkipped?: number; taskWarnings?: number;
+      contactsConverted?: number; contactsSkipped?: number; contactWarnings?: number;
     }
   | { type: "error"; stage?: string; message: string; fatal: boolean }
   | {

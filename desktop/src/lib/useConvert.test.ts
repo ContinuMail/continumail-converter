@@ -47,3 +47,24 @@ describe("reduceConvert colourPlan capture", () => {
     expect(initialConvertState.colourPlan).toBeNull();
   });
 });
+
+describe("reduceConvert per-type", () => {
+  it("copies progress per-type counts + currentPhase", () => {
+    const ev = { type: "progress", converted: 10, total: 20, warnings: 0, skipped: 0, bytes: 0,
+      phase: "contacts", contactsConverted: 3, contactsTotal: 4 } as ConvertEvent;
+    const s = reduceConvert(running, ev);
+    expect(s.currentPhase).toBe("contacts");
+    expect(s.contacts.converted).toBe(3);
+    expect(s.contacts.total).toBe(4);
+  });
+  it("copies done per-type counts under exact wire names", () => {
+    const ev = { type: "done", converted: 100, skipped: 0, warnings: 40, outputs: [], elapsedMs: 1,
+      appointmentsConverted: 368, appointmentsSkipped: 0, appointmentWarnings: 38,
+      tasksConverted: 7, tasksSkipped: 0, taskWarnings: 1,
+      contactsConverted: 4, contactsSkipped: 0, contactWarnings: 0 } as ConvertEvent;
+    const s = reduceConvert(running, ev);
+    expect(s.appointments).toEqual({ converted: 368, total: 0, skipped: 0, warnings: 38 });
+    expect(s.tasks.warnings).toBe(1);
+    expect(s.contacts.converted).toBe(4);
+  });
+});

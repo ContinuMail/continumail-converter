@@ -10,6 +10,9 @@ import type { ConversionConfig, ConvertEvent, EnrichmentSummary, ColourPlanEntry
 
 export type ConvertPhase = "idle" | "running" | "done" | "error" | "cancelled";
 
+export interface TypeCounts { converted: number; total: number; skipped: number; warnings: number; }
+const emptyCounts: TypeCounts = { converted: 0, total: 0, skipped: 0, warnings: 0 };
+
 export interface ConvertState {
   phase: ConvertPhase;
   total: number;
@@ -27,6 +30,10 @@ export interface ConvertState {
   elapsedMs: number | null;
   enrichment: EnrichmentSummary | null;
   colourPlan: ColourPlanEntry[] | null;
+  currentPhase: string | null;
+  appointments: TypeCounts;
+  tasks: TypeCounts;
+  contacts: TypeCounts;
 }
 
 export const initialConvertState: ConvertState = {
@@ -46,6 +53,10 @@ export const initialConvertState: ConvertState = {
   elapsedMs: null,
   enrichment: null,
   colourPlan: null,
+  currentPhase: null,
+  appointments: { ...emptyCounts },
+  tasks: { ...emptyCounts },
+  contacts: { ...emptyCounts },
 };
 
 export function reduceConvert(state: ConvertState, ev: ConvertEvent): ConvertState {
@@ -71,6 +82,16 @@ export function reduceConvert(state: ConvertState, ev: ConvertEvent): ConvertSta
         skipped: ev.skipped,
         bytes,
         currentFolder: ev.currentFolder ?? state.currentFolder,
+        currentPhase: ev.phase ?? state.currentPhase,
+        appointments: { ...state.appointments,
+          converted: ev.appointmentsConverted ?? state.appointments.converted,
+          total: ev.appointmentsTotal ?? state.appointments.total },
+        tasks: { ...state.tasks,
+          converted: ev.tasksConverted ?? state.tasks.converted,
+          total: ev.tasksTotal ?? state.tasks.total },
+        contacts: { ...state.contacts,
+          converted: ev.contactsConverted ?? state.contacts.converted,
+          total: ev.contactsTotal ?? state.contacts.total },
       };
     }
     case "warning":
@@ -93,6 +114,12 @@ export function reduceConvert(state: ConvertState, ev: ConvertEvent): ConvertSta
         elapsedMs: ev.elapsedMs,
         enrichment: ev.enrichment ?? null,
         colourPlan: ev.colourPlan ?? null,
+        appointments: { total: state.appointments.total,
+          converted: ev.appointmentsConverted ?? 0, skipped: ev.appointmentsSkipped ?? 0, warnings: ev.appointmentWarnings ?? 0 },
+        tasks: { total: state.tasks.total,
+          converted: ev.tasksConverted ?? 0, skipped: ev.tasksSkipped ?? 0, warnings: ev.taskWarnings ?? 0 },
+        contacts: { total: state.contacts.total,
+          converted: ev.contactsConverted ?? 0, skipped: ev.contactsSkipped ?? 0, warnings: ev.contactWarnings ?? 0 },
       };
     case "error":
       return { ...state, phase: "error", errorMessage: ev.message };
