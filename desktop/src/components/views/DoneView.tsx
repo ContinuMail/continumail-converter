@@ -3,18 +3,20 @@
 
 import { Check, Package, FolderOpen, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { StatChip } from "@/components/ui/stat-chip";
 import { openFolder } from "@/lib/engine";
 import { splitPath } from "@/lib/convert";
 import type { ConvertState } from "@/lib/useConvert";
 import { formatElapsed } from "@/lib/progressStats";
 import { shouldShowEnrichment, formatEnrichmentLine } from "@/lib/doneEnrichment";
+import { perTypeRows, anySkipped, doneSubtitle } from "@/lib/perTypeRows";
 import { ColourImportCard } from "@/components/views/ColourImportCard";
 
 export function DoneView({ state, profileRoot, onConvertAnother }: { state: ConvertState; profileRoot?: string | null; onConvertAnother: () => void }) {
   const first = state.outputs[0];
   const folder = first ? splitPath(first).dir : state.outputDir;
   const elapsed = state.elapsedMs != null ? formatElapsed(state.elapsedMs) : "";
+  const rows = perTypeRows(state);
+  const showSkipped = anySkipped(rows);
   const title =
     state.outputs.length <= 1
       ? first
@@ -30,9 +32,7 @@ export function DoneView({ state, profileRoot, onConvertAnother }: { state: Conv
         </div>
         <div>
           <h1 className="text-xl font-semibold text-foreground">Conversion complete</h1>
-          <p className="text-sm text-muted-foreground">
-            {state.converted.toLocaleString()} messages converted{elapsed ? ` in ${elapsed}` : ""}.
-          </p>
+          <p className="text-sm text-muted-foreground">{doneSubtitle(state, elapsed)}</p>
         </div>
       </div>
 
@@ -51,10 +51,21 @@ export function DoneView({ state, profileRoot, onConvertAnother }: { state: Conv
         )}
       </div>
 
-      <div className="mt-4 flex gap-2.5">
-        <StatChip label="Converted" value={state.converted} />
-        <StatChip label="Skipped" value={state.skipped} />
-        <StatChip label="Warnings" value={state.warnings} />
+      <div className="mt-4 overflow-hidden rounded-[10px] border border-border bg-card text-sm">
+        <div className="flex border-b border-border px-3.5 py-1.5 text-[11px] uppercase tracking-wide text-light-gray">
+          <div className="flex-1">Type</div>
+          <div className="w-20 text-right">Converted</div>
+          {showSkipped && <div className="w-20 text-right">Skipped</div>}
+          <div className="w-20 text-right">Warnings</div>
+        </div>
+        {rows.map((r) => (
+          <div key={r.label} className="flex border-t border-border px-3.5 py-2 first:border-t-0 text-foreground">
+            <div className="flex-1 font-medium">{r.label}</div>
+            <div className="w-20 text-right tabular-nums">{r.converted.toLocaleString()}</div>
+            {showSkipped && <div className="w-20 text-right tabular-nums text-light-gray">{r.skipped.toLocaleString()}</div>}
+            <div className="w-20 text-right tabular-nums text-light-gray">{r.warnings.toLocaleString()}</div>
+          </div>
+        ))}
       </div>
 
       {state.enrichment && shouldShowEnrichment(state.enrichment) && (
