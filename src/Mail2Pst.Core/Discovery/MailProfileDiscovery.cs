@@ -139,7 +139,12 @@ public static class MailProfileDiscovery
             })
             .ToList();
 
-        var addressBooks = DiscoverAddressBooks(prefsRoot ?? root).ToList();
+        var cardDavByFile = string.IsNullOrEmpty(prefsRoot)
+            ? new Dictionary<string, string>()
+            : (IReadOnlyDictionary<string, string>)AddressBookRegistryReader
+                .ReadFilenameToCardDavUrl(Path.Combine(prefsRoot, "prefs.js"));
+        var addressBooks = DiscoverAddressBooks(prefsRoot ?? root, accounts, cardDavByFile, out var abWarnings);
+        warnings.AddRange(abWarnings);
 
         var calendarResult = DiscoverCalendars(prefsRoot ?? root, accounts);
         warnings.AddRange(calendarResult.Warnings);
@@ -299,6 +304,31 @@ public static class MailProfileDiscovery
         }
 
         return result;
+    }
+
+    public static List<DiscoveredAddressBook> DiscoverAddressBooks(
+        string profileDir,
+        IReadOnlyList<Account> accounts,
+        IReadOnlyDictionary<string, string> cardDavByFile,
+        out List<DiscoveryWarning> warnings)
+    {
+        warnings = new List<DiscoveryWarning>();
+        var books = new List<DiscoveredAddressBook>();
+        foreach (DiscoveredAddressBook book in DiscoverAddressBooks(profileDir)) // existing enumerator
+        {
+            string file = Path.GetFileName(book.Path);
+            if (cardDavByFile.TryGetValue(file, out string? url))
+            {
+                AccountMatch m = PimAccountMatcher.Match(url, accounts);
+                book.AccountId = m.AccountId;
+                if (m.Ambiguous)
+                    warnings.Add(new DiscoveryWarning("addressbook-ambiguous-account", book.Path,
+                        null, null, null, null,
+                        $"Address book {book.DisplayName} matched more than one account; treated as local (Local Folders)."));
+            }
+            books.Add(book);
+        }
+        return books;
     }
 
     public static IEnumerable<DiscoveredAddressBook> DiscoverAddressBooks(string profileDir)
