@@ -68,9 +68,6 @@ export function validateFolderName(name: string): string | null {
     return "Folder name can't contain control characters.";
   }
   if (name !== trimmed) return "Folder name can't start or end with a space.";
-  if (trimmed.startsWith(".") || trimmed.endsWith(".")) {
-    return "Folder name can't start or end with a dot.";
-  }
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(trimmed)) {
     return "Folder name is reserved on Windows.";
   }

@@ -44,9 +44,6 @@ public static class FolderNameValidator
         if (value != trimmed)
             throw new ConfigValidationException("Folder name can't start or end with a space.");
 
-        if (trimmed.StartsWith('.') || trimmed.EndsWith('.'))
-            throw new ConfigValidationException("Folder name can't start or end with a dot.");
-
         if (ReservedName.IsMatch(trimmed))
             throw new ConfigValidationException("Folder name is reserved on Windows.");
     }
