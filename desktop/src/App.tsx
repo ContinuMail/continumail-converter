@@ -143,6 +143,8 @@ export default function App() {
             accounts={f.accounts}
             selectedAccountKeys={f.selectedAccountKeys}
             pstNames={f.pstNames}
+            calendars={flow.calendars}
+            addressBooks={flow.addressBooks}
           />
         ) : f.scan && f.outputTarget?.kind === "pstFile" ? (
           <OptionsView

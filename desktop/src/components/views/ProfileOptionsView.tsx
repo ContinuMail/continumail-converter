@@ -12,8 +12,9 @@ import { formatBytes } from "@/lib/format";
 import { openJunkHelp, pickOutputPst } from "@/lib/engine";
 import { groupByAccount, sanitizePstName, accountKeyForRow } from "@/lib/accounts";
 import { buildAccountPreview } from "@/lib/profilePreview";
+import { alsoConvertInfo } from "@/lib/alsoConvert";
 import type { OptionsState } from "@/lib/options";
-import type { ConversionConfig, ProfileSourceRow, OutputTarget, Account } from "@/lib/types";
+import type { ConversionConfig, ProfileSourceRow, OutputTarget, Account, DiscoveredCalendar, DiscoveredAddressBook } from "@/lib/types";
 
 interface ProfileOptionsViewProps {
   rows: ProfileSourceRow[];
@@ -30,11 +31,13 @@ interface ProfileOptionsViewProps {
   accounts?: Account[];
   selectedAccountKeys?: Set<string>;
   pstNames?: Record<string, string>;
+  calendars: DiscoveredCalendar[];
+  addressBooks: DiscoveredAddressBook[];
 }
 
 export function ProfileOptionsView({
   rows, outputTarget, onOutputTargetChange, profileRoot, checkedIds, skipEmpty, options, onSetOptions, onStart, onBack,
-  accounts, selectedAccountKeys, pstNames,
+  accounts, selectedAccountKeys, pstNames, calendars, addressBooks,
 }: ProfileOptionsViewProps) {
   const [startError, setStartError] = useState<string | null>(null);
   const [splitOk, setSplitOk] = useState(true);
@@ -50,6 +53,8 @@ export function ProfileOptionsView({
     () => effectiveRows(rows, checkedIds, skipEmpty) as ProfileSourceRow[],
     [rows, checkedIds, skipEmpty],
   );
+
+  const also = useMemo(() => alsoConvertInfo(calendars, addressBooks), [calendars, addressBooks]);
 
   const outputPath = outputTarget?.kind === "pstFile" ? outputTarget.path : null;
   const folderDir = outputTarget?.kind === "folder" ? outputTarget.dir : null;
@@ -105,7 +110,7 @@ export function ProfileOptionsView({
           // selection-filtered upstream, but don't rely on that here).
           const combineRows = rows.filter((r) => keys.has(accountKeyForRow(r)));
           const path = joinOutputPstPath(folderDir, sanitizedCombineName);
-          const { config, outputDir } = buildProfileConfig(combineRows, checkedIds, skipEmpty, options, path, profileRoot);
+          const { config, outputDir } = buildProfileConfig(combineRows, checkedIds, skipEmpty, options, path, profileRoot, calendars, addressBooks);
           onStart(config, outputDir, expectedTotalMessages(combineRows, checkedIds, skipEmpty));
         } else {
           const accs = accounts ?? [];
@@ -115,6 +120,7 @@ export function ProfileOptionsView({
             .map((g) => ({ key: g.key, pstName: names[g.key] ?? g.defaultPstName, rows: g.rows }));
           const { config, outputDir } = buildProfileConfigMulti({
             groups: selectedGroups, checkedIds, skipEmpty, options, target: outputTarget, profileRoot,
+            calendars, addressBooks,
           });
           const splitRows = selectedGroups.flatMap((g) => g.rows);
           onStart(config, outputDir, expectedTotalMessages(splitRows, checkedIds, skipEmpty));
@@ -130,7 +136,7 @@ export function ProfileOptionsView({
       return;
     }
     try {
-      const { config, outputDir } = buildProfileConfig(rows, checkedIds, skipEmpty, options, outputPath, profileRoot);
+      const { config, outputDir } = buildProfileConfig(rows, checkedIds, skipEmpty, options, outputPath, profileRoot, calendars, addressBooks);
       onStart(config, outputDir, expectedTotalMessages(rows, checkedIds, skipEmpty));
     } catch (e) {
       setStartError(e instanceof ConvertConfigError ? e.message : "Could not start the conversion.");
@@ -159,6 +165,43 @@ export function ProfileOptionsView({
               Flatten into one folder
             </label>
           </div>
+
+          <div>
+            <div className="mb-1 text-sm font-medium text-foreground">Also convert</div>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={options.includeAppointments && !also.appointments.disabled}
+                disabled={also.appointments.disabled}
+                onChange={(e) => onSetOptions({ includeAppointments: e.target.checked })} />
+              Calendar events
+              <span className="ml-auto text-xs text-light-gray">
+                {also.appointments.disabled ? "none found" : also.appointments.count.toLocaleString()}
+              </span>
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={options.includeTasks && !also.tasks.disabled}
+                disabled={also.tasks.disabled}
+                onChange={(e) => onSetOptions({ includeTasks: e.target.checked })} />
+              Tasks
+              <span className="ml-auto text-xs text-light-gray">
+                {also.tasks.disabled ? "none found" : also.tasks.count.toLocaleString()}
+              </span>
+            </label>
+            <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
+              <input type="checkbox" checked={options.includeContacts && !also.contacts.disabled}
+                disabled={also.contacts.disabled}
+                onChange={(e) => onSetOptions({ includeContacts: e.target.checked })} />
+              Contacts
+              <span className="ml-auto text-xs text-light-gray">
+                {also.contacts.disabled ? "none found"
+                  : also.contacts.unknown && also.contacts.count === 0 ? "found"
+                  : `${also.contacts.count.toLocaleString()}${also.contacts.unknown ? "+" : ""}`}
+              </span>
+            </label>
+            {isMultiAccount && !combine && (
+              <p className="mt-1 text-xs text-light-gray">Written to the first PST.</p>
+            )}
+          </div>
+
           <div>
             <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
               Junk handling
