@@ -3,7 +3,7 @@
 
 import type {
   DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry, OutputTarget, OutputGroupConfig,
-  DiscoveredCalendar, DiscoveredAddressBook, CalendarSourceConfigTS, ContactSourceConfigTS,
+  DiscoveredCalendar, DiscoveredAddressBook, CalendarSourceConfigTS, ContactSourceConfigTS, Account,
 } from "./types";
 import type { ScanResult } from "./parse";
 import type { OptionsState } from "./options";
@@ -11,6 +11,7 @@ import { effectiveRows } from "./review";
 import { deriveOutputTarget, ConvertConfigError } from "./convert";
 import { sanitizePstName, dedupePstNames } from "./accounts";
 import { alsoConvertInfo } from "./alsoConvert";
+import { routeAlsoConvert, SYNTHETIC_LOCAL_FOLDERS_KEY } from "./routeAlsoConvert";
 
 /** Build the calendars[]/contacts[] arrays for the PRIMARY output group from the
  * discovered data + toggles. Applies the SAME disable logic the UI uses, so a
@@ -149,6 +150,7 @@ export function buildProfileConfigMulti({
   profileRoot,
   calendars,
   addressBooks,
+  accounts,
 }: {
   groups: MultiAccountGroup[];
   checkedIds: Set<string>;
@@ -158,14 +160,17 @@ export function buildProfileConfigMulti({
   profileRoot: string;
   calendars?: DiscoveredCalendar[];
   addressBooks?: DiscoveredAddressBook[];
+  accounts?: Account[];
 }): { config: ConversionConfig; outputDir: string } {
   const folderMapping = options.folderMapping;
   const cals = calendars ?? [];
   const books = addressBooks ?? [];
+  const accts = accounts ?? [];
   const outputDir = target.kind === "folder" ? target.dir : deriveOutputTarget(target.path).outputDir;
 
   // Build surviving output groups
   const outputGroups: OutputGroupConfig[] = [];
+  const keptKeys: string[] = [];
   for (const group of groups) {
     const eff = effectiveRows(group.rows, checkedIds, skipEmpty) as ProfileSourceRow[];
     if (eff.length === 0) continue; // drop group with no effective sources
@@ -192,6 +197,7 @@ export function buildProfileConfigMulti({
       includeEmptyFolders: !skipEmpty,
       sources,
     });
+    keptKeys.push(group.key);
   }
 
   if (outputGroups.length === 0) {
@@ -202,11 +208,30 @@ export function buildProfileConfigMulti({
   const dedup = dedupePstNames(outputGroups.map((g) => g.name));
   outputGroups.forEach((g, i) => { g.name = dedup[i]; });
 
-  // Profile-global calendar/contacts attach to the FIRST (primary) group only.
-  // outputGroups is guaranteed non-empty here (the `length === 0` throw above ran
-  // first), but guard explicitly so a future refactor can't index into nothing.
-  if (outputGroups.length > 0) {
-    Object.assign(outputGroups[0], buildAlsoConvert(cals, books, options));
+  // Route each calendar/address book into its account's group (split mode).
+  const isLocalFolders = (key: string): boolean =>
+    accts.find((a) => a.id === key)?.addressResolution === "local-folders";
+  const routeGroups = keptKeys.map((key) => ({ key, accountId: key, isLocalFolders: isLocalFolders(key) }));
+  const routed = routeAlsoConvert(cals, books, routeGroups, options);
+
+  keptKeys.forEach((key, i) => {
+    const pim = routed.perGroup.get(key);
+    if (pim?.calendars) outputGroups[i].calendars = pim.calendars;
+    if (pim?.contacts) outputGroups[i].contacts = pim.contacts;
+  });
+
+  if (routed.needsLocalFoldersGroup) {
+    const synthetic = routed.perGroup.get(SYNTHETIC_LOCAL_FOLDERS_KEY);
+    const names = dedupePstNames([...outputGroups.map((g) => g.name), sanitizePstName("Local Folders")]);
+    outputGroups.push({
+      name: names[names.length - 1],
+      maxSizeMB: options.maxSizeMB,
+      folderMapping,
+      includeEmptyFolders: !skipEmpty,
+      sources: [],
+      ...(synthetic?.calendars ? { calendars: synthetic.calendars } : {}),
+      ...(synthetic?.contacts ? { contacts: synthetic.contacts } : {}),
+    });
   }
 
   return {

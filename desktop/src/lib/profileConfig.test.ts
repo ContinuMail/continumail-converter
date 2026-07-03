@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { mergeProfileSources, buildProfileConfig, buildProfileConfigMulti } from "./profileConfig";
-import type { DiscoveredSource, ProfileSourceRow, DiscoveredCalendar, DiscoveredAddressBook } from "./types";
+import type { DiscoveredSource, ProfileSourceRow, DiscoveredCalendar, DiscoveredAddressBook, Account } from "./types";
 import type { OutputTarget } from "./types";
 import type { ScanResult } from "./parse";
 import { ConvertConfigError } from "./convert";
@@ -345,7 +345,7 @@ describe("buildProfileConfig calendars/contacts", () => {
 });
 
 describe("buildProfileConfigMulti calendars/contacts", () => {
-  it("split mode: calendars/contacts only on the FIRST group", () => {
+  it("split mode: calendars/contacts route to the matching account's group only", () => {
     // Account-prefixed paths so mirror-stripping leaves a folder (real multi-account shape).
     const r1: ProfileSourceRow = { ...calRow(), id: "/p/A/Inbox", path: "/p/A/Inbox", targetFolderPath: ["A", "Inbox"] };
     const r2: ProfileSourceRow = { ...calRow(), id: "/p/B/Inbox", path: "/p/B/Inbox", targetFolderPath: ["B", "Inbox"] };
@@ -354,11 +354,62 @@ describe("buildProfileConfigMulti calendars/contacts", () => {
     const { config } = buildProfileConfigMulti({
       groups: [g1, g2], checkedIds: new Set(["/p/A/Inbox", "/p/B/Inbox"]), skipEmpty: false,
       options: defaultOptions(), target: { kind: "folder", dir: "C:/out" }, profileRoot: "/p",
-      calendars: [cal], addressBooks: [bk],
+      calendars: [{ ...cal, accountId: "a" }], addressBooks: [{ ...bk, accountId: "a" }],
     });
     expect(config.outputs[0].calendars).toHaveLength(1);
     expect(config.outputs[0].contacts).toHaveLength(1);
     expect(config.outputs[1].calendars).toBeUndefined();
     expect(config.outputs[1].contacts).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// per-account routing + synthetic Local Folders PST (Task 8)
+// ---------------------------------------------------------------------------
+
+const acc = (id: string, resolution: Account["addressResolution"]): Account => ({
+  id, folderSegment: id, accountPath: id, store: null, email: null, host: null, addressResolution: resolution,
+});
+// Rows carry accountId so groupByAccount keys == account ids.
+const rowFor = (accountId: string, leaf: string): ProfileSourceRow => ({
+  ...calRow(), id: `${accountId}/${leaf}`, path: `${accountId}/${leaf}`,
+  targetFolderPath: [accountId, leaf], accountId,
+});
+
+describe("buildProfileConfigMulti routing", () => {
+  it("routes matched calendar/book to their account groups; local to Local Folders group", () => {
+    const gmail = rowFor("/acc/gmail", "Inbox");
+    const lf = rowFor("/acc/lf", "Inbox");
+    const groups = [
+      { key: "/acc/gmail", pstName: "Gmail", rows: [gmail] },
+      { key: "/acc/lf", pstName: "Local Folders", rows: [lf] },
+    ];
+    const accounts = [acc("/acc/gmail", "server"), acc("/acc/lf", "local-folders")];
+    const { config } = buildProfileConfigMulti({
+      groups, checkedIds: new Set([gmail.id, lf.id]), skipEmpty: false, options: defaultOptions(),
+      target: { kind: "folder", dir: "C:/out" }, profileRoot: "/p", accounts,
+      calendars: [{ ...cal, accountId: "/acc/gmail" }, { ...cal, calId: "c2", accountId: null }],
+      addressBooks: [{ ...bk, accountId: "/acc/gmail" }],
+    });
+    const gmailOut = config.outputs.find((o) => o.name === "Gmail")!;
+    const lfOut = config.outputs.find((o) => o.name === "Local Folders")!;
+    expect(gmailOut.calendars).toHaveLength(1);
+    expect(gmailOut.contacts).toHaveLength(1);
+    expect(lfOut.calendars).toHaveLength(1);   // the accountId:null calendar
+  });
+
+  it("synthesizes a Local Folders PST when local PIM exists and no LF group is present", () => {
+    const gmail = rowFor("/acc/gmail", "Inbox");
+    const groups = [{ key: "/acc/gmail", pstName: "Gmail", rows: [gmail] }];
+    const accounts = [acc("/acc/gmail", "server")];
+    const { config } = buildProfileConfigMulti({
+      groups, checkedIds: new Set([gmail.id]), skipEmpty: false, options: defaultOptions(),
+      target: { kind: "folder", dir: "C:/out" }, profileRoot: "/p", accounts,
+      calendars: [{ ...cal, accountId: null }], addressBooks: [],
+    });
+    const lf = config.outputs.find((o) => o.name === "Local Folders");
+    expect(lf).toBeDefined();
+    expect(lf!.sources).toEqual([]);
+    expect(lf!.calendars).toHaveLength(1);
   });
 });
