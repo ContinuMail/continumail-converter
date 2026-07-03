@@ -68,13 +68,16 @@ export function ProfileOptionsView({
     try { return deriveOutputTarget(outputPath).pstName; } catch { return "Output"; }
   }, [outputPath]);
 
-  const previewEntries = useMemo(
+  const preview = useMemo(
     () =>
       isMultiAccount
-        ? buildAccountPreview(eff, accounts ?? [], selectedAccountKeys ?? new Set<string>(), pstNames ?? {}, options.folderMapping)
-        : [],
-    [isMultiAccount, eff, accounts, selectedAccountKeys, pstNames, options.folderMapping],
+        ? buildAccountPreview(eff, accounts ?? [], selectedAccountKeys ?? new Set<string>(), pstNames ?? {},
+            options.folderMapping, calendars, addressBooks, options)
+        : { entries: [], warnings: [] },
+    [isMultiAccount, eff, accounts, selectedAccountKeys, pstNames, options, calendars, addressBooks],
   );
+  const previewEntries = preview.entries;
+  const routeWarnings = preview.warnings;
 
   const sanitizedCombineName = sanitizePstName(combineName);
   const combineFilename = `${sanitizedCombineName}.pst`;
@@ -120,7 +123,7 @@ export function ProfileOptionsView({
             .map((g) => ({ key: g.key, pstName: names[g.key] ?? g.defaultPstName, rows: g.rows }));
           const { config, outputDir } = buildProfileConfigMulti({
             groups: selectedGroups, checkedIds, skipEmpty, options, target: outputTarget, profileRoot,
-            calendars, addressBooks,
+            calendars, addressBooks, accounts,
           });
           const splitRows = selectedGroups.flatMap((g) => g.rows);
           onStart(config, outputDir, expectedTotalMessages(splitRows, checkedIds, skipEmpty));
@@ -198,7 +201,9 @@ export function ProfileOptionsView({
               </span>
             </label>
             {isMultiAccount && !combine && (
-              <p className="mt-1 text-xs text-light-gray">Written to the first PST.</p>
+              <p className="mt-1 text-xs text-light-gray">
+                Each list is written to its account's PST; local items go to Local Folders.
+              </p>
             )}
           </div>
 
@@ -275,10 +280,22 @@ export function ProfileOptionsView({
                           <span className="ml-2 text-light-gray">{f.messages.toLocaleString()} · {formatBytes(f.bytes)}</span>
                         </div>
                       ))}
+                      {entry.pim.calendars.map((name, i) => (
+                        <div key={`c${i}`} className="pl-3 text-foreground">🗓 {name}</div>
+                      ))}
+                      {entry.pim.contacts.map((name, i) => (
+                        <div key={`k${i}`} className="pl-3 text-foreground">👤 {name}</div>
+                      ))}
+                      {entry.isSynthetic && (
+                        <div className="pl-3 text-xs text-light-gray">PIM-only PST (no mail).</div>
+                      )}
                     </div>
                   </div>
                 ))}
                 {previewEntries.length === 0 && <div className="pl-3 text-xs text-light-gray">No folders selected.</div>}
+                {routeWarnings.map((w, i) => (
+                  <p key={`w${i}`} className="mt-2 text-xs text-primary">{w}</p>
+                ))}
               </div>
             ) : (
               <>
