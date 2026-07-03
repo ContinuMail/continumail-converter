@@ -141,7 +141,7 @@ public static class MailProfileDiscovery
 
         var addressBooks = DiscoverAddressBooks(prefsRoot ?? root).ToList();
 
-        var calendarResult = DiscoverCalendars(prefsRoot ?? root);
+        var calendarResult = DiscoverCalendars(prefsRoot ?? root, accounts);
         warnings.AddRange(calendarResult.Warnings);
 
         return new DiscoveryResult(root, layout, sources, warnings, skipped,
@@ -160,8 +160,10 @@ public static class MailProfileDiscovery
     /// cal_ids that have rows get a synthesized display name and a warning.  Skips
     /// <c>deleted.sqlite</c>.
     /// </summary>
-    public static CalendarDiscoveryResult DiscoverCalendars(string profileDir)
+    public static CalendarDiscoveryResult DiscoverCalendars(string profileDir,
+        IReadOnlyList<Account>? accounts = null)
     {
+        accounts ??= Array.Empty<Account>();
         var result = new CalendarDiscoveryResult();
 
         // Registry: cal_id -> entry (name, type, visibility). Missing file -> empty.
@@ -271,6 +273,13 @@ public static class MailProfileDiscovery
             string folderLeaf = FolderNameValidator.Sanitize(
                 displayName, "Calendar " + calId[..Math.Min(8, calId.Length)]);
 
+            string? calUri = registry.TryGetValue(calId, out CalendarRegistryEntry? uriEntry) ? uriEntry.Uri : null;
+            AccountMatch match = PimAccountMatcher.Match(calUri, accounts);
+            if (match.Ambiguous)
+                result.Warnings.Add(new DiscoveryWarning("calendar-ambiguous-account", chosenPath,
+                    null, null, null, null,
+                    $"Calendar {displayName} matched more than one account; treated as local (Local Folders)."));
+
             result.Calendars.Add(new DiscoveredCalendarSource
             {
                 CalId                    = calId,
@@ -285,6 +294,7 @@ public static class MailProfileDiscovery
                 DefaultTaskFolderPath    = taskCount > 0
                     ? new[] { "Tasks", folderLeaf }
                     : Array.Empty<string>(),
+                AccountId                = match.AccountId,
             });
         }
 

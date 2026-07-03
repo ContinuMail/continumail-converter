@@ -29,6 +29,7 @@ public sealed class DiscoveredAddressBook
     public string Path { get; set; } = string.Empty;
     public string Format { get; set; } = string.Empty; // "thunderbird-sqlite" | "thunderbird-mab"
     public int? ContactCount { get; set; }              // null = unknown/count-failed
+    public string? AccountId { get; set; }               // null = local / unmatched
 }
 
 public sealed class DiscoveredCalendarSource
@@ -43,6 +44,7 @@ public sealed class DiscoveredCalendarSource
     public int TaskCount { get; init; }
     public IReadOnlyList<string> DefaultCalendarFolderPath { get; init; } = System.Array.Empty<string>();
     public IReadOnlyList<string> DefaultTaskFolderPath { get; init; } = System.Array.Empty<string>();
+    public string? AccountId { get; init; }              // null = local / unmatched
 }
 
 public sealed class CalendarDiscoveryResult
