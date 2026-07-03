@@ -88,4 +88,25 @@ public class PimAccountMatcherTests
         Assert.Null(PimAccountMatcher.Match(null, Accounts).AccountId);
         Assert.Null(PimAccountMatcher.Match("", Accounts).AccountId);
     }
+
+    [Fact]
+    public void Email_substring_of_longer_localpart_does_not_match()
+    {
+        var accounts = new[] { Acct("/p/info", "info@example.com", "imap.example.com") };
+        var m = PimAccountMatcher.Match("https://dav/myinfo@example.com/cal", accounts);
+        Assert.Null(m.AccountId);          // "myinfo@example.com" is NOT account "info@example.com"
+        Assert.False(m.Ambiguous);
+    }
+
+    [Fact]
+    public void Email_bounded_match_still_works_encoded_and_raw()
+    {
+        var accounts = new[] { Acct("/p/info", "info@example.com", "imap.example.com") };
+        var raw = PimAccountMatcher.Match("https://dav/info@example.com/cal", accounts);
+        Assert.Equal("/p/info", raw.AccountId);
+        Assert.False(raw.Ambiguous);
+        var encoded = PimAccountMatcher.Match("https://dav/info%40example.com/cal", accounts);
+        Assert.Equal("/p/info", encoded.AccountId);
+        Assert.False(encoded.Ambiguous);
+    }
 }

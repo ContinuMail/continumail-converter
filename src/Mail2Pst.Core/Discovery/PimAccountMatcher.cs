@@ -30,9 +30,11 @@ public static class PimAccountMatcher
         {
             if (string.IsNullOrEmpty(a.Email)) continue;
             string enc = SafeEscape(a.Email!);   // aksel@x -> aksel%40x
-            bool hit = decoded.IndexOf(a.Email!, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                       candidate.IndexOf(a.Email!, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                       candidate.IndexOf(enc, StringComparison.OrdinalIgnoreCase) >= 0;
+            // Boundary-guarded: an email only matches at token boundaries, so
+            // "myinfo@x" does NOT match account "info@x" (substring mis-route).
+            bool hit = ContainsBounded(decoded, a.Email!) ||
+                       ContainsBounded(candidate, a.Email!) ||
+                       ContainsBounded(candidate, enc);
             if (!hit) continue;
             if (emailMatchId is null) emailMatchId = a.Id;
             else if (!string.Equals(emailMatchId, a.Id, StringComparison.Ordinal)) emailAmbiguous = true;
@@ -62,6 +64,26 @@ public static class PimAccountMatcher
 
         return new AccountMatch(null, false);
     }
+
+    /// <summary>True iff <paramref name="needle"/> occurs in <paramref name="haystack"/> at a
+    /// position bounded on both sides by a non-email-token char (or string end) — so an account
+    /// email is not accidentally matched as a substring of a longer local-part/domain.</summary>
+    private static bool ContainsBounded(string haystack, string needle)
+    {
+        if (needle.Length == 0) return false;
+        int i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            bool left  = i == 0 || !IsEmailTokenChar(haystack[i - 1]);
+            bool right = i + needle.Length == haystack.Length || !IsEmailTokenChar(haystack[i + needle.Length]);
+            if (left && right) return true;
+            i += 1;
+        }
+        return false;
+    }
+
+    private static bool IsEmailTokenChar(char c) =>
+        char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '%' || c == '+' || c == '-' || c == '@';
 
     private static string SafeUnescape(string s)
     {
