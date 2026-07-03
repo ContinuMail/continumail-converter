@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { mergeProfileSources, buildProfileConfig, buildProfileConfigMulti } from "./profileConfig";
-import type { DiscoveredSource, ProfileSourceRow } from "./types";
+import type { DiscoveredSource, ProfileSourceRow, DiscoveredCalendar, DiscoveredAddressBook } from "./types";
 import type { OutputTarget } from "./types";
 import type { ScanResult } from "./parse";
 import { ConvertConfigError } from "./convert";
@@ -261,5 +261,104 @@ describe("buildProfileConfigMulti", () => {
       groups: [{ key: "A", pstName: "A", rows: [srcRow("a", "A", ["x", "Empty"], null, 0)] }],
       mapping: "mirror", target: { kind: "folder", dir: "/out" }, skipEmpty: true,
     })).toThrow(/at least one folder/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calendars / contacts population (Task 5)
+// ---------------------------------------------------------------------------
+
+const calRow = (): ProfileSourceRow => ({
+  id: "/p/Inbox", path: "/p/Inbox", displayName: "Inbox", messages: 5, bytes: 100, sourceBytes: 100,
+  dateFrom: null, dateTo: null, warnings: 0, skipped: 0, targetFolderPath: ["Inbox"], msfPath: null, accountId: null,
+});
+const cal: DiscoveredCalendar = {
+  calId: "c1", displayName: "Home", storeKind: "local", storePath: "/p/local.sqlite", calendarType: "both",
+  isVisibleInThunderbird: true, eventCount: 3, taskCount: 2,
+  defaultCalendarFolderPath: ["Calendar"], defaultTaskFolderPath: ["Tasks"],
+};
+const bk: DiscoveredAddressBook = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4 };
+const calChecked = new Set(["/p/Inbox"]);
+
+function buildCal(over: Partial<ReturnType<typeof defaultOptions>>) {
+  return buildProfileConfig([calRow()], calChecked, false,
+    { ...defaultOptions(), ...over }, "C:/out/Mail.pst", "/p", [cal], [bk]).config.outputs[0];
+}
+
+describe("buildProfileConfig calendars/contacts", () => {
+  it("appointments on, tasks off -> IncludeTasks=false explicitly", () => {
+    const g = buildCal({ includeAppointments: true, includeTasks: false });
+    expect(g.calendars).toHaveLength(1);
+    expect(g.calendars![0].includeAppointments).toBe(true);
+    expect(g.calendars![0].includeTasks).toBe(false);
+  });
+  it("appointments off, tasks on -> IncludeAppointments=false explicitly", () => {
+    const g = buildCal({ includeAppointments: false, includeTasks: true });
+    expect(g.calendars![0].includeAppointments).toBe(false);
+    expect(g.calendars![0].includeTasks).toBe(true);
+  });
+  it("both off -> calendars omitted", () => {
+    const g = buildCal({ includeAppointments: false, includeTasks: false });
+    expect(g.calendars).toBeUndefined();
+  });
+  it("contacts off -> contacts omitted", () => {
+    const g = buildCal({ includeContacts: false });
+    expect(g.contacts).toBeUndefined();
+  });
+  it("contacts on -> one entry per address book", () => {
+    const g = buildCal({ includeContacts: true });
+    expect(g.contacts).toEqual([{ path: "/p/abook.sqlite", format: "thunderbird-sqlite" }]);
+  });
+
+  // Effective-disable: a zero-count type never emits config even though options.* default ON.
+  it("0 appointments, 7 tasks, defaults ON -> includeAppointments=false, includeTasks=true", () => {
+    const cal0 = { ...cal, eventCount: 0, taskCount: 7 };
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal0], [bk]).config.outputs[0];
+    expect(g.calendars).toHaveLength(1);
+    expect(g.calendars![0].includeAppointments).toBe(false);
+    expect(g.calendars![0].includeTasks).toBe(true);
+  });
+  it("0 appointments and 0 tasks -> calendars omitted (defaults ON)", () => {
+    const cal0 = { ...cal, eventCount: 0, taskCount: 0 };
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal0], [bk]).config.outputs[0];
+    expect(g.calendars).toBeUndefined();
+  });
+  it("0 known contacts -> contacts omitted even with toggle ON", () => {
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal], [{ ...bk, contactCount: 0 }]).config.outputs[0];
+    expect(g.contacts).toBeUndefined();
+  });
+  it("unknown contact count -> contacts still included", () => {
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal], [{ ...bk, contactCount: null }]).config.outputs[0];
+    expect(g.contacts).toHaveLength(1);
+  });
+  it("mixed books -> emits unknown + non-empty, skips known-empty", () => {
+    const known = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4 };
+    const empty = { displayName: "Empty", path: "/p/empty.sqlite", format: "thunderbird-sqlite", contactCount: 0 };
+    const unknown = { displayName: "Old", path: "/p/old.mab", format: "thunderbird-mab", contactCount: null };
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal], [known, empty, unknown]).config.outputs[0];
+    expect(g.contacts!.map((c) => c.path)).toEqual(["/p/abook.sqlite", "/p/old.mab"]);
+  });
+  it("no calendars discovered -> calendars omitted", () => {
+    const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [], [bk]).config.outputs[0];
+    expect(g.calendars).toBeUndefined();
+  });
+});
+
+describe("buildProfileConfigMulti calendars/contacts", () => {
+  it("split mode: calendars/contacts only on the FIRST group", () => {
+    // Account-prefixed paths so mirror-stripping leaves a folder (real multi-account shape).
+    const r1: ProfileSourceRow = { ...calRow(), id: "/p/A/Inbox", path: "/p/A/Inbox", targetFolderPath: ["A", "Inbox"] };
+    const r2: ProfileSourceRow = { ...calRow(), id: "/p/B/Inbox", path: "/p/B/Inbox", targetFolderPath: ["B", "Inbox"] };
+    const g1 = { key: "a", pstName: "A", rows: [r1] };
+    const g2 = { key: "b", pstName: "B", rows: [r2] };
+    const { config } = buildProfileConfigMulti({
+      groups: [g1, g2], checkedIds: new Set(["/p/A/Inbox", "/p/B/Inbox"]), skipEmpty: false,
+      options: defaultOptions(), target: { kind: "folder", dir: "C:/out" }, profileRoot: "/p",
+      calendars: [cal], addressBooks: [bk],
+    });
+    expect(config.outputs[0].calendars).toHaveLength(1);
+    expect(config.outputs[0].contacts).toHaveLength(1);
+    expect(config.outputs[1].calendars).toBeUndefined();
+    expect(config.outputs[1].contacts).toBeUndefined();
   });
 });

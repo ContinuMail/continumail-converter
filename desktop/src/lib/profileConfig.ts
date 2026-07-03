@@ -1,12 +1,56 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry, OutputTarget, OutputGroupConfig } from "./types";
+import type {
+  DiscoveredSource, ProfileSourceRow, ConversionConfig, SourceConfigEntry, OutputTarget, OutputGroupConfig,
+  DiscoveredCalendar, DiscoveredAddressBook, CalendarSourceConfigTS, ContactSourceConfigTS,
+} from "./types";
 import type { ScanResult } from "./parse";
 import type { OptionsState } from "./options";
 import { effectiveRows } from "./review";
 import { deriveOutputTarget, ConvertConfigError } from "./convert";
 import { sanitizePstName, dedupePstNames } from "./accounts";
+import { alsoConvertInfo } from "./alsoConvert";
+
+/** Build the calendars[]/contacts[] arrays for the PRIMARY output group from the
+ * discovered data + toggles. Applies the SAME disable logic the UI uses, so a
+ * zero-count type (which the UI shows disabled/unchecked) never emits config even
+ * though options.* defaults ON. Both include flags are always set explicitly; an
+ * array is omitted entirely (undefined) when its type is effectively off OR the
+ * discovered list is empty. */
+export function buildAlsoConvert(
+  calendars: DiscoveredCalendar[],
+  addressBooks: DiscoveredAddressBook[],
+  options: OptionsState,
+): { calendars?: CalendarSourceConfigTS[]; contacts?: ContactSourceConfigTS[] } {
+  const info = alsoConvertInfo(calendars, addressBooks);
+  // "Effective" = the user's toggle AND the type is not UI-disabled (zero count).
+  const effAppointments = options.includeAppointments && !info.appointments.disabled;
+  const effTasks = options.includeTasks && !info.tasks.disabled;
+  const effContacts = options.includeContacts && !info.contacts.disabled;
+
+  const out: { calendars?: CalendarSourceConfigTS[]; contacts?: ContactSourceConfigTS[] } = {};
+  if ((effAppointments || effTasks) && calendars.length > 0) {
+    out.calendars = calendars.map((c) => {
+      const entry: CalendarSourceConfigTS = {
+        storePath: c.storePath, calId: c.calId,
+        includeAppointments: effAppointments,
+        includeTasks: effTasks,
+      };
+      if (c.defaultCalendarFolderPath.length > 0) entry.appointmentFolderPath = c.defaultCalendarFolderPath;
+      if (c.defaultTaskFolderPath.length > 0) entry.taskFolderPath = c.defaultTaskFolderPath;
+      return entry;
+    });
+  }
+  if (effContacts) {
+    // Skip books we KNOW are empty; keep unknown-count books (they may hold contacts).
+    const booksToInclude = addressBooks.filter((b) => b.contactCount == null || b.contactCount > 0);
+    if (booksToInclude.length > 0) {
+      out.contacts = booksToInclude.map((b) => ({ path: b.path, format: b.format }));
+    }
+  }
+  return out;
+}
 
 /** Merge discovery sources with scan counts. Identity = discovered `path`; the
  * scan row's id is ignored (it is scan-local). displayName = joined nested path. */
@@ -47,6 +91,8 @@ export function buildProfileConfig(
   options: OptionsState,
   outputPstPath: string,
   profileRoot: string,
+  calendars: DiscoveredCalendar[] = [],
+  addressBooks: DiscoveredAddressBook[] = [],
 ): { config: ConversionConfig; outputDir: string; pstName: string } {
   const { outputDir, pstName } = deriveOutputTarget(outputPstPath);
   const folderMapping = options.folderMapping;
@@ -75,6 +121,7 @@ export function buildProfileConfig(
         folderMapping,
         includeEmptyFolders: !skipEmpty,
         sources,
+        ...buildAlsoConvert(calendars, addressBooks, options),
       }],
     },
   };
@@ -100,6 +147,8 @@ export function buildProfileConfigMulti({
   options,
   target,
   profileRoot,
+  calendars,
+  addressBooks,
 }: {
   groups: MultiAccountGroup[];
   checkedIds: Set<string>;
@@ -107,8 +156,12 @@ export function buildProfileConfigMulti({
   options: OptionsState;
   target: OutputTarget;
   profileRoot: string;
+  calendars?: DiscoveredCalendar[];
+  addressBooks?: DiscoveredAddressBook[];
 }): { config: ConversionConfig; outputDir: string } {
   const folderMapping = options.folderMapping;
+  const cals = calendars ?? [];
+  const books = addressBooks ?? [];
   const outputDir = target.kind === "folder" ? target.dir : deriveOutputTarget(target.path).outputDir;
 
   // Build surviving output groups
@@ -148,6 +201,13 @@ export function buildProfileConfigMulti({
   // De-duplicate names (shared helper — keeps parity with the Options preview).
   const dedup = dedupePstNames(outputGroups.map((g) => g.name));
   outputGroups.forEach((g, i) => { g.name = dedup[i]; });
+
+  // Profile-global calendar/contacts attach to the FIRST (primary) group only.
+  // outputGroups is guaranteed non-empty here (the `length === 0` throw above ran
+  // first), but guard explicitly so a future refactor can't index into nothing.
+  if (outputGroups.length > 0) {
+    Object.assign(outputGroups[0], buildAlsoConvert(cals, books, options));
+  }
 
   return {
     outputDir,

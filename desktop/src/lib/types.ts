@@ -29,12 +29,29 @@ export interface SourceConfigEntry {
   msfPath?: string;
 }
 
+export interface CalendarSourceConfigTS {
+  storePath: string;
+  calId: string;
+  includeAppointments: boolean;
+  includeTasks: boolean;
+  appointmentFolderPath?: string[];
+  taskFolderPath?: string[];
+}
+
+export interface ContactSourceConfigTS {
+  path: string;
+  format: string;
+  targetFolderPath?: string[];
+}
+
 export interface OutputGroupConfig {
   name: string;
   maxSizeMB: number;
   folderMapping: "mirror" | "flatten";
   includeEmptyFolders: boolean;
   sources: SourceConfigEntry[];
+  calendars?: CalendarSourceConfigTS[];
+  contacts?: ContactSourceConfigTS[];
 }
 
 export interface ConversionConfig {
