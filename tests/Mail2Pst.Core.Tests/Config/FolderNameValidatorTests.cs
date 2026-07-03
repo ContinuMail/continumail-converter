@@ -19,6 +19,8 @@ public class FolderNameValidatorTests
     [InlineData("a.b")]
     [InlineData("Folder.name.with.dots")]
     [InlineData("café")]
+    [InlineData(".hidden")]   // leading dot: a PST folder display name, not a filesystem name
+    [InlineData("trailing.")] // trailing dot: MAPI-internal, never written to disk
     public void Validate_AcceptsValidNames(string name)
     {
         FolderNameValidator.Validate(name); // must not throw
@@ -32,8 +34,6 @@ public class FolderNameValidatorTests
     [InlineData("tab\there")]
     [InlineData(" leading")]
     [InlineData("trailing ")]
-    [InlineData(".hidden")]
-    [InlineData("trailing.")]
     [InlineData("CON")]
     [InlineData("con.txt")]
     [InlineData("COM1")]

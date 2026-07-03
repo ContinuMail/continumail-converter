@@ -34,9 +34,9 @@ describe("validateFolderName", () => {
     expect(validateFolderName(" Inbox")).toMatch(/space/);
     expect(validateFolderName("Inbox ")).toMatch(/space/);
   });
-  it("rejects leading/trailing dots", () => {
-    expect(validateFolderName(".Inbox")).toMatch(/dot/);
-    expect(validateFolderName("Inbox.")).toMatch(/dot/);
+  it("accepts leading/trailing dots (folder names are MAPI-internal, not filesystem names)", () => {
+    expect(validateFolderName(".Inbox")).toBeNull();
+    expect(validateFolderName("Inbox.")).toBeNull();
   });
   it("rejects reserved Windows device names (with or without an extension)", () => {
     expect(validateFolderName("CON")).toMatch(/reserved/i);
@@ -248,8 +248,8 @@ describe("validateFolderName parity table (mirror of FolderNameValidatorTests.cs
   // Keep these two arrays identical (case-for-case) to the C# parity table in
   // tests/Mail2Pst.Core.Tests/Config/FolderNameValidatorTests.cs. The engine validator
   // (src/Mail2Pst.Core/Config/FolderNameValidator.cs) must agree on every case.
-  const valid = ["Imported Mail", "Work", "2024 Archive", "a.b", "Folder.name.with.dots", "café"];
-  const invalid = ["", "   ", "a/b", "a\\b", "tab\there", " leading", "trailing ", ".hidden", "trailing.", "CON", "con.txt", "COM1", "LPT9.log"];
+  const valid = ["Imported Mail", "Work", "2024 Archive", "a.b", "Folder.name.with.dots", "café", ".hidden", "trailing."];
+  const invalid = ["", "   ", "a/b", "a\\b", "tab\there", " leading", "trailing ", "CON", "con.txt", "COM1", "LPT9.log"];
 
   it.each(valid)("accepts %j", (name) => {
     expect(validateFolderName(name)).toBeNull();
