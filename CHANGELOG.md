@@ -61,8 +61,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Item relations are preserved.** Thunderbird `RELATED-TO` links between calendar items — which have no
   native Outlook equivalent — are preserved as a readable note appended to the item body, with a warning,
   rather than being silently dropped.
+- **The desktop app now converts calendars, tasks, and contacts — each routed to the right PST.** The
+  profile Options screen gains an **"Also convert"** group with Calendar events / Tasks / Contacts toggles
+  (default on, with live counts that grey out when a type has nothing to convert). In multi-account (split)
+  mode, each calendar and address book is written into the PST of the **account it belongs to**; local
+  items — a local calendar (e.g. your "Home" calendar), the Personal Address Book — go to a **Local
+  Folders** PST, created automatically even when Local Folders has no mail of its own. The Options
+  **Preview** shows exactly which PST each calendar/contact list will land in *before* you convert (with a
+  note if a calendar belongs to an account you didn't select), and the results screen breaks the run down
+  per type — Mail / Calendar / Tasks / Contacts — with progress shown per phase. Single-PST and combined
+  outputs put everything in the one file, unchanged.
 
 ### Internal
+- Desktop calendar/tasks/contacts wiring: engine `discover` now emits a per-item `accountId` for each
+  calendar and address book, resolved by matching the calendar's `prefs.js` registry URI / an address
+  book's CardDAV URL against the discovered accounts (email-first with a URL-decoded and **boundary-guarded**
+  compare so a shorter local-part can't substring-match a longer one, then a normalized exact/subdomain host
+  match; any ambiguity resolves to "local" rather than guessing). The frontend routes each item by that id
+  through a single shared `routeAlsoConvert` used by **both** the config builder and the Options preview
+  (so the preview can never disagree with what is written), synthesizing a PIM-only "Local Folders" output
+  group when a local item has no existing Local Folders PST. `ConfigValidator` accepts such a
+  sources-empty, calendars/contacts-only output group; the CLI event contract is unchanged (`schemaVersion`
+  stays 1 — `accountId` is additive).
 - New contact pipeline (`ContactRecord` model, SQLite + Mork readers, a shared vCard mapper, and an
   `IPM.Contact` writer) added as a distinct write phase that reuses the existing PST size-split,
   checkpoint, and reporting machinery. Reading is **vCard-first** (modern Thunderbird stores rich contact
