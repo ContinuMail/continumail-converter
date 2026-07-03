@@ -5,10 +5,10 @@ import type { DiscoveredCalendar, DiscoveredAddressBook } from "./types";
 const cal = (eventCount: number, taskCount: number): DiscoveredCalendar => ({
   calId: "c", displayName: "d", storeKind: "local", storePath: "/s", calendarType: "both",
   isVisibleInThunderbird: true, eventCount, taskCount,
-  defaultCalendarFolderPath: [], defaultTaskFolderPath: [],
+  defaultCalendarFolderPath: [], defaultTaskFolderPath: [], accountId: null,
 });
 const book = (contactCount: number | null): DiscoveredAddressBook =>
-  ({ displayName: "b", path: `/b${contactCount}`, format: "thunderbird-sqlite", contactCount });
+  ({ displayName: "b", path: `/b${contactCount}`, format: "thunderbird-sqlite", contactCount, accountId: null });
 
 describe("alsoConvertInfo", () => {
   it("sums counts across calendars/books", () => {

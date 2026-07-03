@@ -180,6 +180,7 @@ export interface DiscoveredCalendar {
   taskCount: number;
   defaultCalendarFolderPath: string[];
   defaultTaskFolderPath: string[];
+  accountId: string | null;
 }
 
 export interface DiscoveredAddressBook {
@@ -187,6 +188,7 @@ export interface DiscoveredAddressBook {
   path: string;
   format: string; // "thunderbird-sqlite" | "thunderbird-mab"
   contactCount: number | null; // null = unknown
+  accountId: string | null;
 }
 
 export interface DiscoverResult {

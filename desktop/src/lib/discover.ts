@@ -64,6 +64,7 @@ export function parseDiscover(stdout: string): DiscoverResult {
       taskCount: Number(cc.taskCount ?? 0),
       defaultCalendarFolderPath: Array.isArray(cc.defaultCalendarFolderPath) ? cc.defaultCalendarFolderPath.map(String) : [],
       defaultTaskFolderPath: Array.isArray(cc.defaultTaskFolderPath) ? cc.defaultTaskFolderPath.map(String) : [],
+      accountId: cc.accountId == null ? null : String(cc.accountId),
     };
   });
   const addressBooks: DiscoveredAddressBook[] = (Array.isArray(obj.addressBooks) ? obj.addressBooks : []).map((b) => {
@@ -76,6 +77,7 @@ export function parseDiscover(stdout: string): DiscoverResult {
       // Guard: a malformed count must become unknown (null), never NaN, or it would
       // poison alsoConvertInfo's sums.
       contactCount: rawCount == null || Number.isNaN(rawCount) ? null : rawCount,
+      accountId: bb.accountId == null ? null : String(bb.accountId),
     };
   });
 

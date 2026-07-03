@@ -127,4 +127,22 @@ describe("parseDiscover", () => {
     });
     expect(parseDiscover(stdout).addressBooks[0].contactCount).toBeNull();
   });
+
+  it("parses accountId on calendars and address books (present, null, absent)", () => {
+    const stdout = JSON.stringify({
+      type: "discovery", root: "/p", layout: "x", sources: [], warnings: [], skipped: [],
+      pairing: { pairedMsfCount: 0, unpairedMboxCount: 0, orphanMsfCount: 0 }, accounts: [],
+      calendars: [{ calId: "c1", displayName: "Home", storeKind: "local", storePath: "/s",
+        calendarType: "both", isVisibleInThunderbird: true, eventCount: 1, taskCount: 0,
+        defaultCalendarFolderPath: [], defaultTaskFolderPath: [], accountId: "/p/acc" }],
+      addressBooks: [
+        { displayName: "P", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 1, accountId: null },
+        { displayName: "G", path: "/p/abook-1.sqlite", format: "thunderbird-sqlite", contactCount: 2 }, // absent
+      ],
+    });
+    const r = parseDiscover(stdout);
+    expect(r.calendars[0].accountId).toBe("/p/acc");
+    expect(r.addressBooks[0].accountId).toBeNull();
+    expect(r.addressBooks[1].accountId).toBeNull(); // absent -> null
+  });
 });

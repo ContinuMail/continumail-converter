@@ -275,9 +275,9 @@ const calRow = (): ProfileSourceRow => ({
 const cal: DiscoveredCalendar = {
   calId: "c1", displayName: "Home", storeKind: "local", storePath: "/p/local.sqlite", calendarType: "both",
   isVisibleInThunderbird: true, eventCount: 3, taskCount: 2,
-  defaultCalendarFolderPath: ["Calendar"], defaultTaskFolderPath: ["Tasks"],
+  defaultCalendarFolderPath: ["Calendar"], defaultTaskFolderPath: ["Tasks"], accountId: null,
 };
-const bk: DiscoveredAddressBook = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4 };
+const bk: DiscoveredAddressBook = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4, accountId: null };
 const calChecked = new Set(["/p/Inbox"]);
 
 function buildCal(over: Partial<ReturnType<typeof defaultOptions>>) {
@@ -332,9 +332,9 @@ describe("buildProfileConfig calendars/contacts", () => {
     expect(g.contacts).toHaveLength(1);
   });
   it("mixed books -> emits unknown + non-empty, skips known-empty", () => {
-    const known = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4 };
-    const empty = { displayName: "Empty", path: "/p/empty.sqlite", format: "thunderbird-sqlite", contactCount: 0 };
-    const unknown = { displayName: "Old", path: "/p/old.mab", format: "thunderbird-mab", contactCount: null };
+    const known = { displayName: "Personal", path: "/p/abook.sqlite", format: "thunderbird-sqlite", contactCount: 4, accountId: null };
+    const empty = { displayName: "Empty", path: "/p/empty.sqlite", format: "thunderbird-sqlite", contactCount: 0, accountId: null };
+    const unknown = { displayName: "Old", path: "/p/old.mab", format: "thunderbird-mab", contactCount: null, accountId: null };
     const g = buildProfileConfig([calRow()], calChecked, false, defaultOptions(), "C:/out/Mail.pst", "/p", [cal], [known, empty, unknown]).config.outputs[0];
     expect(g.contacts!.map((c) => c.path)).toEqual(["/p/abook.sqlite", "/p/old.mab"]);
   });
