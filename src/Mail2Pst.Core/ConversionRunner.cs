@@ -210,6 +210,7 @@ public class ConversionRunner
                                     else
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
+                                        report.RecordCalendarCategories(mapped.Categories);
                                         plannedTasks.Add(new PlannedTask
                                         {
                                             Task = mapped,
@@ -277,6 +278,7 @@ public class ConversionRunner
                                     else
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
+                                        report.RecordCalendarCategories(mapped.Categories);
                                         plannedAppointments.Add(new PlannedAppointment
                                         {
                                             Appointment = mapped,

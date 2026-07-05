@@ -94,6 +94,31 @@ public class ConversionRunnerTaskTests
         }
     }
 
+    /// <summary>
+    /// A todo with a CATEGORIES property must have those category names recorded
+    /// on the report's CalendarCategoryNames (mapped record, not raw iCal).
+    /// </summary>
+    [Fact]
+    public void Todo_with_categories_records_category_names_on_report()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"m2p-runtask-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string dbPath = MakeTaskStoreWithCategories();
+        try
+        {
+            var report = RunConvertWith(dbPath, "test-cal", dir);
+
+            Assert.Equal(1, report.TasksConverted);
+            Assert.Contains("Meeting", report.CalendarCategoryNames);
+            Assert.Contains("Suppliers", report.CalendarCategoryNames);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -134,6 +159,42 @@ public class ConversionRunnerTaskTests
           $"VALUES ('test-cal','bysetpos-todo-01@example.com','Monthly Task',0,{due});");
         X("INSERT INTO cal_recurrence (item_id,cal_id,icalString) " +
           "VALUES ('bysetpos-todo-01@example.com','test-cal','RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=-1');");
+
+        return path;
+    }
+
+    /// <summary>
+    /// A minimal Thunderbird calendar store with one todo carrying a CATEGORIES property.
+    /// </summary>
+    private static string MakeTaskStoreWithCategories()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"task-categories-{Guid.NewGuid():N}.sqlite");
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+
+        void X(string sql)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+
+        // Schema matching SqliteCalendarReader expectations.
+        X("CREATE TABLE cal_events (cal_id TEXT,id TEXT,time_created INTEGER,last_modified INTEGER,title TEXT,priority INTEGER,privacy TEXT,ical_status TEXT,flags INTEGER,event_start INTEGER,event_end INTEGER,event_stamp INTEGER,event_start_tz TEXT,event_end_tz TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,alarm_last_ack INTEGER,offline_journal INTEGER);");
+        X("CREATE TABLE cal_todos (cal_id TEXT,id TEXT,time_created INTEGER,last_modified INTEGER,title TEXT,priority INTEGER,privacy TEXT,ical_status TEXT,flags INTEGER,todo_entry INTEGER,todo_due INTEGER,todo_completed INTEGER,todo_complete INTEGER,todo_entry_tz TEXT,todo_due_tz TEXT,todo_completed_tz TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,alarm_last_ack INTEGER,todo_stamp INTEGER,offline_journal INTEGER);");
+        X("CREATE TABLE cal_recurrence (item_id TEXT,cal_id TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_attendees (item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,cal_id TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_alarms (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_attachments (item_id TEXT,cal_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_relations (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,icalString TEXT);");
+        X("CREATE TABLE cal_properties (item_id TEXT,key TEXT,value BLOB,recurrence_id INTEGER,recurrence_id_tz TEXT,cal_id TEXT);");
+        X("CREATE TABLE cal_parameters (cal_id TEXT,item_id TEXT,recurrence_id INTEGER,recurrence_id_tz TEXT,key1 TEXT,key2 TEXT,value TEXT);");
+
+        long due = MicrosFor(2026, 7, 31);
+        X($"INSERT INTO cal_todos (cal_id,id,title,flags,todo_due) " +
+          $"VALUES ('test-cal','categories-todo-01@example.com','Categorised Task',0,{due});");
+        X("INSERT INTO cal_properties (item_id,cal_id,key,value,recurrence_id,recurrence_id_tz) " +
+          "VALUES ('categories-todo-01@example.com','test-cal','CATEGORIES','Meeting,Suppliers',NULL,NULL);");
 
         return path;
     }
