@@ -14,6 +14,9 @@ if (args.Length == 0)
     Console.Error.WriteLine("  continumail-convert scan     --input <path> [--input <path> ...] [--type mbox]");
     Console.Error.WriteLine("  continumail-convert discover --input <dir>");
     Console.Error.WriteLine("  continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply] [--outlook-profile <name>]");
+    Console.Error.WriteLine("  continumail-convert outlook-profiles list");
+    Console.Error.WriteLine("  continumail-convert outlook-profiles create --name <profile-name>");
+    Console.Error.WriteLine("  continumail-convert outlook-profiles open   --name <profile-name>");
     return 1;
 }
 
@@ -23,6 +26,7 @@ return args[0] switch
     "scan"               => ScanCommand.Run(args[1..]),
     "discover"           => DiscoverCommand.Run(args[1..]),
     "import-colours"     => ImportColoursCommand.Run(args[1..]),
+    "outlook-profiles"   => OutlookProfilesCommand.Run(args[1..]),
     "version" or "--version" or "-v" => PrintVersion(),
     _                    => PrintUnknownCommand(args[0]),
 };
@@ -41,6 +45,6 @@ static int PrintVersion()
 
 static int PrintUnknownCommand(string cmd)
 {
-    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'scan', 'discover', or 'import-colours'.");
+    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'scan', 'discover', 'import-colours', or 'outlook-profiles'.");
     return 1;
 }
