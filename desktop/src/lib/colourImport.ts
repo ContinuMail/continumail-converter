@@ -71,6 +71,20 @@ export function cardProfileState(p: OutlookProfiles): "none" | "single" | "multi
   return "multiple";
 }
 
+/** Validate a new Outlook profile name for inline GUI feedback. Mirrors the CLI's
+ * OutlookDetection.ValidateProfileName (the sidecar re-validates on create), so the button can
+ * disable before a doomed round-trip. Spaces are allowed. Returns an error message, or null. */
+export function validateProfileName(name: string): string | null {
+  if (name.trim().length === 0) return "Enter a profile name.";
+  if (name.length > 64) return "Name is too long (max 64 characters).";
+  if (/[\\/"']/.test(name)) return "No slashes or quotes in the name.";
+  for (const ch of name) {
+    const code = ch.charCodeAt(0);
+    if (code < 32 || code === 127) return "No control characters in the name.";
+  }
+  return null;
+}
+
 /** A stage-tagged failure from `outlook-profiles create`/`open` (e.g. `pim-unsupported`
  * when the /PIM switch is unavailable). Carries `stage` so the card can pick the right copy. */
 export class ProfileStageError extends Error {

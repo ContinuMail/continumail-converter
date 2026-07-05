@@ -8,6 +8,7 @@ import {
   cardProfileState,
   parseProfileCreate,
   parseProfileOpen,
+  validateProfileName,
   ProfileStageError,
 } from "./colourImport";
 import type { ColourCategory } from "./types";
@@ -178,5 +179,29 @@ describe("parseProfileOpen", () => {
   it("throws on unrecognized/non-JSON output", () => {
     expect(() => parseProfileOpen("not json at all")).toThrow();
     expect(() => parseProfileOpen("")).toThrow();
+  });
+});
+
+describe("validateProfileName", () => {
+  it("accepts normal names, spaces, and 64-char names", () => {
+    expect(validateProfileName("ContinuMail")).toBeNull();
+    expect(validateProfileName("My Profile")).toBeNull();
+    expect(validateProfileName("a".repeat(64))).toBeNull();
+  });
+  it("rejects empty or whitespace-only names", () => {
+    expect(validateProfileName("")).not.toBeNull();
+    expect(validateProfileName("   ")).not.toBeNull();
+  });
+  it("rejects names longer than 64 chars", () => {
+    expect(validateProfileName("a".repeat(65))).not.toBeNull();
+  });
+  it("rejects path separators and both quote kinds", () => {
+    expect(validateProfileName("bad\\name")).not.toBeNull();
+    expect(validateProfileName("bad/name")).not.toBeNull();
+    expect(validateProfileName('bad"name')).not.toBeNull();
+    expect(validateProfileName("bad'name")).not.toBeNull();
+  });
+  it("rejects control characters", () => {
+    expect(validateProfileName("bad" + String.fromCharCode(9) + "name")).not.toBeNull();
   });
 });
