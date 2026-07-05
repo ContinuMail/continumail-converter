@@ -154,10 +154,29 @@ async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, Str
     .await
 }
 
+#[tauri::command]
+async fn outlook_profiles_list(app: tauri::AppHandle) -> Result<String, String> {
+    run_sidecar(&app, vec!["outlook-profiles".into(), "list".into()]).await
+}
+
+#[tauri::command]
+async fn outlook_profiles_create(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    run_sidecar_capture(&app, vec!["outlook-profiles".into(), "create".into(), "--name".into(), name]).await
+}
+
+#[tauri::command]
+async fn open_in_outlook(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    run_sidecar_capture(&app, vec!["outlook-profiles".into(), "open".into(), "--name".into(), name]).await
+}
+
 /// Writes the supplied colour plan to a temp file and runs `import-colours --apply --plan-file`,
 /// then removes the temp file (mirrors start_convert's temp-config cleanup).
 #[tauri::command]
-async fn apply_colours_plan(app: AppHandle, plan: serde_json::Value) -> Result<String, String> {
+async fn apply_colours_plan(
+    app: AppHandle,
+    plan: serde_json::Value,
+    outlook_profile: Option<String>,
+) -> Result<String, String> {
     let unique = format!(
         "{}-{}",
         std::process::id(),
@@ -170,9 +189,12 @@ async fn apply_colours_plan(app: AppHandle, plan: serde_json::Value) -> Result<S
     std::fs::write(&plan_path, serde_json::to_string(&plan).map_err(|e| e.to_string())?)
         .map_err(|e| format!("cannot write plan: {e}"))?;
     let path_str = plan_path.to_string_lossy().to_string();
-    let result = run_sidecar_capture(&app, vec![
-        "import-colours".into(), "--plan-file".into(), path_str, "--apply".into(),
-    ]).await;
+    let mut args = vec!["import-colours".into(), "--plan-file".into(), path_str, "--apply".into()];
+    if let Some(name) = outlook_profile {
+        args.push("--outlook-profile".into());
+        args.push(name);
+    }
+    let result = run_sidecar_capture(&app, args).await;
     let _ = std::fs::remove_file(&plan_path); // best-effort cleanup
     result
 }
@@ -628,6 +650,9 @@ pub fn run() {
             preview_colours,
             apply_colours,
             apply_colours_plan,
+            outlook_profiles_list,
+            outlook_profiles_create,
+            open_in_outlook,
             default_thunderbird_profiles_dir,
             list_thunderbird_profiles
         ])
