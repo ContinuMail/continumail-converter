@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Colour import now targets a chosen Outlook profile.** Instead of relying on the default MAPI
+  profile, `import-colours --apply` logs on to an explicitly resolved profile: pass
+  `--outlook-profile <name>`, or let it resolve the registry default / sole profile (a clear error
+  lists your options when it can't). A new `outlook-profiles list|create|open` command enumerates
+  profiles, creates a mail-less "viewing profile", and opens Outlook into one. In the desktop app the
+  colour card grows a profile picker and a one-click **ContinuMail viewing profile** flow: it creates
+  the profile, applies the colours, and opens Outlook into it — then you add your converted `.pst`
+  via *File → Open & Export → Open Outlook Data File* to see the coloured folders. First-run virgin
+  profiles are bootstrapped automatically.
 - **Thunderbird contacts now convert to PST.** Address books become Outlook contacts (real contact
   cards, not mail items), carrying names, company/department, job title, all phone types, home/business
   addresses, birthday, websites, notes, custom fields — **and contact photos**. Both modern Thunderbird
