@@ -35,6 +35,9 @@ public class ConversionReport
     private int _srcAttempted, _srcEnriched, _srcDegraded;
     private int _enrOrphanDropped, _lofEnabled, _lofDisabled, _lofDuplicates;
 
+    private readonly List<string> _calendarCategoryNames = new();
+    private readonly HashSet<string> _calendarCategorySeen = new(StringComparer.OrdinalIgnoreCase);
+
     public int ConvertedCount => Volatile.Read(ref _convertedCount);
 
     // Contact counters (Task 14 fills the full surface; Task 7 stub kept compatible).
@@ -64,6 +67,7 @@ public class ConversionReport
     public IReadOnlyList<SkippedMessage> Skipped { get { lock (_lock) return _skipped.ToArray(); } }
     public IReadOnlyList<SkippedMessage> Warnings { get { lock (_lock) return _warnings.ToArray(); } }
     public IReadOnlyList<string> OutputFiles { get { lock (_lock) return _outputFiles.ToArray(); } }
+    public IReadOnlyList<string> CalendarCategoryNames { get { lock (_lock) return _calendarCategoryNames.ToArray(); } }
 
     public void AddOutputFiles(IEnumerable<string> files)
     {
@@ -118,6 +122,22 @@ public class ConversionReport
     {
         Interlocked.Increment(ref _taskWarningCount);
         AddWarning(message);
+    }
+
+    /// <summary>Records category names written to appointments/tasks (global for the whole conversion;
+    /// Outlook's Master Category List is global, not per output group). De-dups case-insensitively,
+    /// keeping the first occurrence's casing; empties ignored.</summary>
+    public void RecordCalendarCategories(IEnumerable<string> names)
+    {
+        if (names is null) return;
+        lock (_lock)
+        {
+            foreach (string n in names)
+            {
+                if (string.IsNullOrWhiteSpace(n)) continue; // ignore empty/whitespace-only (would hash to hashColor(" "))
+                if (_calendarCategorySeen.Add(n)) _calendarCategoryNames.Add(n);
+            }
+        }
     }
 
     private void AddWarning(string message)
