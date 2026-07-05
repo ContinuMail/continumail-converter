@@ -142,7 +142,7 @@ internal static class ConvertCommand
             string reportTxtPath = Path.Combine(outputDir, "conversion-report.txt");
             File.WriteAllText(reportTxtPath, report.ToSummary());
 
-            var colourPlan = BuildColourPlan(config.ProfilePath);
+            var colourPlan = BuildColourPlan(config.ProfilePath, report.CalendarCategoryNames);
 
             CliArgs.WriteJsonLine(new
             {
@@ -189,7 +189,7 @@ internal static class ConvertCommand
         }
     }
 
-    private static object[] BuildColourPlan(string? profilePath)
+    private static object[] BuildColourPlan(string? profilePath, IReadOnlyList<string> calendarCategoryNames)
     {
         if (string.IsNullOrEmpty(profilePath)) return Array.Empty<object>();
         string prefsPath = Path.Combine(profilePath, "prefs.js");
@@ -199,9 +199,14 @@ internal static class ConvertCommand
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { return Array.Empty<object>(); }
 
+        var calColors = CalendarCategoryColorResolver.Resolve(
+            calendarCategoryNames,
+            CalendarCategoryOverrideReader.ParseText(content));
+
         var plan = CategoryColorPlan.Build(
             PrefsTagReader.ParseText(content),
-            PrefsTagReader.ParseColors(content));
+            PrefsTagReader.ParseColors(content),
+            calColors);
 
         var list = new List<object>();
         foreach (var c in plan)
