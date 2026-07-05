@@ -17,7 +17,10 @@ namespace Mail2Pst.Cli;
 internal static class OutlookProfileCreator
 {
     private const int RegistryWaitMs = 30_000;
-    private const int ShutdownWaitMs = 15_000;
+    // The profile (and its default store) is already persisted by the time its key appears (~1 s),
+    // and a fresh /PIM Outlook typically ignores CloseMainWindow — so a long graceful window is just
+    // dead time before the kill. Keep it short: try CloseMainWindow, wait briefly, then kill.
+    private const int ShutdownWaitMs = 5_000;
 
     internal static (bool Created, bool Reused) EnsureProfile(string name, IRegistryKeyReader reg)
     {
@@ -32,7 +35,12 @@ internal static class OutlookProfileCreator
 
         string exe = ResolveOutlookExe();
         Process spawned;
-        try { spawned = Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "/PIM", name }, UseShellExecute = false })!; }
+        // UseShellExecute=true so the launched Outlook does NOT inherit our stdout/stderr handles.
+        // Under the desktop sidecar those handles are the pipe Tauri's run_sidecar_capture reads;
+        // an inherited pipe never reaches EOF until Outlook (and any Office background process) dies,
+        // so the GUI hangs to the 120 s cap even though the profile was already created. ShellExecute
+        // gives Outlook its own handles; CloseMainWindow/WaitForExit/Kill on the returned Process still work.
+        try { spawned = Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "/PIM", name }, UseShellExecute = true })!; }
         catch (Exception ex) { throw new InvalidOperationException($"outlook-spawn-failed: {ex.Message}"); }
 
         bool appeared = false;
@@ -90,6 +98,8 @@ internal static class OutlookProfileCreator
         if (nameError is not null) throw new InvalidOperationException($"invalid-profile-name: {nameError}");
         string exe = ResolveOutlookExe();
         // ARGUMENT ARRAY — profile names may contain spaces; never build a shell string.
-        Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "/profile", name }, UseShellExecute = false })?.Dispose();
+        // UseShellExecute=true (see EnsureProfile): otherwise the launched Outlook inherits our stdout
+        // pipe and hangs the sidecar-capturing GUI until Outlook is closed / the 120 s cap is hit.
+        Process.Start(new ProcessStartInfo(exe) { ArgumentList = { "/profile", name }, UseShellExecute = true })?.Dispose();
     }
 }
