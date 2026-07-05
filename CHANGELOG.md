@@ -71,6 +71,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note if a calendar belongs to an account you didn't select), and the results screen breaks the run down
   per type — Mail / Calendar / Tasks / Contacts — with progress shown per phase. Single-PST and combined
   outputs put everything in the one file, unchanged.
+- **Calendar and task category colours now import into Outlook.** The categories used on converted
+  appointments and to-dos join the optional "Import colours" step with the colour Thunderbird shows for
+  them — a user-set colour override from the profile if one exists, otherwise Thunderbird's own computed
+  default (Thunderbird derives default category colours from the category name; the converter reproduces
+  that computation exactly). Where a mail tag and a calendar category share a name, the mail tag's colour
+  wins. Per-calendar *source* colours (the swatch next to each calendar's name) are never mistaken for
+  category colours.
 
 ### Internal
 - Desktop calendar/tasks/contacts wiring: engine `discover` now emits a per-item `accountId` for each
