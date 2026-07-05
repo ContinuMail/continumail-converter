@@ -13,7 +13,7 @@ if (args.Length == 0)
     Console.Error.WriteLine("  continumail-convert convert  --profile <dir> [--config <options.json>] --output <dir>");
     Console.Error.WriteLine("  continumail-convert scan     --input <path> [--input <path> ...] [--type mbox]");
     Console.Error.WriteLine("  continumail-convert discover --input <dir>");
-    Console.Error.WriteLine("  continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply]");
+    Console.Error.WriteLine("  continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply] [--outlook-profile <name>]");
     return 1;
 }
 

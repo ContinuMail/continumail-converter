@@ -74,4 +74,19 @@ public class ImportColoursInputTests
         var input = ImportColoursInput.Parse(new[] { "--plan-file" });
         Assert.NotNull(input.Error);
     }
+
+    [Fact]
+    public void Parses_outlook_profile_flag()
+    {
+        var i = ImportColoursInput.Parse(new[] { "--plan-file", "p.json", "--outlook-profile", "Colour" });
+        Assert.Null(i.Error);
+        Assert.Equal("Colour", i.OutlookProfile);
+    }
+
+    [Fact]
+    public void Outlook_profile_requires_value()
+    {
+        var i = ImportColoursInput.Parse(new[] { "--plan-file", "p.json", "--outlook-profile" });
+        Assert.Contains("requires a value", i.Error);
+    }
 }

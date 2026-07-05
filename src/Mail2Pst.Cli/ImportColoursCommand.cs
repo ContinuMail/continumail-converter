@@ -23,8 +23,8 @@ internal static class ImportColoursCommand
         if (input.Error is not null)
         {
             Console.Error.WriteLine($"{input.Error}");
-            Console.Error.WriteLine("Usage: continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply]");
-            Console.Error.WriteLine("       continumail-convert import-colours --plan-file <path> [--apply]");
+            Console.Error.WriteLine("Usage: continumail-convert import-colours --profile <thunderbird-profile-dir> [--apply] [--outlook-profile <name>]");
+            Console.Error.WriteLine("       continumail-convert import-colours --plan-file <path> [--apply] [--outlook-profile <name>]");
             return 1;
         }
 
@@ -51,11 +51,11 @@ internal static class ImportColoursCommand
 
         if (!input.Apply)
         {
-            Emit("preview", outlookAvailable: ProgIdRegistered(), plan);
+            Emit("preview", outlookAvailable: OutlookDetection.ClassicOutlookAvailable(), plan);
             return 0;
         }
 
-        if (!OperatingSystem.IsWindows() || !ProgIdRegistered())
+        if (!OperatingSystem.IsWindows() || !OutlookDetection.ClassicOutlookAvailable())
         {
             CliArgs.WriteJsonLine(new { type = "error", stage = "import-colours",
                 message = "Outlook is required for --apply; preview works without it.", fatal = true });
@@ -63,11 +63,26 @@ internal static class ImportColoursCommand
             return 1;
         }
 
+        OutlookProfileInfo profileInfo = OutlookProfileRegistry.Read(new WindowsRegistryKeyReader());
+        ProfileResolution target = OutlookProfileResolver.Resolve(input.OutlookProfile, profileInfo);
+        if (target.Name is null)
+        {
+            string msg = target.ErrorCode switch
+            {
+                "unknown-outlook-profile" => $"Outlook profile '{input.OutlookProfile}' not found. Available: {string.Join(", ", profileInfo.Profiles)}.",
+                "no-outlook-profile" => "No Outlook profile exists. Create one with 'outlook-profiles create --name ContinuMail' or open Outlook once.",
+                _ => $"Multiple Outlook profiles and no usable default — pass --outlook-profile. Available: {string.Join(", ", profileInfo.Profiles)}.",
+            };
+            CliArgs.WriteJsonLine(new { type = "error", stage = target.ErrorCode, message = msg, fatal = true });
+            Console.Error.WriteLine(msg);
+            return 1;
+        }
+
         try
         {
             IReadOnlyList<CategoryCandidate> applied = RunOnSta(() =>
             {
-                using var store = new OutlookComCategoryStore();
+                using var store = new OutlookComCategoryStore(target.Name);
                 IReadOnlyList<CategoryCandidate> result = CategoryColorApplier.Apply(plan, store);
                 store.Commit(); // atomically persist the buffered adds before Dispose flushes + closes Outlook
                 return result;
@@ -81,6 +96,13 @@ internal static class ImportColoursCommand
                 message = "Outlook did not respond (a security prompt may be open). Dismiss it / use a trusted context and re-run.",
                 fatal = true });
             Console.Error.WriteLine("Outlook timed out — dismiss any Outlook security prompt and re-run.");
+            return 1;
+        }
+        catch (Exception ex) when (OutlookDetection.LooksLikeInteractiveLogonRequired(ex))
+        {
+            string msg = $"Outlook profile '{target.Name}' requires an interactive login and cannot be coloured headlessly — open Outlook once with this profile, choose another profile, or create a ContinuMail viewing profile.";
+            CliArgs.WriteJsonLine(new { type = "error", stage = "outlook-profile-logon-failed", message = msg, fatal = true });
+            Console.Error.WriteLine(msg);
             return 1;
         }
         catch (Exception ex)
@@ -129,9 +151,6 @@ internal static class ImportColoursCommand
         }
         return result;
     }
-
-    private static bool ProgIdRegistered() =>
-        OperatingSystem.IsWindows() && Type.GetTypeFromProgID("Outlook.Application") is not null;
 
     private static void Emit(string mode, bool outlookAvailable, IReadOnlyList<CategoryCandidate> categories)
     {

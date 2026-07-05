@@ -46,8 +46,10 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
     private readonly int[] _startedPids;   // OUTLOOK.EXE PIDs that appeared when we created the instance
     private bool _savedChanges;            // true once Commit() actually wrote+saved the FAI (picks the wait budget)
 
-    internal OutlookComCategoryStore()
+    internal OutlookComCategoryStore(string profileName)
     {
+        ArgumentException.ThrowIfNullOrEmpty(profileName);
+
         int[] before = OutlookPids();
         if (before.Length != 0)
             throw new InvalidOperationException(
@@ -60,11 +62,16 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
 
         dynamic app = _app;
         dynamic session = app.GetNamespace("MAPI");
-        session.Logon(null, null, false, false); // ShowDialog=false, NewSession=false: silent default-profile session
+        // Explicit-name logon: MAPI's DEFAULT-profile resolution (Logon(null)) can be broken
+        // machine-wide while by-name logon works (owner machine, 2026-07-05). Callers resolve
+        // the name via OutlookProfileResolver first.
+        session.Logon(profileName, null, false, false);
         _session = session;
 
         _storage = OpenCategoryListStorage(session);
-        _originalXml = Encoding.UTF8.GetString(ReadBytes(_storage));
+        try { _originalXml = Encoding.UTF8.GetString(ReadBytes(_storage)); }
+        catch (System.Runtime.InteropServices.COMException ex) when ((uint)ex.HResult == 0x8004010F)
+        { _originalXml = string.Empty; }
         _existing = CategoryListXml.ReadNames(_originalXml);
     }
 
@@ -97,6 +104,14 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
             try { candidate = calendar.GetStorage("IPM.Configuration.CategoryList", idType); }
             catch (Exception ex) { last = ex; continue; } // identifier not supported on this build
             try { _ = ReadBytes(candidate); return candidate; }
+            catch (System.Runtime.InteropServices.COMException ex) when ((uint)ex.HResult == 0x8004010F)
+            {
+                // Virgin store: the profile's master list was never serialized, so the FAI has no
+                // RoamingXmlStream. GetStorage fabricated the item; "" starts a fresh list via
+                // CategoryListXml and Save() creates the FAI. ONLY this HRESULT bootstraps —
+                // anything else (parse, access, provider) fails loud.
+                return candidate;
+            }
             catch (Exception ex) { last = ex; }            // no usable XML stream — try the next identifier
         }
         throw new InvalidOperationException(

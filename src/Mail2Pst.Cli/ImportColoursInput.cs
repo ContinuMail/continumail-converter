@@ -6,9 +6,9 @@ using System.Collections.Generic;
 
 namespace Mail2Pst.Cli;
 
-internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, string? Error, string? PlanFile = null)
+internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, string? Error, string? PlanFile = null, string? OutlookProfile = null)
 {
-    private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "--profile", "--apply", "--plan-file" };
+    private static readonly HashSet<string> Known = new(StringComparer.Ordinal) { "--profile", "--apply", "--plan-file", "--outlook-profile" };
 
     internal static ImportColoursInput Parse(string[] args)
     {
@@ -16,7 +16,7 @@ internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, strin
         {
             string a = args[i];
             if (!Known.Contains(a)) return new ImportColoursInput(null, false, $"Unknown argument: {a}");
-            if (a == "--profile" || a == "--plan-file")
+            if (a == "--profile" || a == "--plan-file" || a == "--outlook-profile")
             {
                 i++;
                 if (i >= args.Length || args[i].StartsWith("--", System.StringComparison.Ordinal))
@@ -25,6 +25,7 @@ internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, strin
         }
         string? profile = CliArgs.Flag(args, "--profile");
         string? planFile = CliArgs.Flag(args, "--plan-file");
+        string? outlookProfile = CliArgs.Flag(args, "--outlook-profile");
         bool apply = CliArgs.HasFlag(args, "--apply");
 
         if (profile is not null && planFile is not null)
@@ -33,6 +34,6 @@ internal sealed record ImportColoursInput(string? ProfilePath, bool Apply, strin
         if (profile is null && planFile is null)
             return new ImportColoursInput(null, false, "Missing required --profile <thunderbird-profile-dir> or --plan-file <path>.");
 
-        return new ImportColoursInput(profile, apply, null, planFile);
+        return new ImportColoursInput(profile, apply, null, planFile, outlookProfile);
     }
 }
