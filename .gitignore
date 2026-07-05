@@ -36,3 +36,9 @@ reviews/
 CLAUDE.md
 todo.md
 /publish-smoke/
+
+# Graphify knowledge-graph output (dev tool; graph.json/report embed repo content incl.
+# private-dir excerpts if misconfigured — never commit) + its local ignore config
+graphify-out/
+.graphifyignore
+.claude/
