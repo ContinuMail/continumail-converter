@@ -68,6 +68,11 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
   }, []);
 
   const state = profiles ? cardProfileState(profiles) : null;
+  // Gate only the action buttons, not the profile listing/enumeration above: once the list has
+  // loaded and classic (COM-automatable) Outlook isn't installed, creating/applying would just
+  // fail with a spawn error, so swap the actions for a short note instead. `profiles === null`
+  // (still loading, or the listing call failed) falls back to the pre-existing ungated behaviour.
+  const noClassicOutlook = profiles?.classicOutlook === false;
 
   const runApply = useCallback((profileName?: string) => {
     setPhase({ k: "applying" });
@@ -86,32 +91,37 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
 
   // Second half of the "none" flow: apply the plan to the just-created ContinuMail
   // profile. Factored out so a failure here can retry just this step, not the whole
-  // create→list-refresh chain.
-  const applyForContinuMail = useCallback(() => {
+  // create→list-refresh chain. Takes the registry-cased profile name the create flow
+  // actually matched (see runCreateFlow) rather than assuming CONTINUMAIL_PROFILE's casing.
+  const applyForContinuMail = useCallback((profileName: string) => {
     setPhase({ k: "applying", viaCreate: true });
-    applyColoursPlan(plan, CONTINUMAIL_PROFILE)
+    applyColoursPlan(plan, profileName)
       .then((r) => {
         if (!mounted.current) return;
-        if (r.kind === "error") { setPhase({ k: "error", message: r.message, retry: applyForContinuMail }); return; }
+        if (r.kind === "error") { setPhase({ k: "error", message: r.message, retry: () => applyForContinuMail(profileName) }); return; }
         const s = summarizeColourApply(r.categories);
         setPhase({ k: "applied", added: s.added, existing: s.existing, viaCreate: true });
       })
       .catch((e) => {
         if (!mounted.current) return;
-        setPhase({ k: "error", message: e instanceof Error ? e.message : String(e), retry: applyForContinuMail });
+        setPhase({ k: "error", message: e instanceof Error ? e.message : String(e), retry: () => applyForContinuMail(profileName) });
       });
   }, [plan]);
 
   // "none" state (and the secondary link in single/multiple): create → refresh the
-  // profile list → only then apply. If the refresh doesn't show ContinuMail, stop with
-  // a state error rather than blindly applying to a profile we can't confirm exists.
+  // profile list → only then apply. The registry (and CLI resolver/EnsureProfile) match
+  // profile names case-insensitively, so the containment check below must too — a
+  // case-sensitive `.includes()` would never find a differently-cased ContinuMail profile
+  // and loop forever on "couldn't confirm". Use the matched (registry-cased) name for the
+  // apply call so it targets the profile that's actually there.
   const runCreateFlow = useCallback(() => {
     setPhase({ k: "creating" });
     outlookProfilesCreate(CONTINUMAIL_PROFILE)
       .then(() => outlookProfilesList())
       .then((refreshed) => {
         if (!mounted.current) return;
-        if (!refreshed.profiles.includes(CONTINUMAIL_PROFILE)) {
+        const matched = refreshed.profiles.find((p) => p.toLowerCase() === CONTINUMAIL_PROFILE.toLowerCase());
+        if (!matched) {
           setPhase({
             k: "error",
             message: "Couldn't confirm the ContinuMail profile was created. Try again, or create one manually in Outlook.",
@@ -120,7 +130,7 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
           return;
         }
         setProfiles(refreshed);
-        applyForContinuMail();
+        applyForContinuMail(matched);
       })
       .catch((e) => {
         if (!mounted.current) return;
@@ -129,11 +139,24 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
       });
   }, [applyForContinuMail]);
 
+  // Unlike apply, `open` goes through run_sidecar_capture too: an unknown-profile failure
+  // still exits 1 but prints a structured `{type:"error"}` object, which openInOutlook (engine.ts)
+  // now throws as a ProfileStageError. Surface that here instead of silently claiming "opened" —
+  // reuses the card's existing stage-tagged error phase/retry pattern.
   const handleOpen = useCallback(() => {
     setOpening(true);
     openInOutlook(CONTINUMAIL_PROFILE)
-      .catch(() => { /* best-effort: opening Outlook doesn't gate anything past this point */ })
-      .then(() => { if (mounted.current) { setOpening(false); setOpened(true); } });
+      .then(() => {
+        if (!mounted.current) return;
+        setOpening(false);
+        setOpened(true);
+      })
+      .catch((e) => {
+        if (!mounted.current) return;
+        setOpening(false);
+        const stage = e instanceof ProfileStageError ? e.stage : undefined;
+        setPhase({ k: "error", message: e instanceof Error ? e.message : String(e), stage, retry: handleOpen });
+      });
   }, []);
 
   if (phase.k === "dismissed") return null;
@@ -247,11 +270,17 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
               </>
             )}
 
+            {wouldAdd.length > 0 && noClassicOutlook && (
+              <div className="mt-3 text-xs text-light-gray">
+                Classic Outlook isn't installed on this machine, so colours can't be applied here.
+              </div>
+            )}
+
             <div className="mt-3 flex items-center gap-2.5">
-              {wouldAdd.length > 0 && state === "none" && (
+              {!noClassicOutlook && wouldAdd.length > 0 && state === "none" && (
                 <Button disabled={!consent} onClick={runCreateFlow}>Create ContinuMail viewing profile</Button>
               )}
-              {wouldAdd.length > 0 && state !== "none" && (
+              {!noClassicOutlook && wouldAdd.length > 0 && state !== "none" && (
                 <Button
                   disabled={!consent}
                   onClick={() => runApply(state === "multiple" ? selectedProfile : profiles?.profiles[0])}
@@ -262,7 +291,7 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
               <Button variant="outline" onClick={dismiss}>Skip</Button>
             </div>
 
-            {wouldAdd.length > 0 && (state === "single" || state === "multiple") && (
+            {!noClassicOutlook && wouldAdd.length > 0 && (state === "single" || state === "multiple") && (
               <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-[11.5px]" onClick={runCreateFlow}>
                 Or create a separate ContinuMail viewing profile
               </Button>

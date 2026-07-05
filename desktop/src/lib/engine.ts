@@ -11,6 +11,7 @@ import {
   parseColourImport,
   parseOutlookProfiles,
   parseProfileCreate,
+  parseProfileOpen,
   type ColourImportParse,
   type OutlookProfiles,
 } from "./colourImport";
@@ -221,7 +222,10 @@ export async function outlookProfilesCreate(name: string): Promise<{ name: strin
   return parseProfileCreate(await invoke<string>("outlook_profiles_create", { name }));
 }
 
-/** Launch Outlook into the given profile. */
+/** Launch Outlook into the given profile. Throws a ProfileStageError (see colourImport.ts)
+ * on a stage-tagged failure — e.g. `unknown-outlook-profile` when the name no longer resolves —
+ * even though the Tauri command itself resolves (the sidecar exits 1 but still prints a
+ * structured `{type:"error"}` object via run_sidecar_capture, so it surfaces as `Ok(stdout)`). */
 export async function openInOutlook(name: string): Promise<void> {
-  await invoke<string>("open_in_outlook", { name });
+  parseProfileOpen(await invoke<string>("open_in_outlook", { name }));
 }

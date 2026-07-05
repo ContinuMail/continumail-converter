@@ -108,4 +108,14 @@ describe("openInOutlook", () => {
     await openInOutlook("ContinuMail");
     expect(invokeMock).toHaveBeenCalledWith("open_in_outlook", { name: "ContinuMail" });
   });
+
+  // run_sidecar_capture surfaces a handled (nonzero-exit) open failure as `Ok(stdout)` carrying
+  // a structured `{type:"error"}` object — invoke() itself resolves, so openInOutlook must inspect
+  // the payload and reject rather than silently treating it as a launch.
+  it("rejects with a ProfileStageError on a stage-tagged failure", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({
+      type: "error", stage: "unknown-outlook-profile", message: "Outlook profile 'Stale' not found.", fatal: true,
+    }));
+    await expect(openInOutlook("Stale")).rejects.toMatchObject({ stage: "unknown-outlook-profile" });
+  });
 });

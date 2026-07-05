@@ -7,6 +7,7 @@ import {
   parseOutlookProfiles,
   cardProfileState,
   parseProfileCreate,
+  parseProfileOpen,
   ProfileStageError,
 } from "./colourImport";
 import type { ColourCategory } from "./types";
@@ -149,5 +150,33 @@ describe("parseProfileCreate", () => {
   it("throws on unrecognized/non-JSON output", () => {
     expect(() => parseProfileCreate("not json at all")).toThrow();
     expect(() => parseProfileCreate("")).toThrow();
+  });
+});
+
+describe("parseProfileOpen", () => {
+  it("passes through name and launched:true on success", () => {
+    const json = JSON.stringify({ type: "outlookProfileOpen", name: "ContinuMail", launched: true });
+    expect(parseProfileOpen(json)).toEqual({ name: "ContinuMail", launched: true });
+  });
+
+  it("throws a ProfileStageError carrying the stage for a stage-tagged failure (e.g. an unknown profile)", () => {
+    const json = JSON.stringify({
+      type: "error", stage: "unknown-outlook-profile",
+      message: "Outlook profile 'Stale' not found. Available: Outlook, ContinuMail.",
+      fatal: true,
+    });
+    try {
+      parseProfileOpen(json);
+      expect.unreachable("expected parseProfileOpen to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ProfileStageError);
+      expect((e as ProfileStageError).stage).toBe("unknown-outlook-profile");
+      expect((e as ProfileStageError).message).toContain("not found");
+    }
+  });
+
+  it("throws on unrecognized/non-JSON output", () => {
+    expect(() => parseProfileOpen("not json at all")).toThrow();
+    expect(() => parseProfileOpen("")).toThrow();
   });
 });

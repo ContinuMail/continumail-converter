@@ -103,3 +103,25 @@ export function parseProfileCreate(stdout: string): { name: string; created: boo
     reused: obj.reused === true,
   };
 }
+
+/** Parse the `outlook-profiles open` result. A `type:"error"` object throws a
+ * ProfileStageError carrying its stage (e.g. an unknown-profile name); unrecognized/malformed
+ * output throws generically. Mirrors parseProfileCreate's shape. */
+export function parseProfileOpen(stdout: string): { name: string; launched: boolean } {
+  const obj = extractJsonObjects(stdout).find(
+    (o) => isRecord(o) && (o.type === "outlookProfileOpen" || o.type === "error"),
+  ) as Record<string, unknown> | undefined;
+
+  if (!obj) throw new Error("Could not read profile-open result.");
+
+  if (obj.type === "error") {
+    const stage = typeof obj.stage === "string" && obj.stage.length > 0 ? obj.stage : "outlook-profiles";
+    const message = typeof obj.message === "string" && obj.message.length > 0 ? obj.message : "Could not open Outlook with this profile.";
+    throw new ProfileStageError(stage, message);
+  }
+
+  return {
+    name: typeof obj.name === "string" ? obj.name : "",
+    launched: obj.launched === true,
+  };
+}
