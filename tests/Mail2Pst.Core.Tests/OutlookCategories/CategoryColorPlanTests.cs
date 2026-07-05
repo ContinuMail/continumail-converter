@@ -74,3 +74,60 @@ public class CategoryColorPlanTests
         Assert.DoesNotContain(plan, c => c.Name == "NonJunk");
     }
 }
+
+public class CategoryColorPlanCalendarMergeTests
+{
+    private static readonly Dictionary<string, string> NoMailNames = new();
+    private static readonly Dictionary<string, string> NoMailColors = new();
+
+    [Fact]
+    public void Calendar_only_category_is_added_would_add()
+    {
+        var cal = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase) { ["Meeting"] = "#FFFF66" };
+        var plan = CategoryColorPlan.Build(NoMailNames, NoMailColors, cal);
+        var m = System.Linq.Enumerable.Single(plan, c => c.Name == "Meeting");
+        Assert.Equal("would-add", m.Action);
+        Assert.NotNull(m.OutlookColor);
+    }
+
+    [Fact]
+    public void Coloured_mail_tag_wins_over_calendar_same_name()
+    {
+        var mailNames = new Dictionary<string, string> { ["$label1"] = "Work" };
+        var mailColors = new Dictionary<string, string> { ["$label1"] = "#FF0000" };
+        var cal = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase) { ["Work"] = "#00FF00" };
+        var plan = CategoryColorPlan.Build(mailNames, mailColors, cal);
+        var work = System.Linq.Enumerable.Single(plan, c => c.Name == "Work");
+        Assert.Equal("#FF0000", work.Hex); // mail colour kept
+    }
+
+    [Fact]
+    public void Uncoloured_mail_tag_is_upgraded_by_calendar_colour()
+    {
+        var mailNames = new Dictionary<string, string> { ["custom1"] = "Trips" };
+        var mailColors = new Dictionary<string, string>(); // no colour for "Trips"
+        var cal = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase) { ["Trips"] = "#3333FF" };
+        var plan = CategoryColorPlan.Build(mailNames, mailColors, cal);
+        var trips = System.Linq.Enumerable.Single(plan, c => c.Name == "Trips");
+        Assert.Equal("would-add", trips.Action);
+        Assert.Equal("#3333FF", trips.Hex); // upgraded in place
+    }
+
+    [Fact]
+    public void Two_arg_and_empty_calendar_three_arg_are_identical_builtins_and_custom()
+    {
+        // No-regression: a realistic mail-tag set (a renamed built-in label + a custom tag) must produce
+        // an IDENTICAL plan via the 2-arg path and the 3-arg path with an empty calendar map.
+        var mailNames = new Dictionary<string, string> { ["$label2"] = "Work", ["custom_a"] = "Receipts" };
+        var mailColors = new Dictionary<string, string> { ["$label2"] = "#FF0000", ["custom_a"] = "#00FF00" };
+        var viaTwo = CategoryColorPlan.Build(mailNames, mailColors);
+        var viaThree = CategoryColorPlan.Build(mailNames, mailColors,
+            new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(
+            System.Linq.Enumerable.Select(viaTwo, c => (c.Name, c.Hex, c.OutlookColor, c.Action)),
+            System.Linq.Enumerable.Select(viaThree, c => (c.Name, c.Hex, c.OutlookColor, c.Action)));
+        // And it is non-trivial: the built-in $labelN set plus the custom tag all appear.
+        Assert.Contains(viaTwo, c => c.Name == "Work");
+        Assert.Contains(viaTwo, c => c.Name == "Receipts");
+    }
+}
