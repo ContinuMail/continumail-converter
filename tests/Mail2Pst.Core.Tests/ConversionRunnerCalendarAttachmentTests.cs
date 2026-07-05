@@ -155,6 +155,36 @@ public class ConversionRunnerCalendarAttachmentTests
     }
 
     // -----------------------------------------------------------------------
+    // Categories — the mapped AppointmentRecord.Categories must be accumulated
+    // onto the report (Outlook's Master Category List), not read from raw iCal.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// An event with a CATEGORIES property must have those category names recorded
+    /// on the report's CalendarCategoryNames.
+    /// </summary>
+    [Fact]
+    public void Event_with_categories_records_category_names_on_report()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"m2p-runcat-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string dbPath = MakeCalStoreWithCategories();
+        try
+        {
+            var report = RunConvertWith(dbPath, "test-cal", dir);
+
+            Assert.Equal(1, report.AppointmentsConverted);
+            Assert.Contains("Meeting", report.CalendarCategoryNames);
+            Assert.Contains("Suppliers", report.CalendarCategoryNames);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers — synthetic SQLite stores (no real mail/PII, all example.com).
     // -----------------------------------------------------------------------
 
@@ -232,6 +262,33 @@ public class ConversionRunnerCalendarAttachmentTests
         X("INSERT INTO cal_attachments (item_id,cal_id,recurrence_id,recurrence_id_tz,icalString) " +
           "VALUES ('inlineatt-01@example.com','test-cal',NULL,NULL," +
           "'ATTACH;FILENAME=hi.txt;VALUE=BINARY;ENCODING=BASE64;FMTTYPE=text/plain:aGk=');");
+
+        return path;
+    }
+
+    /// <summary>
+    /// A minimal Thunderbird calendar store with one event carrying a CATEGORIES property.
+    /// </summary>
+    private static string MakeCalStoreWithCategories()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"cal-categories-{Guid.NewGuid():N}.sqlite");
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        CreateCalSchema(conn);
+
+        void X(string sql)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+
+        long start = MicrosFor(2026, 7, 9, 9, 0);
+        long end   = MicrosFor(2026, 7, 9, 10, 0);
+        X($"INSERT INTO cal_events (cal_id,id,title,flags,event_start,event_end,event_start_tz) " +
+          $"VALUES ('test-cal','categories-01@example.com','Categorised Event',0,{start},{end},'UTC');");
+        X("INSERT INTO cal_properties (item_id,cal_id,key,value,recurrence_id,recurrence_id_tz) " +
+          "VALUES ('categories-01@example.com','test-cal','CATEGORIES','Meeting,Suppliers',NULL,NULL);");
 
         return path;
     }
