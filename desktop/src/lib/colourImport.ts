@@ -40,3 +40,66 @@ export function summarizeColourApply(categories: ColourCategory[]): { added: num
   }
   return { added, existing };
 }
+
+export interface OutlookProfiles {
+  classicOutlook: boolean;
+  defaultProfile: string | null;
+  profiles: string[];
+}
+
+/** Parse the `outlook-profiles list` result. Unlike parseColourImport there is
+ * no user-facing error variant for a plain listing, so unrecognized/malformed
+ * output throws rather than returning a typed error. */
+export function parseOutlookProfiles(stdout: string): OutlookProfiles {
+  const obj = extractJsonObjects(stdout).find(
+    (o) => isRecord(o) && o.type === "outlookProfiles",
+  ) as Record<string, unknown> | undefined;
+
+  if (!obj) throw new Error("Could not read Outlook profiles.");
+
+  return {
+    classicOutlook: obj.classicOutlook === true,
+    defaultProfile: typeof obj.defaultProfile === "string" ? obj.defaultProfile : null,
+    profiles: Array.isArray(obj.profiles) ? (obj.profiles as string[]) : [],
+  };
+}
+
+/** 0 / 1 / many profiles → which colour-card state to show. */
+export function cardProfileState(p: OutlookProfiles): "none" | "single" | "multiple" {
+  if (p.profiles.length === 0) return "none";
+  if (p.profiles.length === 1) return "single";
+  return "multiple";
+}
+
+/** A stage-tagged failure from `outlook-profiles create`/`open` (e.g. `pim-unsupported`
+ * when the /PIM switch is unavailable). Carries `stage` so the card can pick the right copy. */
+export class ProfileStageError extends Error {
+  stage: string;
+  constructor(stage: string, message: string) {
+    super(message);
+    this.name = "ProfileStageError";
+    this.stage = stage;
+  }
+}
+
+/** Parse the `outlook-profiles create` result. A `type:"error"` object throws a
+ * ProfileStageError carrying its stage; unrecognized/malformed output throws generically. */
+export function parseProfileCreate(stdout: string): { name: string; created: boolean; reused: boolean } {
+  const obj = extractJsonObjects(stdout).find(
+    (o) => isRecord(o) && (o.type === "outlookProfileCreate" || o.type === "error"),
+  ) as Record<string, unknown> | undefined;
+
+  if (!obj) throw new Error("Could not read profile-create result.");
+
+  if (obj.type === "error") {
+    const stage = typeof obj.stage === "string" && obj.stage.length > 0 ? obj.stage : "outlook-profiles";
+    const message = typeof obj.message === "string" && obj.message.length > 0 ? obj.message : "Could not create the viewing profile.";
+    throw new ProfileStageError(stage, message);
+  }
+
+  return {
+    name: typeof obj.name === "string" ? obj.name : "",
+    created: obj.created === true,
+    reused: obj.reused === true,
+  };
+}

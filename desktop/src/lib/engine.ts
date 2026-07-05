@@ -7,7 +7,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { parseEngineOutput, type VersionResult, type ScanResult } from "./parse";
 import { parseScanLine } from "./scan";
 import { parseDiscover } from "./discover";
-import { parseColourImport, type ColourImportParse } from "./colourImport";
+import {
+  parseColourImport,
+  parseOutlookProfiles,
+  parseProfileCreate,
+  type ColourImportParse,
+  type OutlookProfiles,
+} from "./colourImport";
 import type { ConversionConfig, FileStat, DiscoverResult, ProfileEntry, ColourPlanEntry } from "./types";
 
 export async function checkEngineVersion(): Promise<VersionResult> {
@@ -190,12 +196,32 @@ export async function applyColours(dir: string): Promise<ColourImportParse> {
   return parseColourImport(await invoke<string>("apply_colours", { dir }));
 }
 
-/** Apply a pre-computed colour plan (from done.colourPlan) via a temp plan file. Outlook must be closed. */
-export async function applyColoursPlan(plan: ColourPlanEntry[]): Promise<ColourImportParse> {
-  return parseColourImport(await invoke<string>("apply_colours_plan", { plan }));
+/** Apply a pre-computed colour plan (from done.colourPlan) via a temp plan file. Outlook must be
+ * closed. `outlookProfile` targets a specific classic-Outlook profile (Task 5); when absent the
+ * key is OMITTED (not sent as undefined) so the Rust side receives None, mirroring
+ * buildStartConvertPayload's optional-arg convention. */
+export async function applyColoursPlan(plan: ColourPlanEntry[], outlookProfile?: string): Promise<ColourImportParse> {
+  const payload = outlookProfile === undefined ? { plan } : { plan, outlookProfile };
+  return parseColourImport(await invoke<string>("apply_colours_plan", payload));
 }
 
 /** List installed Thunderbird profiles from profiles.ini. Resolves [] if none found; rejects on unexpected failure. */
 export async function listThunderbirdProfiles(): Promise<ProfileEntry[]> {
   return invoke<ProfileEntry[]>("list_thunderbird_profiles");
+}
+
+/** List installed classic-Outlook profiles from the registry (Task 5). */
+export async function outlookProfilesList(): Promise<OutlookProfiles> {
+  return parseOutlookProfiles(await invoke<string>("outlook_profiles_list"));
+}
+
+/** Create (or reuse) a mail-less viewing profile with the given name. Throws a
+ * ProfileStageError (see colourImport.ts) on a stage-tagged failure such as `pim-unsupported`. */
+export async function outlookProfilesCreate(name: string): Promise<{ name: string; created: boolean; reused: boolean }> {
+  return parseProfileCreate(await invoke<string>("outlook_profiles_create", { name }));
+}
+
+/** Launch Outlook into the given profile. */
+export async function openInOutlook(name: string): Promise<void> {
+  await invoke<string>("open_in_outlook", { name });
 }

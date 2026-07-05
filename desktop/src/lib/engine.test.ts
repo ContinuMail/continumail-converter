@@ -10,8 +10,15 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { buildStartConvertPayload, startConvert } from "./engine";
-import type { ConversionConfig } from "./types";
+import {
+  buildStartConvertPayload,
+  startConvert,
+  applyColoursPlan,
+  outlookProfilesList,
+  outlookProfilesCreate,
+  openInOutlook,
+} from "./engine";
+import type { ConversionConfig, ColourPlanEntry } from "./types";
 
 const config = { outputs: [] } as unknown as ConversionConfig;
 const invokeMock = vi.mocked(invoke);
@@ -43,5 +50,62 @@ describe("startConvert", () => {
     invokeMock.mockResolvedValueOnce(undefined);
     await startConvert(config, "C:/out");
     expect(invokeMock).toHaveBeenCalledWith("start_convert", { config, outputDir: "C:/out" });
+  });
+});
+
+describe("applyColoursPlan", () => {
+  beforeEach(() => invokeMock.mockReset());
+  const plan: ColourPlanEntry[] = [{ name: "Work", hex: "#FF9900", outlookColor: 2, action: "would-add" }];
+  const okStdout = JSON.stringify({ type: "importColours", mode: "apply", outlookAvailable: true, categories: [] });
+
+  it("omits outlookProfile from the invoke payload when undefined", async () => {
+    invokeMock.mockResolvedValueOnce(okStdout);
+    await applyColoursPlan(plan);
+    expect(invokeMock).toHaveBeenCalledWith("apply_colours_plan", { plan });
+  });
+
+  it("passes outlookProfile through when provided", async () => {
+    invokeMock.mockResolvedValueOnce(okStdout);
+    await applyColoursPlan(plan, "ContinuMail");
+    expect(invokeMock).toHaveBeenCalledWith("apply_colours_plan", { plan, outlookProfile: "ContinuMail" });
+  });
+});
+
+describe("outlookProfilesList", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("invokes outlook_profiles_list and parses the result", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({
+      type: "outlookProfiles", classicOutlook: true, defaultProfile: "Outlook", profiles: ["Outlook"],
+    }));
+    const r = await outlookProfilesList();
+    expect(invokeMock).toHaveBeenCalledWith("outlook_profiles_list");
+    expect(r).toEqual({ classicOutlook: true, defaultProfile: "Outlook", profiles: ["Outlook"] });
+  });
+});
+
+describe("outlookProfilesCreate", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("invokes outlook_profiles_create with the name and parses the result", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ type: "outlookProfileCreate", name: "ContinuMail", created: true, reused: false }));
+    const r = await outlookProfilesCreate("ContinuMail");
+    expect(invokeMock).toHaveBeenCalledWith("outlook_profiles_create", { name: "ContinuMail" });
+    expect(r).toEqual({ name: "ContinuMail", created: true, reused: false });
+  });
+
+  it("rejects with a ProfileStageError on a stage-tagged failure", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ type: "error", stage: "pim-unsupported", message: "nope", fatal: true }));
+    await expect(outlookProfilesCreate("ContinuMail")).rejects.toMatchObject({ stage: "pim-unsupported" });
+  });
+});
+
+describe("openInOutlook", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("invokes open_in_outlook with the name", async () => {
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ type: "outlookProfileOpen", name: "ContinuMail", launched: true }));
+    await openInOutlook("ContinuMail");
+    expect(invokeMock).toHaveBeenCalledWith("open_in_outlook", { name: "ContinuMail" });
   });
 });
