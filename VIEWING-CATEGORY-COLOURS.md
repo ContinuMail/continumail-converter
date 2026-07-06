@@ -4,6 +4,8 @@ ContinuMail Converter carries your Thunderbird tag colours (and calendar/task ca
 straight into the converted PST. This page explains how that works, the one real limitation in
 how classic Outlook renders it, and the steps to see the colours.
 
+> For the underlying mechanism, see **[how baked-in category colours work](HOW-CATEGORY-COLOURS-WORK.md)**.
+
 ## What
 
 Every PST the converter writes has its **master category list baked in** — an
