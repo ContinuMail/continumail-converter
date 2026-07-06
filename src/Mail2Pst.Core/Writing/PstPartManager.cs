@@ -114,6 +114,11 @@ internal sealed class PstPartManager
     // the empty-Calendar-for-mail-only case). Reuse the top-level "Calendar" if it already exists (e.g. a
     // config whose appointment folder is a single top-level "Calendar" segment, or a prior stamp on this
     // part), else create it.
+    // Edge case (rare, accepted): if a mail conversion legitimately produced its own top-level
+    // "Calendar" folder (IPF.Note, e.g. mirrored from a source folder literally named "Calendar"),
+    // the class check below falls through and creates a second, separate "Calendar" sibling
+    // (IPF.Appointment) to host the FAI — two top-level folders sharing a display name but
+    // distinguished by container class. Outlook tolerates this; we do not attempt to rename or merge.
     private PSTFolder EnsureCalendarFolder()
     {
         PSTFolder top = _file!.TopOfPersonalFolders;

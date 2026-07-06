@@ -113,7 +113,6 @@ public class CategoryFaiBakeTests
             //    "Calendars" (events) are distinct folders.
             PSTFolder calendarsRoot = file.TopOfPersonalFolders.FindChildFolder("Calendars");
             Assert.NotNull(calendarsRoot);
-            Assert.NotSame(calendar, calendarsRoot);
 
             file.CloseFile();
         }

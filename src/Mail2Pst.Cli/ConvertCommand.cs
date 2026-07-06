@@ -140,6 +140,10 @@ internal static class ConvertCommand
             string reportTxtPath = Path.Combine(outputDir, "conversion-report.txt");
             File.WriteAllText(reportTxtPath, report.ToSummary());
 
+            // Built from the report's GLOBAL union of calendar/task category names across all output
+            // groups; each PST only bakes its own per-plan subset, so for a multi-output config this
+            // reported plan can list names/colours not present in a given individual PST's FAI
+            // (single-output configs are identical). Unchanged from prior behavior.
             var colourPlan = BuildColourPlan(config.ProfilePath, report.CalendarCategoryNames);
 
             CliArgs.WriteJsonLine(new
