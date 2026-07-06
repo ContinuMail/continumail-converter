@@ -392,6 +392,64 @@ namespace PSTFileFormat
         }
 
         /// <summary>
+        /// ContinuMail addition: write an associated (FAI) message into this folder's ASSOCIATED
+        /// contents table. Guarantees MSGFLAG_ASSOCIATED (0x40) on the message — membership in the
+        /// associated table IS associated semantics, so the primitive owns that invariant rather than
+        /// trusting the caller. Unlike <see cref="AddMessage"/> it does NOT touch PidTagContentCount,
+        /// the unread count, or the SearchManagementQueue — an FAI is not a visible folder item. The
+        /// associated table is saved immediately (stamping is a once-per-store operation).
+        /// </summary>
+        public void AddAssociatedMessage(MessageObject message)
+        {
+            // Enforce the associated flag on the message itself before indexing it.
+            const int MSGFLAG_ASSOCIATED = 0x40;
+            int msgFlags = message.PC.GetInt32Property(PropertyID.PidTagMessageFlags) ?? 0;
+            if ((msgFlags & MSGFLAG_ASSOCIATED) == 0)
+            {
+                message.PC.SetInt32Property(PropertyID.PidTagMessageFlags, msgFlags | MSGFLAG_ASSOCIATED);
+                message.SaveChanges();
+            }
+
+            TableContext associatedTable = GetAssociatedContentsTable();
+            associatedTable.AddPropertyColumnIfNotExist(PropertyID.PidTagMessageClass, PropertyTypeName.PtypString);
+            associatedTable.AddPropertyColumnIfNotExist(PropertyID.PidTagSubject, PropertyTypeName.PtypString);
+            associatedTable.AddPropertyColumnIfNotExist(PropertyID.PidTagMessageFlags, PropertyTypeName.PtypInteger32);
+            associatedTable.AddPropertyColumnIfNotExist(PropertyID.PidTagLtpRowId, PropertyTypeName.PtypInteger32);
+            associatedTable.AddPropertyColumnIfNotExist(PropertyID.PidTagLtpRowVer, PropertyTypeName.PtypInteger32);
+
+            int rowIndex = associatedTable.AddRow(message.NodeID.Value);
+            TableContextHelper.CopyProperties(message.PC, associatedTable, rowIndex);
+            associatedTable.SetInt32Property(rowIndex, PropertyID.PidTagLtpRowId, (int)message.NodeID.Value);
+            associatedTable.SetInt32Property(rowIndex, PropertyID.PidTagLtpRowVer, (int)File.Header.AllocateNextUniqueID());
+
+            associatedTable.SaveChanges(GetAssociatedContentsTableNodeID());
+        }
+
+        /// <summary>ContinuMail addition: number of FAI rows in the associated contents table.</summary>
+        public int AssociatedMessageCount
+        {
+            get
+            {
+                TableContext tc = GetAssociatedContentsTable();
+                return tc != null ? tc.RowCount : 0;
+            }
+        }
+
+        /// <summary>ContinuMail addition: the associated (FAI) message at the given associated-table row.
+        /// Returns null for an out-of-range index — matches the non-nullable `GetMessage(int)` signature
+        /// (the vendored project has nullable reference types disabled, so `return null` is valid here).</summary>
+        public MessageObject GetAssociatedMessage(int index)
+        {
+            TableContext tc = GetAssociatedContentsTable();
+            if (tc != null && index < tc.RowCount)
+            {
+                NodeID nodeID = new NodeID(tc.GetRowID(index));
+                return this.File.GetMessage(nodeID);
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Dissociate a message from this folder
         /// </summary>
         public void RemoveMessage(MessageObject message)

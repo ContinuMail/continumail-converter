@@ -174,6 +174,8 @@ namespace PSTFileFormat
         Unknown0x6909 = 0x6909,                   // Int32
         PR_SECURITY_FLAGS = 0x6E01,               // Int32
 
+        PidTagRoamingXmlStream = 0x7C08,          // Binary (MS-OXOCFG category-list config stream)
+
         PidTagAttachmentLinkId = 0x7FFA,          // Int32
         PidTagExceptionStartTime = 0x7FFB,        // DateTime, Timezone time!
         PidTagExceptionEndTime = 0x7FFC,          // DateTime, Timezone time!
