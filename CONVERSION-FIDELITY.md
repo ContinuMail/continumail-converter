@@ -185,3 +185,24 @@ _Thunderbird to-dos → PST tasks_
 │ Assignees / task attendees  │ Task assignment        │ Planned   │ Deferred follow-up                 │ —                           │
 └─────────────────────────────┴────────────────────────┴───────────┴────────────────────────────────────┴─────────────────────────────┘
 ```
+
+---
+
+## 🎨 Category colours
+
+_Mail tags + calendar/task categories → baked-in Outlook master category list_
+
+**Status:** Converted — colours are baked into the PST; rendering has one Outlook-side caveat (below).
+
+Category *names* convert as shown in the tables above (mail tags, calendar and task categories → the item's
+`Keywords`/categories). Their *colours* are baked into every converted PST as the Outlook **master category
+list** — an `IPM.Configuration.CategoryList` hidden configuration item in a top-level "Calendar" folder — so
+the file carries its own name→colour mapping with no Outlook automation, no COM, and no separate step. Each
+colour is the one Thunderbird shows: your profile's colour override if set, otherwise Thunderbird's own
+computed default. Every output PST carries the full union of categories across the conversion.
+
+**Rendering caveat:** classic Outlook reads the master category list from your **primary/default** store only.
+Open the converted PST as your primary store and categories render in colour; attach it as a *secondary* data
+file and categorized items show their names but not their colours. See
+**[how baked-in category colours work](HOW-CATEGORY-COLOURS-WORK.md)** for the mechanism and
+**[Viewing category colours](VIEWING-CATEGORY-COLOURS.md)** for the steps. Classic Outlook on Windows only.
