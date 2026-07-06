@@ -81,7 +81,7 @@ The desktop app walks you through the whole conversion; your originals are never
 
 - **mbox input** via a custom mbox splitter plus MimeKit entity parsing (robust to the Gmail Takeout / MimeKit EOF quirk).
 - **Thunderbird profile mode:** point the app (or `convert --profile`) at a Thunderbird profile and it auto-discovers the nested folder tree and pairs each mbox with its `.msf` for full flag/tag fidelity.
-- **Multi-account:** a profile with several mail accounts produces **one PST per account** by default (each account a top-level folder), or combine them into a single PST.
+- **Multi-account:** a profile with several mail accounts produces **one PST per account** by default (each account a top-level folder), or combine them into a single PST. Each account's **calendars, contacts and tasks are routed into that same account's PST**, so everything for an account stays together.
 - **Category colours, baked in:** every converted PST carries its category master list (your Thunderbird tag colours) intrinsically — no Outlook, no COM, no separate step. See [how baked-in category colours work](HOW-CATEGORY-COLOURS-WORK.md) for the mechanism, and [Viewing category colours](VIEWING-CATEGORY-COLOURS.md) for the one rendering caveat (classic Outlook needs the PST as your primary/default store to show colours, not just names).
 - **Junk & expunged handling:** route Thunderbird-scored junk (leave / tag as a "Junk" category / move to a Junk Email folder), and optionally drop messages Thunderbird marked deleted.
 - **Folder mapping:** mirror (one PST folder per source file), flatten, or per-source custom target folder. Empty source folders can be kept as empty PST folders.
