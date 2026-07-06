@@ -30,7 +30,7 @@ uses no port.
 - **Frontend ↔ engine:** the React UI calls narrow Rust commands that invoke the sidecar; pure
   parsing of the CLI's JSON-Lines events lives in `src/lib/` (unit-tested, no Tauri imports).
 - **Flows:** flat `.mbox` files, and full **Thunderbird profile mode** (discovery, `.msf` flag/tag
-  enrichment, multi-account → one PST per account, and an optional Outlook category-colour import).
+  enrichment, multi-account → one PST per account).
 
 See the [root README](../README.md) for the product overview, the JSON-Lines contract, and
 build-from-source details for the engine.

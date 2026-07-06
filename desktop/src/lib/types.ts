@@ -108,7 +108,6 @@ export type ConvertEvent = (
       report?: string;
       elapsedMs: number;
       enrichment?: EnrichmentSummary;
-      colourPlan?: ColourPlanEntry[];
       appointmentsConverted?: number; appointmentsSkipped?: number; appointmentWarnings?: number;
       tasksConverted?: number; tasksSkipped?: number; taskWarnings?: number;
       contactsConverted?: number; contactsSkipped?: number; contactWarnings?: number;
@@ -211,15 +210,6 @@ export interface ProfileSourceRow extends SourceRow {
   msfPath: string | null;
   accountId: string | null;
 }
-
-export interface ColourCategory {
-  name: string;
-  hex: string | null;
-  outlookColor: number | null;
-  action: string;
-}
-
-export type ColourPlanEntry = Pick<ColourCategory, "name" | "hex" | "outlookColor" | "action">;
 
 export interface ProfileEntry { name: string; path: string; isDefault: boolean; accounts: string[]; convertible: boolean }
 

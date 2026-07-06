@@ -67,133 +67,6 @@ fn convert_args(config_path: &str, output_dir: &str, expected_total: Option<i32>
     args
 }
 
-// Per-command sidecar timeout caps (KB-004 defence-in-depth — see run_sidecar_capture below).
-// Named constants so a future edit can't silently drift a cap; pinned by `sidecar_timeout_caps`
-// in the test module below. Outlook profile creation and colour apply/apply-plan legitimately
-// need Outlook to start/stop a COM session (cold verify + retry-once), so they get longer caps
-// than the default; everything else keeps the original 120 s.
-//
-// APPLY_TIMEOUT_SECS's true worst case is NOT just the two per-attempt STA caps (apply + cold
-// verify) — it also includes the retry orchestration's cleanup guards: up to four
-// `ensureNoTrackedProcess` waits (30 s each, KB-004) between attempts. A completing worst-case
-// orchestration can reach ~450 s, so the cap needs headroom above that, not just above the raw
-// STA budgets; 600 s is a generous deadlock backstop over saving seconds.
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
-const CREATE_TIMEOUT_SECS: u64 = 180;
-const APPLY_TIMEOUT_SECS: u64 = 600;
-
-// Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
-// something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
-// object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
-// One-shot sidecar run that CAPTURES stdout, used by the Outlook-touching commands (create / colour
-// apply / preview / open). We deliberately do NOT use tauri-plugin-shell's `.output()`/`.spawn()` here:
-// both signal completion only when the stdout pipe reaches EOF (its stdout reader holds a read-lock that
-// the Terminated sender's write-lock blocks on — see tauri-plugin-shell process/mod.rs). Outlook spawns
-// broker/add-in processes that inherit and hold the sidecar's stdout pipe open AFTER the CLI itself has
-// exited, so EOF never arrives and the UI hangs to the timeout cap even though the command already
-// finished. Redirecting the CLI's stdout to a FILE removes all pipe/EOF semantics: `child.wait()`
-// returns on the CLI's OWN process exit, immune to any descendant still holding an inherited handle.
-async fn run_sidecar_capture(
-    _app: &tauri::AppHandle,
-    args: Vec<String>,
-    timeout: std::time::Duration,
-) -> Result<String, String> {
-    use std::process::Stdio;
-
-    // Resolve the sidecar exactly as tauri-plugin-shell does: `<current_exe_dir>/mail2pst-cli[.exe]`
-    // (dev: target/<profile>/; bundled: next to the app binary).
-    let exe_dir = std::env::current_exe()
-        .map_err(|e| format!("cannot resolve current exe: {e}"))?
-        .parent()
-        .ok_or_else(|| "current exe has no parent".to_string())?
-        .to_path_buf();
-    let sidecar = exe_dir.join(format!("mail2pst-cli{}", std::env::consts::EXE_SUFFIX));
-    if !sidecar.exists() {
-        return Err(format!("sidecar not found at {}", sidecar.display()));
-    }
-
-    // Unique temp files for stdout/stderr. Date/rand are unavailable here; pid + a process-global counter
-    // is unique enough for concurrent GUI actions.
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let uniq = format!(
-        "mail2pst-cap-{}-{}",
-        std::process::id(),
-        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let tmp_dir = std::env::temp_dir();
-    let out_path = tmp_dir.join(format!("{uniq}.out"));
-    let err_path = tmp_dir.join(format!("{uniq}.err"));
-
-    let out_file =
-        std::fs::File::create(&out_path).map_err(|e| format!("cannot create temp stdout: {e}"))?;
-    let err_file = std::fs::File::create(&err_path).map_err(|e| {
-        let _ = std::fs::remove_file(&out_path);
-        format!("cannot create temp stderr: {e}")
-    })?;
-
-    let mut cmd = std::process::Command::new(&sidecar);
-    cmd.args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(out_file))
-        .stderr(Stdio::from(err_file));
-    // Don't flash a console window for the console-subsystem CLI when launched from the GUI.
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let mut child = cmd.spawn().map_err(|e| {
-        let _ = std::fs::remove_file(&out_path);
-        let _ = std::fs::remove_file(&err_path);
-        format!("failed to start engine: {e}")
-    })?;
-
-    // Wait for the CLI's own exit, bounded by `timeout` (a pure deadlock backstop now). Poll try_wait so
-    // we never block the async runtime; try_wait/wait key off THIS child's PID, not any inherited handle.
-    let start = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break None;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(&out_path);
-                let _ = std::fs::remove_file(&err_path);
-                return Err(format!("failed waiting for engine: {e}"));
-            }
-        }
-    };
-
-    // The CLI flushes its (possibly multi-line) JSON before exiting, so the file holds the complete output.
-    let stdout = std::fs::read_to_string(&out_path).unwrap_or_default();
-    let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&out_path);
-    let _ = std::fs::remove_file(&err_path);
-
-    match status {
-        None => {
-            Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string())
-        }
-        // Mirror the old contract: success on clean exit, but also return stdout on a nonzero exit that
-        // still printed a structured {type:"error"} object (import-colours' handled failures).
-        Some(st) => {
-            if st.success() || !stdout.trim().is_empty() {
-                Ok(stdout)
-            } else {
-                Err(format!("engine exited with {:?}: {stderr}", st.code()))
-            }
-        }
-    }
-}
-
 async fn run_sidecar(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
     let output = app
         .shell()
@@ -236,81 +109,6 @@ async fn scan_sample(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn discover_profile(app: tauri::AppHandle, dir: String) -> Result<String, String> {
     run_sidecar(&app, vec!["discover".to_string(), "--input".to_string(), dir]).await
-}
-
-#[tauri::command]
-async fn preview_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
-    run_sidecar_capture(
-        &app,
-        vec!["import-colours".to_string(), "--profile".to_string(), dir],
-        std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-    )
-    .await
-}
-
-#[tauri::command]
-async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
-    run_sidecar_capture(
-        &app,
-        vec!["import-colours".to_string(), "--profile".to_string(), dir, "--apply".to_string()],
-        std::time::Duration::from_secs(APPLY_TIMEOUT_SECS),
-    )
-    .await
-}
-
-#[tauri::command]
-async fn outlook_profiles_list(app: tauri::AppHandle) -> Result<String, String> {
-    run_sidecar(&app, vec!["outlook-profiles".into(), "list".into()]).await
-}
-
-#[tauri::command]
-async fn outlook_profiles_create(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    run_sidecar_capture(
-        &app,
-        vec!["outlook-profiles".into(), "create".into(), "--name".into(), name],
-        std::time::Duration::from_secs(CREATE_TIMEOUT_SECS),
-    )
-    .await
-}
-
-#[tauri::command]
-async fn open_in_outlook(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    run_sidecar_capture(
-        &app,
-        vec!["outlook-profiles".into(), "open".into(), "--name".into(), name],
-        std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-    )
-    .await
-}
-
-/// Writes the supplied colour plan to a temp file and runs `import-colours --apply --plan-file`,
-/// then removes the temp file (mirrors start_convert's temp-config cleanup).
-#[tauri::command]
-async fn apply_colours_plan(
-    app: AppHandle,
-    plan: serde_json::Value,
-    outlook_profile: Option<String>,
-) -> Result<String, String> {
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let plan_path = std::env::temp_dir().join(format!("continumail-colourplan-{unique}.json"));
-    std::fs::write(&plan_path, serde_json::to_string(&plan).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("cannot write plan: {e}"))?;
-    let path_str = plan_path.to_string_lossy().to_string();
-    let mut args = vec!["import-colours".into(), "--plan-file".into(), path_str, "--apply".into()];
-    if let Some(name) = outlook_profile {
-        args.push("--outlook-profile".into());
-        args.push(name);
-    }
-    let result = run_sidecar_capture(&app, args, std::time::Duration::from_secs(APPLY_TIMEOUT_SECS)).await;
-    let _ = std::fs::remove_file(&plan_path); // best-effort cleanup
-    result
 }
 
 #[derive(Serialize)]
@@ -761,12 +559,6 @@ pub fn run() {
             cancel_convert,
             open_folder,
             open_junk_help,
-            preview_colours,
-            apply_colours,
-            apply_colours_plan,
-            outlook_profiles_list,
-            outlook_profiles_create,
-            open_in_outlook,
             default_thunderbird_profiles_dir,
             list_thunderbird_profiles
         ])
@@ -864,18 +656,7 @@ Path=Profiles/xyz.dev\n";
 
 #[cfg(test)]
 mod tests {
-    use super::{convert_args, drain_lines, scan_args, APPLY_TIMEOUT_SECS, CREATE_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS};
-
-    // Pins the per-command sidecar timeout caps so a future edit can't silently drift them
-    // (Task 9: `apply_colours` and `apply_colours_plan` both got a wider cap since applying
-    // colours legitimately needs Outlook to start/stop a COM session — a single stray edit to
-    // only one of the two call sites is the classic bug this guards against).
-    #[test]
-    fn sidecar_timeout_caps() {
-        assert_eq!(DEFAULT_TIMEOUT_SECS, 120, "default cap (preview/list/open/scan/convert)");
-        assert_eq!(CREATE_TIMEOUT_SECS, 180, "outlook_profiles_create cap");
-        assert_eq!(APPLY_TIMEOUT_SECS, 600, "apply_colours / apply_colours_plan cap");
-    }
+    use super::{convert_args, drain_lines, scan_args};
 
     #[test]
     fn scan_args_one_input_passes_progress_flag() {

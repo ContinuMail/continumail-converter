@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { parseConvertLine, appendWarningCapped, convertExitError, type WarningItem } from "./convert";
 import { startConvert } from "./engine";
 import { checkSchemaVersion } from "./schema";
-import type { ConversionConfig, ConvertEvent, EnrichmentSummary, ColourPlanEntry } from "./types";
+import type { ConversionConfig, ConvertEvent, EnrichmentSummary } from "./types";
 
 export type ConvertPhase = "idle" | "running" | "done" | "error" | "cancelled";
 
@@ -29,7 +29,6 @@ export interface ConvertState {
   errorMessage: string | null;
   elapsedMs: number | null;
   enrichment: EnrichmentSummary | null;
-  colourPlan: ColourPlanEntry[] | null;
   currentPhase: string | null;
   appointments: TypeCounts;
   tasks: TypeCounts;
@@ -52,7 +51,6 @@ export const initialConvertState: ConvertState = {
   errorMessage: null,
   elapsedMs: null,
   enrichment: null,
-  colourPlan: null,
   currentPhase: null,
   appointments: { ...emptyCounts },
   tasks: { ...emptyCounts },
@@ -113,7 +111,6 @@ export function reduceConvert(state: ConvertState, ev: ConvertEvent): ConvertSta
         outputs: ev.outputs,
         elapsedMs: ev.elapsedMs,
         enrichment: ev.enrichment ?? null,
-        colourPlan: ev.colourPlan ?? null,
         appointments: { total: state.appointments.total,
           converted: ev.appointmentsConverted ?? 0, skipped: ev.appointmentsSkipped ?? 0, warnings: ev.appointmentWarnings ?? 0 },
         tasks: { total: state.tasks.total,

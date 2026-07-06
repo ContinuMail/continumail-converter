@@ -47,7 +47,6 @@ export default function App() {
         {conv.phase === "done" && (
           <DoneView
             state={conv}
-            profileRoot={f.inputMode === "profile" ? f.profileRoot : null}
             onConvertAnother={onConvertAnother}
           />
         )}

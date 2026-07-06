@@ -9,9 +9,8 @@ import type { ConvertState } from "@/lib/useConvert";
 import { formatElapsed } from "@/lib/progressStats";
 import { shouldShowEnrichment, formatEnrichmentLine } from "@/lib/doneEnrichment";
 import { perTypeRows, anySkipped, doneSubtitle } from "@/lib/perTypeRows";
-import { ColourImportCard } from "@/components/views/ColourImportCard";
 
-export function DoneView({ state, profileRoot, onConvertAnother }: { state: ConvertState; profileRoot?: string | null; onConvertAnother: () => void }) {
+export function DoneView({ state, onConvertAnother }: { state: ConvertState; onConvertAnother: () => void }) {
   const first = state.outputs[0];
   const folder = first ? splitPath(first).dir : state.outputDir;
   const elapsed = state.elapsedMs != null ? formatElapsed(state.elapsedMs) : "";
@@ -83,10 +82,6 @@ export function DoneView({ state, profileRoot, onConvertAnother }: { state: Conv
             </div>
           )}
         </div>
-      )}
-
-      {profileRoot && state.colourPlan && state.colourPlan.length > 0 && (
-        <ColourImportCard plan={state.colourPlan} />
       )}
 
       <div className="mt-4 rounded-[10px] border border-dashed border-border bg-card px-3.5 py-3 text-xs text-muted-foreground">

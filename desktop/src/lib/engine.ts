@@ -7,15 +7,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { parseEngineOutput, type VersionResult, type ScanResult } from "./parse";
 import { parseScanLine } from "./scan";
 import { parseDiscover } from "./discover";
-import {
-  parseColourImport,
-  parseOutlookProfiles,
-  parseProfileCreate,
-  parseProfileOpen,
-  type ColourImportParse,
-  type OutlookProfiles,
-} from "./colourImport";
-import type { ConversionConfig, FileStat, DiscoverResult, ProfileEntry, ColourPlanEntry } from "./types";
+import type { ConversionConfig, FileStat, DiscoverResult, ProfileEntry } from "./types";
 
 export async function checkEngineVersion(): Promise<VersionResult> {
   const stdout = await invoke<string>("check_engine_version");
@@ -187,45 +179,7 @@ export function openJunkHelp(): Promise<void> {
   return invoke<void>("open_junk_help");
 }
 
-/** Preview the Thunderbird→Outlook colour import (Outlook-free). */
-export async function previewColours(dir: string): Promise<ColourImportParse> {
-  return parseColourImport(await invoke<string>("preview_colours", { dir }));
-}
-
-/** Apply the colour import to Outlook's master list (Windows + Outlook, Outlook must be closed). */
-export async function applyColours(dir: string): Promise<ColourImportParse> {
-  return parseColourImport(await invoke<string>("apply_colours", { dir }));
-}
-
-/** Apply a pre-computed colour plan (from done.colourPlan) via a temp plan file. Outlook must be
- * closed. `outlookProfile` targets a specific classic-Outlook profile (Task 5); when absent the
- * key is OMITTED (not sent as undefined) so the Rust side receives None, mirroring
- * buildStartConvertPayload's optional-arg convention. */
-export async function applyColoursPlan(plan: ColourPlanEntry[], outlookProfile?: string): Promise<ColourImportParse> {
-  const payload = outlookProfile === undefined ? { plan } : { plan, outlookProfile };
-  return parseColourImport(await invoke<string>("apply_colours_plan", payload));
-}
-
 /** List installed Thunderbird profiles from profiles.ini. Resolves [] if none found; rejects on unexpected failure. */
 export async function listThunderbirdProfiles(): Promise<ProfileEntry[]> {
   return invoke<ProfileEntry[]>("list_thunderbird_profiles");
-}
-
-/** List installed classic-Outlook profiles from the registry (Task 5). */
-export async function outlookProfilesList(): Promise<OutlookProfiles> {
-  return parseOutlookProfiles(await invoke<string>("outlook_profiles_list"));
-}
-
-/** Create (or reuse) a mail-less viewing profile with the given name. Throws a
- * ProfileStageError (see colourImport.ts) on a stage-tagged failure such as `pim-unsupported`. */
-export async function outlookProfilesCreate(name: string): Promise<{ name: string; created: boolean; reused: boolean }> {
-  return parseProfileCreate(await invoke<string>("outlook_profiles_create", { name }));
-}
-
-/** Launch Outlook into the given profile. Throws a ProfileStageError (see colourImport.ts)
- * on a stage-tagged failure — e.g. `unknown-outlook-profile` when the name no longer resolves —
- * even though the Tauri command itself resolves (the sidecar exits 1 but still prints a
- * structured `{type:"error"}` object via run_sidecar_capture, so it surfaces as `Ok(stdout)`). */
-export async function openInOutlook(name: string): Promise<void> {
-  parseProfileOpen(await invoke<string>("open_in_outlook", { name }));
 }
