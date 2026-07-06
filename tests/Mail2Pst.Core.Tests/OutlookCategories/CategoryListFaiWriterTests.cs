@@ -70,4 +70,38 @@ public class CategoryListFaiWriterTests
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
+
+    // Owner kill-gate artifact: writes a never-default PST containing ONE mail item categorized
+    // "Meeting" plus a baked CategoryList FAI (Meeting = yellow, OlCategoryColor 5 -> xml color 4).
+    // Skipped by default; run explicitly to regenerate the artifact for the manual render gate.
+    [Fact(Skip = "Owner kill-gate artifact generator; run manually")]
+    public void GENERATE_gate_pst()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "continumail-gate");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "category-colour-gate.pst");
+        PSTFile.CreateEmptyStore(path);
+        var file = new PSTFile(path, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
+        file.BeginSavingChanges();
+
+        // A mail folder + one message categorized "Meeting".
+        PSTFolder inbox = file.TopOfPersonalFolders.CreateChildFolder("Inbox", FolderItemTypeName.Note);
+        Note note = Note.CreateNewNote(file, inbox.NodeID);
+        note.Subject = "Gate item";
+        ushort keywordsId = PropertyNameToIDMap.GetOrCreateStringNamedProperty(file, 2, "Keywords");
+        note.PC.SetMultiStringProperty((PropertyID)keywordsId, new System.Collections.Generic.List<string> { "Meeting" });
+        note.SaveChanges();
+        inbox.AddMessage(note);
+        inbox.SaveChanges();
+
+        // The FAI in a Calendar folder — Meeting = yellow (OlCategoryColor 5).
+        PSTFolder calendar = file.TopOfPersonalFolders.CreateChildFolder("Calendar", FolderItemTypeName.Appointment);
+        string xml = Mail2Pst.Core.OutlookCategories.CategoryListXml.Append(
+            string.Empty, new[] { ("Meeting", 5) });
+        CategoryListFaiWriter.Stamp(file, calendar, Encoding.UTF8.GetBytes(xml));
+
+        file.EndSavingChanges();
+        file.CloseFile();
+        System.Console.WriteLine($"Gate PST: {path}");
+    }
 }
