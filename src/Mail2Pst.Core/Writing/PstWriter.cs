@@ -111,7 +111,7 @@ public class PstWriter
         IReadOnlyList<PlannedAppointment> appointments, IReadOnlyList<IReadOnlyList<string>> appointmentFolders,
         string outputDirectory, ConversionReport report, int totalMessages = -1,
         Action<ConversionProgressEvent>? onProgress = null, CancellationToken cancellationToken = default,
-        DurableMemoryObserver? memoryObserver = null)
+        DurableMemoryObserver? memoryObserver = null, byte[]? categoryListFaiXml = null)
     {
         // Pre-flight: if already cancelled, create nothing so DeletedFiles stays empty.
         cancellationToken.ThrowIfCancellationRequested();
@@ -126,7 +126,8 @@ public class PstWriter
             writeMessage: (file, folder, message) => WriteMessageCore(file, folder, message),
             writeContact: (file, folder, contact) => contactWriter.WriteContact(file, folder, contact),
             writeTask: (file, folder, task) => taskWriter.WriteTask(file, folder, task),
-            writeAppointment: (file, folder, appt) => appointmentWriter.WriteAppointment(file, folder, appt));
+            writeAppointment: (file, folder, appt) => appointmentWriter.WriteAppointment(file, folder, appt),
+            categoryListFaiXml: categoryListFaiXml);
         var throttler = new ProgressThrottler(onProgress, totalMessages);
 
         // Producer thread parses MIME (CPU-bound); this consumer writes PST (I/O-bound).

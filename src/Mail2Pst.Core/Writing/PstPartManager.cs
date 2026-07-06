@@ -8,6 +8,7 @@ using System.IO;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.OutlookCategories;
 using PSTFileFormat;
 
 namespace Mail2Pst.Core.Writing;
@@ -34,6 +35,7 @@ internal sealed class PstPartManager
     private readonly Action<PSTFile, PSTFolder, TaskRecord> _writeTask;
     private readonly Action<PSTFile, PSTFolder, AppointmentRecord> _writeAppointment;
     private readonly long _emptyStoreSize;
+    private readonly byte[]? _categoryListFaiXml;   // baked into each part's Calendar folder; null = skip
 
     private readonly List<string> _outputFiles = new();
     private readonly Dictionary<string, PSTFolder> _folders = new();
@@ -50,7 +52,8 @@ internal sealed class PstPartManager
         Action<PSTFile, PSTFolder, MailMessage> writeMessage,
         Action<PSTFile, PSTFolder, ContactRecord> writeContact,
         Action<PSTFile, PSTFolder, TaskRecord>? writeTask = null,
-        Action<PSTFile, PSTFolder, AppointmentRecord>? writeAppointment = null)
+        Action<PSTFile, PSTFolder, AppointmentRecord>? writeAppointment = null,
+        byte[]? categoryListFaiXml = null)
     {
         _groupName = groupName;
         _outputDirectory = outputDirectory;
@@ -60,6 +63,7 @@ internal sealed class PstPartManager
         _writeContact = writeContact;
         _writeTask = writeTask ?? ((_, _, _) => { });
         _writeAppointment = writeAppointment ?? ((_, _, _) => { });
+        _categoryListFaiXml = categoryListFaiXml;
         // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
         // copy is retired. The initial on-disk size is the constant empty-store size.
         _emptyStoreSize = PSTFile.EmptyStoreSizeBytes;
@@ -88,6 +92,29 @@ internal sealed class PstPartManager
         _file.BeginSavingChanges();
         foreach (FolderToPrecreate folder in foldersToPrecreate)
             GetOrCreateFolder(folder.Path, folder.Type);   // GuardLeafClass is the second line of defense
+        StampCategoryFai();
+    }
+
+    // Stamp the CategoryList FAI into this part's Calendar folder (creating an empty IPF.Appointment
+    // "Calendar" folder if the store has none — a mail-only store). No-op when there is no colour plan.
+    // Called once per part, right after the part is opened and BeginSavingChanges is active.
+    private void StampCategoryFai()
+    {
+        if (_categoryListFaiXml is null || _categoryListFaiXml.Length == 0) return;
+        PSTFolder calendar = EnsureCalendarFolder();
+        CategoryListFaiWriter.Stamp(_file!, calendar, _categoryListFaiXml);
+    }
+
+    // Reuse the store's existing top-level Calendar (IPF.Appointment) folder if one is present
+    // (e.g. created by an appointment mapping); otherwise create an empty "Calendar" folder.
+    private PSTFolder EnsureCalendarFolder()
+    {
+        PSTFolder top = _file!.TopOfPersonalFolders;
+        string appointmentClass = PSTFolder.GetContainerClass(FolderItemTypeName.Appointment); // "IPF.Appointment"
+        foreach (PSTFolder child in top.GetChildFolders())
+            if (string.Equals(child.ContainerClass, appointmentClass, StringComparison.Ordinal))
+                return child;
+        return top.CreateChildFolder("Calendar", FolderItemTypeName.Appointment);
     }
 
     // Pre-flight: reject an empty path or the same path requested as two different item types BEFORE any
@@ -273,6 +300,7 @@ internal sealed class PstPartManager
             _messagesSinceCheck = 0;
             _messagesInCurrentPart = 0;
             opened = true;
+            StampCategoryFai();   // stamp the new part's Calendar folder
         }
         finally
         {

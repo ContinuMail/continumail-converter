@@ -14,6 +14,7 @@ using Mail2Pst.Core.Diagnostics;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Msf;
+using Mail2Pst.Core.OutlookCategories;
 using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
@@ -101,6 +102,10 @@ public class ConversionRunner
             foreach (PstOutputPlan plan in plans)
             {
                 IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, enrichmentOptions, onProgress);
+
+                // Per-plan calendar/task category names for the baked colour FAI (mail-tag colours come
+                // from prefs.js independently). Populated alongside report.RecordCalendarCategories.
+                var planCategoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 // Assemble contacts for this output group before handing off to the writer.
                 var planned = new List<PlannedContact>();
@@ -211,6 +216,7 @@ public class ConversionRunner
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
                                         report.RecordCalendarCategories(mapped.Categories);
+                                        foreach (string cat in mapped.Categories) planCategoryNames.Add(cat);
                                         plannedTasks.Add(new PlannedTask
                                         {
                                             Task = mapped,
@@ -279,6 +285,7 @@ public class ConversionRunner
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
                                         report.RecordCalendarCategories(mapped.Categories);
+                                        foreach (string cat in mapped.Categories) planCategoryNames.Add(cat);
                                         plannedAppointments.Add(new PlannedAppointment
                                         {
                                             Appointment = mapped,
@@ -296,7 +303,9 @@ public class ConversionRunner
                     }
                 }
 
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
+                byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(config.ProfilePath, planCategoryNames.ToArray());
+
+                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver, faiXml);
                 report.AddOutputFiles(outputFiles);
             }
 
