@@ -85,33 +85,112 @@ const APPLY_TIMEOUT_SECS: u64 = 600;
 // Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
 // something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
 // object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
+// One-shot sidecar run that CAPTURES stdout, used by the Outlook-touching commands (create / colour
+// apply / preview / open). We deliberately do NOT use tauri-plugin-shell's `.output()`/`.spawn()` here:
+// both signal completion only when the stdout pipe reaches EOF (its stdout reader holds a read-lock that
+// the Terminated sender's write-lock blocks on — see tauri-plugin-shell process/mod.rs). Outlook spawns
+// broker/add-in processes that inherit and hold the sidecar's stdout pipe open AFTER the CLI itself has
+// exited, so EOF never arrives and the UI hangs to the timeout cap even though the command already
+// finished. Redirecting the CLI's stdout to a FILE removes all pipe/EOF semantics: `child.wait()`
+// returns on the CLI's OWN process exit, immune to any descendant still holding an inherited handle.
 async fn run_sidecar_capture(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     args: Vec<String>,
     timeout: std::time::Duration,
 ) -> Result<String, String> {
-    let cmd = app
-        .shell()
-        .sidecar("mail2pst-cli")
-        .map_err(|e| format!("sidecar not found: {e}"))?
-        .args(args);
-    // Defence-in-depth (KB-004): never let a stuck sidecar hang the UI forever. The CLI bounds its own
-    // Outlook work and kills its transient instance, but if a child ever keeps the stdout pipe open
-    // `.output()` would await EOF indefinitely. Cap it so the command always resolves; the colour-import
-    // card surfaces a retry on this error. ("timed out" maps to a friendly message in ColourImportCard.)
-    let output = match tokio::time::timeout(timeout, cmd.output()).await {
-        Ok(r) => r.map_err(|e| format!("failed to run engine: {e}"))?,
-        Err(_) => return Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string()),
+    use std::process::Stdio;
+
+    // Resolve the sidecar exactly as tauri-plugin-shell does: `<current_exe_dir>/mail2pst-cli[.exe]`
+    // (dev: target/<profile>/; bundled: next to the app binary).
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("cannot resolve current exe: {e}"))?
+        .parent()
+        .ok_or_else(|| "current exe has no parent".to_string())?
+        .to_path_buf();
+    let sidecar = exe_dir.join(format!("mail2pst-cli{}", std::env::consts::EXE_SUFFIX));
+    if !sidecar.exists() {
+        return Err(format!("sidecar not found at {}", sidecar.display()));
+    }
+
+    // Unique temp files for stdout/stderr. Date/rand are unavailable here; pid + a process-global counter
+    // is unique enough for concurrent GUI actions.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let uniq = format!(
+        "mail2pst-cap-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let tmp_dir = std::env::temp_dir();
+    let out_path = tmp_dir.join(format!("{uniq}.out"));
+    let err_path = tmp_dir.join(format!("{uniq}.err"));
+
+    let out_file =
+        std::fs::File::create(&out_path).map_err(|e| format!("cannot create temp stdout: {e}"))?;
+    let err_file = std::fs::File::create(&err_path).map_err(|e| {
+        let _ = std::fs::remove_file(&out_path);
+        format!("cannot create temp stderr: {e}")
+    })?;
+
+    let mut cmd = std::process::Command::new(&sidecar);
+    cmd.args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out_file))
+        .stderr(Stdio::from(err_file));
+    // Don't flash a console window for the console-subsystem CLI when launched from the GUI.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| {
+        let _ = std::fs::remove_file(&out_path);
+        let _ = std::fs::remove_file(&err_path);
+        format!("failed to start engine: {e}")
+    })?;
+
+    // Wait for the CLI's own exit, bounded by `timeout` (a pure deadlock backstop now). Poll try_wait so
+    // we never block the async runtime; try_wait/wait key off THIS child's PID, not any inherited handle.
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&out_path);
+                let _ = std::fs::remove_file(&err_path);
+                return Err(format!("failed waiting for engine: {e}"));
+            }
+        }
     };
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    if output.status.success() || !stdout.trim().is_empty() {
-        Ok(stdout)
-    } else {
-        Err(format!(
-            "engine exited with {:?}: {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        ))
+
+    // The CLI flushes its (possibly multi-line) JSON before exiting, so the file holds the complete output.
+    let stdout = std::fs::read_to_string(&out_path).unwrap_or_default();
+    let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&out_path);
+    let _ = std::fs::remove_file(&err_path);
+
+    match status {
+        None => {
+            Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string())
+        }
+        // Mirror the old contract: success on clean exit, but also return stdout on a nonzero exit that
+        // still printed a structured {type:"error"} object (import-colours' handled failures).
+        Some(st) => {
+            if st.success() || !stdout.trim().is_empty() {
+                Ok(stdout)
+            } else {
+                Err(format!("engine exited with {:?}: {stderr}", st.code()))
+            }
+        }
     }
 }
 
