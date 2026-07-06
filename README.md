@@ -18,7 +18,7 @@
 - **No Outlook, no COM automation.** Writes `.pst` directly with a from-scratch PST engine — nothing to install, nothing hijacked.
 - **Private & local-first.** Reads your archive on disk, makes **no network connections**, uploads nothing. Originals are only ever read.
 - **Thunderbird-first, mbox-everywhere.** Converts a whole **Thunderbird profile** — folder tree plus `.msf` flag/tag fidelity — or any **mbox** archive: Gmail Takeout, exported Local Folders, old POP stores. Built and validated against real exports, including a MimeKit mbox bug that truncates some archives (worked around here).
-- **Faithful.** Preserves folder structure (including nested Thunderbird folders), attachments (inline images + embedded `.eml`), HTML bodies, dates, To/Cc/Bcc, importance, and threading headers — and, from a live **Thunderbird profile**, recovers read/unread, replied/forwarded/starred flags, junk, and tags (→ Outlook categories, with their colours on Windows). It also converts **calendar events, contacts and tasks** — see **[what gets converted, field by field](CONVERSION-FIDELITY.md)** for the full per-field breakdown (including what isn't, and why).
+- **Faithful.** Preserves folder structure (including nested Thunderbird folders), attachments (inline images + embedded `.eml`), HTML bodies, dates, To/Cc/Bcc, importance, and threading headers — and, from a live **Thunderbird profile**, recovers read/unread, replied/forwarded/starred flags, junk, and tags (→ Outlook categories, with their colours baked in — see [Viewing category colours](VIEWING-CATEGORY-COLOURS.md)). It also converts **calendar events, contacts and tasks** — see **[what gets converted, field by field](CONVERSION-FIDELITY.md)** for the full per-field breakdown (including what isn't, and why).
 - **Free, open, and it stays free** — GPL-3.0-or-later, part of the [ContinuMail](#-license) family of honest mail tools.
 
 > **Early release (0.x).** Covered by a comprehensive automated test suite and validated on real Thunderbird profiles and Gmail Takeout / Exchange exports — but please keep backups and validate output before relying on it. See [`TESTING.md`](TESTING.md) for how releases are validated.
@@ -75,14 +75,14 @@ The desktop app walks you through the whole conversion; your originals are never
 4. **Review** — see per-folder counts (with an `.msf` badge where Thunderbird flag/tag data is available); choose whether to include empty folders.
 5. **Options** — pick folder mapping (mirror or flatten), set a split size, preview the resulting PST tree, and (for profiles) choose junk handling and whether to skip deleted messages.
 6. **Convert** — watch live progress (count, MB/s, ETA); cancel any time.
-7. **Done** — open the output folder, review any warnings, see what Thunderbird state was applied, and (Windows + Outlook) optionally **import your Thunderbird tag colours** into Outlook so the new categories match.
+7. **Done** — open the output folder, review any warnings, and see what Thunderbird state was applied — including categories, which already **carry their Thunderbird tag colours** baked into the PST (see [Viewing category colours](VIEWING-CATEGORY-COLOURS.md) for how classic Outlook renders them).
 
 ## 🎯 Features
 
 - **mbox input** via a custom mbox splitter plus MimeKit entity parsing (robust to the Gmail Takeout / MimeKit EOF quirk).
 - **Thunderbird profile mode:** point the app (or `convert --profile`) at a Thunderbird profile and it auto-discovers the nested folder tree and pairs each mbox with its `.msf` for full flag/tag fidelity.
 - **Multi-account:** a profile with several mail accounts produces **one PST per account** by default (each account a top-level folder), or combine them into a single PST.
-- **Category colours (Windows + Outlook):** optionally import your Thunderbird tag colours into Outlook's category master list so the new categories match — one click on the Done screen, or the `import-colours` CLI command.
+- **Category colours, baked in:** every converted PST carries its category master list (your Thunderbird tag colours) intrinsically — no Outlook, no COM, no separate step. See [Viewing category colours](VIEWING-CATEGORY-COLOURS.md) for the one rendering caveat (classic Outlook needs the PST as your primary/default store to show colours, not just names).
 - **Junk & expunged handling:** route Thunderbird-scored junk (leave / tag as a "Junk" category / move to a Junk Email folder), and optionally drop messages Thunderbird marked deleted.
 - **Folder mapping:** mirror (one PST folder per source file), flatten, or per-source custom target folder. Empty source folders can be kept as empty PST folders.
 - **Size-based splitting:** one PST per output group, auto-split into `Name-1.pst`, `Name-2.pst`, … when a size cap is exceeded (a single un-split output is just `Name.pst`).
@@ -98,7 +98,7 @@ The desktop app walks you through the whole conversion; your originals are never
 - **Non-UTF-8 / UTF-16 mbox envelopes.** The mbox envelope and headers are read as UTF-8/ASCII; archives whose *envelope framing* uses other encodings may not parse cleanly. (Message **bodies** honour their own MIME charset — this caveat is about the mbox framing, not body text.)
 - **Plain-text body is a best-effort fallback.** Real HTML is preserved faithfully (`PidTagHtml`) and is what Outlook displays; the generated plain-text alternative is a lightweight stripper, not a full renderer.
 - **Thunderbird flag/tag recovery needs a live profile.** Thunderbird stores per-message flag state in its `.msf` index, not the mbox. Point the converter at a **live profile** (the app's profile mode, or `convert --profile`) and it reads the `.msf` to recover read/unread, replied, forwarded, starred (→ follow-up flag), junk, and tags (→ Outlook categories) — including for IMAP/EWS accounts. A **standalone exported `.mbox`** with no adjacent `.msf` can't carry that: there, only inline `X-Mozilla-Status` flags (read/replied/forwarded/starred, typical of POP / older Local Folders stores) are recoverable, and tags/junk are not.
-- **Category *colours* need Outlook (Windows).** The conversion needs no Outlook, but matching Outlook's category colours to your Thunderbird tags is done by `import-colours` (one click on Done, or the CLI), which edits Outlook's master category list via COM and so requires Outlook installed and **closed**.
+- **Category colours render from the primary store only.** Category colours are baked into every converted PST (no Outlook or COM needed to produce them), but classic Outlook only reads a *category master list* from your **default/primary** data store — open the PST as a secondary data file and categorized items show their name but not their colour. See [Viewing category colours](VIEWING-CATEGORY-COLOURS.md) for how to see them.
 
 ## ⌨️ Command-line interface
 
@@ -116,11 +116,9 @@ dotnet run --project src/Mail2Pst.Cli -- convert --config <config.json> --output
 
 # Convert a whole Thunderbird profile: discovers folders, pairs each mbox with its .msf,
 # and applies flag/tag/junk enrichment (optional --config tunes mapping/junk/split).
+# Category colours (from Thunderbird tags) are baked into the output PST automatically —
+# no separate command needed. See VIEWING-CATEGORY-COLOURS.md for how to see them in Outlook.
 dotnet run --project src/Mail2Pst.Cli -- convert --profile <thunderbird-profile-dir> --output <output-dir>
-
-# Import Thunderbird tag colours into Outlook's category list (Windows; Outlook must be closed).
-# Preview with --profile; write with --apply (or apply a saved plan with --plan-file).
-dotnet run --project src/Mail2Pst.Cli -- import-colours --profile <thunderbird-profile-dir> [--apply]
 ```
 
 A minimal working example lives in `fixtures/sample-config.json` + `fixtures/sample.mbox`. Send `cancel` on the process's **stdin** (or `SIGTERM` / `Ctrl+C`) to stop a running `convert` cleanly. Exit codes: **0** success, **1** fatal error, **2** cancelled.
@@ -206,7 +204,7 @@ The output directory also gets `conversion-report.txt` (human-readable) and `con
 
 ## 🔧 Build from source
 
-**Engine + CLI** — requires the [.NET 8 SDK](https://dotnet.microsoft.com/download). Builds and runs on Windows, Linux, and macOS (the PST engine is platform-independent; only the optional Outlook category-colour import is Windows-only — see [Limitations](#-limitations)).
+**Engine + CLI** — requires the [.NET 8 SDK](https://dotnet.microsoft.com/download). Builds and runs on Windows, Linux, and macOS (the PST engine is platform-independent, including baking category colours into the PST — only *viewing* those colours needs classic Outlook on Windows; see [Limitations](#-limitations)).
 
 ```bash
 dotnet build Mail2Pst.sln

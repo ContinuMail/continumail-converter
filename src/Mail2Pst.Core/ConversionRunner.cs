@@ -14,6 +14,7 @@ using Mail2Pst.Core.Diagnostics;
 using Mail2Pst.Core.Mapping;
 using Mail2Pst.Core.Models;
 using Mail2Pst.Core.Msf;
+using Mail2Pst.Core.OutlookCategories;
 using Mail2Pst.Core.Parsing;
 using Mail2Pst.Core.Progress;
 using Mail2Pst.Core.Reporting;
@@ -95,6 +96,19 @@ public class ConversionRunner
         // so each is emitted exactly once even when multiple output groups carry those mappings.
         bool noTasksWarned = false;
         bool noAppointmentsWarned = false;
+
+        // Phase-1 assembly bundle: everything WritePlan needs for one output group, gathered
+        // before ANY group is written, so the baked colour FAI (computed once, after all groups
+        // are assembled) can be handed to every group's WritePlan call in phase 2.
+        var bundles = new List<(
+            PstOutputPlan Plan,
+            IEnumerable<PlannedMessage> PlannedMessages,
+            List<PlannedContact> Planned,
+            List<IReadOnlyList<string>> ContactFolders,
+            List<PlannedTask> PlannedTasks,
+            List<IReadOnlyList<string>> TaskFolders,
+            List<PlannedAppointment> PlannedAppointments,
+            List<IReadOnlyList<string>> AppointmentFolders)>();
 
         try
         {
@@ -296,7 +310,24 @@ public class ConversionRunner
                     }
                 }
 
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver);
+                bundles.Add((plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders));
+            }
+
+            // Compute the baked colour FAI ONCE, from the GLOBAL union of calendar/task category
+            // names across every output group (report.CalendarCategoryNames was populated by
+            // report.RecordCalendarCategories calls throughout phase 1, above) — plus the profile's
+            // mail-tag colours (already global; read from prefs.js inside BuildXmlBytes). Baking the
+            // same union into every PST means whichever one the user makes primary carries the full
+            // category list (Outlook reads the master list from the primary store only).
+            byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(config.ProfilePath, report.CalendarCategoryNames);
+
+            // Phase 2: write every output group now that the global FAI is known.
+            foreach (var bundle in bundles)
+            {
+                List<string> outputFiles = _writer.WritePlan(
+                    bundle.Plan, bundle.PlannedMessages, bundle.Planned, bundle.ContactFolders,
+                    bundle.PlannedTasks, bundle.TaskFolders, bundle.PlannedAppointments, bundle.AppointmentFolders,
+                    outputDirectory, report, total, onProgress, cancellationToken, memoryObserver, faiXml);
                 report.AddOutputFiles(outputFiles);
             }
 

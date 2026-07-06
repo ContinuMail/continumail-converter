@@ -36,6 +36,28 @@ public static class CategoryListXml
         return names;
     }
 
+    /// <summary>Name → OlCategoryColor (1-25) for every &lt;category&gt; carrying a valid 0-based
+    /// <c>color</c> attribute (value = xml color + 1, inverting <see cref="Append"/>). Names compared
+    /// OrdinalIgnoreCase, last-wins on duplicates. Categories with a missing/unparseable color are
+    /// skipped. Empty input → empty map. Throws <see cref="FormatException"/> on malformed XML.</summary>
+    public static IReadOnlyDictionary<string, int> ReadNameToColourIndex(string xml)
+    {
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        XmlElement? root = Load(xml).DocumentElement;
+        if (root is null) return map;
+        foreach (XmlNode node in root.ChildNodes)
+            if (node is XmlElement el && el.LocalName == "category")
+            {
+                string name = el.GetAttribute("name");
+                if (string.IsNullOrEmpty(name)) continue;
+                // Only accept a valid 0-based index (0..24 → OlCategoryColor 1..25); skip missing/invalid/out-of-range.
+                if (int.TryParse(el.GetAttribute("color"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int zeroBased)
+                    && zeroBased >= 0 && zeroBased <= 24)
+                    map[name] = zeroBased + 1;
+            }
+        return map;
+    }
+
     /// <summary>Appends one &lt;category&gt; node per addition (name + OlCategoryColor 1-25) and returns the
     /// new XML as a string with a BOM-free <c>&lt;?xml version="1.0"?&gt;</c> declaration (the format Outlook
     /// expects). Empty/whitespace input starts a fresh list. Refreshes <c>lastSavedTime</c>. Throws

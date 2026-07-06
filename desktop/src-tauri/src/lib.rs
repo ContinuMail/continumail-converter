@@ -67,35 +67,6 @@ fn convert_args(config_path: &str, output_dir: &str, expected_total: Option<i32>
     args
 }
 
-// Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
-// something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
-// object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
-async fn run_sidecar_capture(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
-    let cmd = app
-        .shell()
-        .sidecar("mail2pst-cli")
-        .map_err(|e| format!("sidecar not found: {e}"))?
-        .args(args);
-    // Defence-in-depth (KB-004): never let a stuck sidecar hang the UI forever. The CLI bounds its own
-    // Outlook work and kills its transient instance, but if a child ever keeps the stdout pipe open
-    // `.output()` would await EOF indefinitely. Cap it so the command always resolves; the colour-import
-    // card surfaces a retry on this error. ("timed out" maps to a friendly message in ColourImportCard.)
-    let output = match tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await {
-        Ok(r) => r.map_err(|e| format!("failed to run engine: {e}"))?,
-        Err(_) => return Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string()),
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    if output.status.success() || !stdout.trim().is_empty() {
-        Ok(stdout)
-    } else {
-        Err(format!(
-            "engine exited with {:?}: {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-        ))
-    }
-}
-
 async fn run_sidecar(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
     let output = app
         .shell()
@@ -138,43 +109,6 @@ async fn scan_sample(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn discover_profile(app: tauri::AppHandle, dir: String) -> Result<String, String> {
     run_sidecar(&app, vec!["discover".to_string(), "--input".to_string(), dir]).await
-}
-
-#[tauri::command]
-async fn preview_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
-    run_sidecar_capture(&app, vec!["import-colours".to_string(), "--profile".to_string(), dir]).await
-}
-
-#[tauri::command]
-async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
-    run_sidecar_capture(
-        &app,
-        vec!["import-colours".to_string(), "--profile".to_string(), dir, "--apply".to_string()],
-    )
-    .await
-}
-
-/// Writes the supplied colour plan to a temp file and runs `import-colours --apply --plan-file`,
-/// then removes the temp file (mirrors start_convert's temp-config cleanup).
-#[tauri::command]
-async fn apply_colours_plan(app: AppHandle, plan: serde_json::Value) -> Result<String, String> {
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let plan_path = std::env::temp_dir().join(format!("continumail-colourplan-{unique}.json"));
-    std::fs::write(&plan_path, serde_json::to_string(&plan).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("cannot write plan: {e}"))?;
-    let path_str = plan_path.to_string_lossy().to_string();
-    let result = run_sidecar_capture(&app, vec![
-        "import-colours".into(), "--plan-file".into(), path_str, "--apply".into(),
-    ]).await;
-    let _ = std::fs::remove_file(&plan_path); // best-effort cleanup
-    result
 }
 
 #[derive(Serialize)]
@@ -625,9 +559,6 @@ pub fn run() {
             cancel_convert,
             open_folder,
             open_junk_help,
-            preview_colours,
-            apply_colours,
-            apply_colours_plan,
             default_thunderbird_profiles_dir,
             list_thunderbird_profiles
         ])

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Converted PSTs now carry Outlook category colours intrinsically.** The master category list —
+  mail tags resolved from the Thunderbird profile plus calendar/task categories — is baked into
+  every output PST as an `IPM.Configuration.CategoryList` associated (FAI) message in a top-level
+  "Calendar" folder (created for this purpose on mail-only conversions that have none). Colours
+  render in classic Outlook **when the PST is your primary/default data store** — Outlook reads the
+  master category list from the default store only, so opening the PST as a *secondary* data file
+  shows the category names without colour.
 - **Thunderbird contacts now convert to PST.** Address books become Outlook contacts (real contact
   cards, not mail items), carrying names, company/department, job title, all phone types, home/business
   addresses, birthday, websites, notes, custom fields — **and contact photos**. Both modern Thunderbird
@@ -71,13 +78,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note if a calendar belongs to an account you didn't select), and the results screen breaks the run down
   per type — Mail / Calendar / Tasks / Contacts — with progress shown per phase. Single-PST and combined
   outputs put everything in the one file, unchanged.
-- **Calendar and task category colours now import into Outlook.** The categories used on converted
-  appointments and to-dos join the optional "Import colours" step with the colour Thunderbird shows for
-  them — a user-set colour override from the profile if one exists, otherwise Thunderbird's own computed
-  default (Thunderbird derives default category colours from the category name; the converter reproduces
-  that computation exactly). Where a mail tag and a calendar category share a name, the mail tag's colour
-  wins. Per-calendar *source* colours (the swatch next to each calendar's name) are never mistaken for
+- **Calendar and task categories carry the same colours Thunderbird shows.** The baked-in master
+  category list (see above) covers calendar/task categories too, each with the colour Thunderbird
+  shows for it — a profile colour override if one exists, otherwise Thunderbird's own computed default
+  (Thunderbird derives default category colours from the category name; the converter reproduces that
+  computation exactly). Where a mail tag and a calendar category share a name, the mail tag's colour
+  wins. Per-calendar *source* colours (the swatch next to a calendar's name) are never mistaken for
   category colours.
+
+### Removed
+- Removed the `import-colours` and `outlook-profiles` CLI commands and the desktop one-click
+  colour-apply flow. Category colours are now baked directly into the converted PST instead (see
+  Added), so no separate Outlook step is needed.
 
 ### Internal
 - Desktop calendar/tasks/contacts wiring: engine `discover` now emits a per-item `accountId` for each

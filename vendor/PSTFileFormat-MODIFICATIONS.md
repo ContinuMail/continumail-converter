@@ -278,4 +278,16 @@ authoritative description of the local PSTFileFormat modifications.
   unchanged). Regression test:
   `RecurringAppointmentBlobTests.FromTransitionTime_multi_year_fixed_date_becomes_relative_rule`.
 
+- `ListsTablesAndProperties/Enums/PropertyID.cs`: added `PidTagRoamingXmlStream = 0x7C08` (MS-OXOCFG
+  category-list config stream, `PT_BINARY`); absent from the upstream enum, no name/value conflict
+  (ContinuMail addition 2026: PST-baked category colours).
+- `Messaging/Folders/PSTFolder.cs`: added `AddAssociatedMessage(MessageObject)`,
+  `AssociatedMessageCount`, and `GetAssociatedMessage(int)` — write/enumerate FAI (associated) messages
+  in a folder's associated contents table. `AddAssociatedMessage` guarantees `MSGFLAG_ASSOCIATED` (0x40)
+  on the message. Mirrors `AddMessage`/`GetMessage`/`MessageCount` but omits
+  PidTagContentCount/unread/SearchManagementQueue bookkeeping (an FAI is not a visible folder item) and
+  saves the associated table immediately. The regular `AddMessage` path is untouched (ContinuMail
+  addition 2026: PST-baked category colours). Proven by
+  `tests/Mail2Pst.Core.Tests/PSTFileFormat/AssociatedMessageTests.cs`.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

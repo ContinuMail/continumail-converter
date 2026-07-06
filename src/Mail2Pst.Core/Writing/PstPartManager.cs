@@ -8,6 +8,7 @@ using System.IO;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Models;
+using Mail2Pst.Core.OutlookCategories;
 using PSTFileFormat;
 
 namespace Mail2Pst.Core.Writing;
@@ -34,6 +35,7 @@ internal sealed class PstPartManager
     private readonly Action<PSTFile, PSTFolder, TaskRecord> _writeTask;
     private readonly Action<PSTFile, PSTFolder, AppointmentRecord> _writeAppointment;
     private readonly long _emptyStoreSize;
+    private readonly byte[]? _categoryListFaiXml;   // baked into each part's Calendar folder; null = skip
 
     private readonly List<string> _outputFiles = new();
     private readonly Dictionary<string, PSTFolder> _folders = new();
@@ -50,7 +52,8 @@ internal sealed class PstPartManager
         Action<PSTFile, PSTFolder, MailMessage> writeMessage,
         Action<PSTFile, PSTFolder, ContactRecord> writeContact,
         Action<PSTFile, PSTFolder, TaskRecord>? writeTask = null,
-        Action<PSTFile, PSTFolder, AppointmentRecord>? writeAppointment = null)
+        Action<PSTFile, PSTFolder, AppointmentRecord>? writeAppointment = null,
+        byte[]? categoryListFaiXml = null)
     {
         _groupName = groupName;
         _outputDirectory = outputDirectory;
@@ -60,6 +63,7 @@ internal sealed class PstPartManager
         _writeContact = writeContact;
         _writeTask = writeTask ?? ((_, _, _) => { });
         _writeAppointment = writeAppointment ?? ((_, _, _) => { });
+        _categoryListFaiXml = categoryListFaiXml;
         // From-scratch creation (PSTFile.CreateEmptyStore) seeds every part; the template
         // copy is retired. The initial on-disk size is the constant empty-store size.
         _emptyStoreSize = PSTFile.EmptyStoreSizeBytes;
@@ -88,6 +92,42 @@ internal sealed class PstPartManager
         _file.BeginSavingChanges();
         foreach (FolderToPrecreate folder in foldersToPrecreate)
             GetOrCreateFolder(folder.Path, folder.Type);   // GuardLeafClass is the second line of defense
+        StampCategoryFai();
+    }
+
+    // Stamp the CategoryList FAI into this part's Calendar folder (creating an empty IPF.Appointment
+    // "Calendar" folder if the store has none — a mail-only store). No-op when there is no colour plan.
+    // Called once per part, right after the part is opened and BeginSavingChanges is active.
+    private void StampCategoryFai()
+    {
+        if (_categoryListFaiXml is null || _categoryListFaiXml.Length == 0) return;
+        PSTFolder calendar = EnsureCalendarFolder();
+        CategoryListFaiWriter.Stamp(_file!, calendar, _categoryListFaiXml);
+    }
+
+    // Ensure a dedicated TOP-LEVEL "Calendar" (IPF.Appointment) folder to host the FAI, matching the
+    // EXACT placement the render kill-gate proved (top-level "Calendar"). We do NOT stamp into the
+    // appointment EVENT folders: those default to the nested path ["Calendars", CalId] (MappingEngine),
+    // so the IPF.Appointment event folder is a grandchild of the root, and whether Outlook reads the
+    // master list from a nested (non-top-level) calendar folder is UNPROVEN. So a store with appointments
+    // may contain both its "Calendars/<id>" event tree and this "Calendar" FAI host — accepted (same as
+    // the empty-Calendar-for-mail-only case). Reuse the top-level "Calendar" if it already exists (e.g. a
+    // config whose appointment folder is a single top-level "Calendar" segment, or a prior stamp on this
+    // part), else create it.
+    // Edge case (rare, accepted): if a mail conversion legitimately produced its own top-level
+    // "Calendar" folder (IPF.Note, e.g. mirrored from a source folder literally named "Calendar"),
+    // the class check below falls through and creates a second, separate "Calendar" sibling
+    // (IPF.Appointment) to host the FAI — two top-level folders sharing a display name but
+    // distinguished by container class. Outlook tolerates this; we do not attempt to rename or merge.
+    private PSTFolder EnsureCalendarFolder()
+    {
+        PSTFolder top = _file!.TopOfPersonalFolders;
+        PSTFolder? existing = top.FindChildFolder("Calendar");
+        if (existing is not null &&
+            string.Equals(existing.ContainerClass,
+                PSTFolder.GetContainerClass(FolderItemTypeName.Appointment), StringComparison.Ordinal))
+            return existing;
+        return top.CreateChildFolder("Calendar", FolderItemTypeName.Appointment);
     }
 
     // Pre-flight: reject an empty path or the same path requested as two different item types BEFORE any
@@ -273,6 +313,7 @@ internal sealed class PstPartManager
             _messagesSinceCheck = 0;
             _messagesInCurrentPart = 0;
             opened = true;
+            StampCategoryFai();   // stamp the new part's Calendar folder
         }
         finally
         {
