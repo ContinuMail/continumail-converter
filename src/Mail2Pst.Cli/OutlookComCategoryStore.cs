@@ -240,6 +240,14 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
                     // swallowed by the catch and leave clean == true.
                     clean = false;
                     p.Kill(entireProcessTree: true); // Quit() didn't take — don't leak/hold the pipe
+
+                    // Best-effort bounded wait for the kill to actually land before Shutdown() (and thus
+                    // Dispose()) returns. Kill() is asynchronous — without this, a retry's next attempt can
+                    // run OutlookPids() while this instance is still terminating and see it, throwing the
+                    // non-transient "Outlook is running" error and defeating the retry (mirrors the post-kill
+                    // WaitForExit(5000) in ProcessShutdown.WaitForCleanExit, IProcessHandle.cs). Best-effort:
+                    // clean is already false, so a failed/timed-out wait doesn't change the verdict.
+                    try { p.WaitForExit(5000); } catch { /* best-effort */ }
                 }
             }
             catch { /* already exited / not found / access denied */ }
