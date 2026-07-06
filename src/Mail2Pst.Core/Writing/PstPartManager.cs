@@ -105,15 +105,23 @@ internal sealed class PstPartManager
         CategoryListFaiWriter.Stamp(_file!, calendar, _categoryListFaiXml);
     }
 
-    // Reuse the store's existing top-level Calendar (IPF.Appointment) folder if one is present
-    // (e.g. created by an appointment mapping); otherwise create an empty "Calendar" folder.
+    // Ensure a dedicated TOP-LEVEL "Calendar" (IPF.Appointment) folder to host the FAI, matching the
+    // EXACT placement the render kill-gate proved (top-level "Calendar"). We do NOT stamp into the
+    // appointment EVENT folders: those default to the nested path ["Calendars", CalId] (MappingEngine),
+    // so the IPF.Appointment event folder is a grandchild of the root, and whether Outlook reads the
+    // master list from a nested (non-top-level) calendar folder is UNPROVEN. So a store with appointments
+    // may contain both its "Calendars/<id>" event tree and this "Calendar" FAI host — accepted (same as
+    // the empty-Calendar-for-mail-only case). Reuse the top-level "Calendar" if it already exists (e.g. a
+    // config whose appointment folder is a single top-level "Calendar" segment, or a prior stamp on this
+    // part), else create it.
     private PSTFolder EnsureCalendarFolder()
     {
         PSTFolder top = _file!.TopOfPersonalFolders;
-        string appointmentClass = PSTFolder.GetContainerClass(FolderItemTypeName.Appointment); // "IPF.Appointment"
-        foreach (PSTFolder child in top.GetChildFolders())
-            if (string.Equals(child.ContainerClass, appointmentClass, StringComparison.Ordinal))
-                return child;
+        PSTFolder? existing = top.FindChildFolder("Calendar");
+        if (existing is not null &&
+            string.Equals(existing.ContainerClass,
+                PSTFolder.GetContainerClass(FolderItemTypeName.Appointment), StringComparison.Ordinal))
+            return existing;
         return top.CreateChildFolder("Calendar", FolderItemTypeName.Appointment);
     }
 
