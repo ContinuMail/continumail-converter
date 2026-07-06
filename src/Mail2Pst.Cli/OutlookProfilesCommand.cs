@@ -75,9 +75,9 @@ internal static class OutlookProfilesCommand
 
         try
         {
-            (bool created, bool reused) = OutlookProfileCreator.EnsureProfile(name, new WindowsRegistryKeyReader());
+            (bool created, bool reused, bool shutdownClean) = OutlookProfileCreator.EnsureProfile(name, new WindowsRegistryKeyReader());
             Console.WriteLine(CliEventSerializer.Serialize(
-                new { type = "outlookProfileCreate", name, created, reused }, indented: true));
+                new { type = "outlookProfileCreate", name, created, reused, shutdownClean }, indented: true));
             return 0;
         }
         catch (Exception ex)

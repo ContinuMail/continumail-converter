@@ -25,18 +25,20 @@ public class OutlookProfileCreatorTests
     public void EnsureProfile_ExistingName_ReusesWithoutSpawning()
     {
         var reg = new FakeReg { Subkeys = new[] { "ContinuMail", "Work" } };
-        (bool created, bool reused) = OutlookProfileCreator.EnsureProfile("ContinuMail", reg);
+        (bool created, bool reused, bool shutdownClean) = OutlookProfileCreator.EnsureProfile("ContinuMail", reg);
         Assert.False(created);
         Assert.True(reused);
+        Assert.True(shutdownClean);
     }
 
     [Fact]
     public void EnsureProfile_ExistingName_IsCaseInsensitive()
     {
         var reg = new FakeReg { Subkeys = new[] { "ContinuMail" } };
-        (bool created, bool reused) = OutlookProfileCreator.EnsureProfile("continumail", reg);
+        (bool created, bool reused, bool shutdownClean) = OutlookProfileCreator.EnsureProfile("continumail", reg);
         Assert.False(created);
         Assert.True(reused);
+        Assert.True(shutdownClean);
     }
 
     [Fact]
