@@ -330,6 +330,85 @@ public class CategoryFaiBakeTests
     }
 
     // -----------------------------------------------------------------------
+    // Cross-group union — a multi-output-group conversion must bake the SAME global union of
+    // categories into EVERY output PST, not just the categories that group's own sources
+    // produced. Outlook renders the master category list from whichever store is primary, so
+    // whichever PST the user makes primary must carry every category from every group. This is
+    // the case that would FAIL under the old per-group FAI computation (each group only got its
+    // own subset).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Two_output_groups_each_bake_the_union_of_both_groups_categories()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"bake-union-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string outDir = Path.Combine(root, "out");
+        Directory.CreateDirectory(outDir);
+        string dbPath = MakeCalStoreWithCategorisedAppointment();
+        try
+        {
+            var config = new ConversionConfig
+            {
+                ProfilePath = WriteProfileWithColouredTag(root),
+                Outputs = new List<OutputGroupConfig>
+                {
+                    new()
+                    {
+                        Name = "Mail",
+                        FolderMapping = FolderMappingMode.Mirror,
+                        Sources = new List<SourceConfig>
+                        {
+                            new() { Type = "mbox", Path = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample.mbox") },
+                        },
+                    },
+                    new()
+                    {
+                        Name = "Cal",
+                        Sources = new List<SourceConfig>(),
+                        Calendars = new List<CalendarSourceConfig>
+                        {
+                            new()
+                            {
+                                StorePath = dbPath,
+                                CalId = "test-cal",
+                                IncludeAppointments = true,
+                                IncludeTasks = false,
+                                AppointmentFolderPath = new[] { "Calendars", "TestCal" },
+                            },
+                        },
+                    },
+                },
+            };
+
+            new ConversionRunner().Run(config, outDir);
+
+            string mailPst = Path.Combine(outDir, "Mail.pst");
+            string calPst = Path.Combine(outDir, "Cal.pst");
+            Assert.True(File.Exists(mailPst));
+            Assert.True(File.Exists(calPst));
+
+            foreach (string pst in new[] { mailPst, calPst })
+            {
+                var file = new PSTFile(pst, FileAccess.Read, WriterCompatibilityMode.Outlook2007RTM);
+                PSTFolder calendar = file.TopOfPersonalFolders.FindChildFolder("Calendar");
+                Assert.NotNull(calendar);
+                Assert.Equal(1, calendar!.AssociatedMessageCount);
+                MessageObject fai = calendar.GetAssociatedMessage(0);
+                string xml = Encoding.UTF8.GetString(fai.PC.GetBytesProperty(PropertyID.PidTagRoamingXmlStream));
+                Assert.Contains("name=\"Important\"", xml);   // mail tag (from the "Mail" group's profile)
+                Assert.Contains("name=\"Meeting\"", xml);     // calendar category (from the "Cal" group)
+                file.CloseFile();
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+            try { if (File.Exists(dbPath)) File.Delete(dbPath); } catch { }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Multi-PST split — every part must get its own baked "Calendar" FAI (StampCategoryFai
     // runs in both Begin (part 1) and StartNextPartAfterFlush (parts 2..n)).
     // -----------------------------------------------------------------------

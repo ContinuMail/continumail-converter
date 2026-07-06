@@ -97,15 +97,24 @@ public class ConversionRunner
         bool noTasksWarned = false;
         bool noAppointmentsWarned = false;
 
+        // Phase-1 assembly bundle: everything WritePlan needs for one output group, gathered
+        // before ANY group is written, so the baked colour FAI (computed once, after all groups
+        // are assembled) can be handed to every group's WritePlan call in phase 2.
+        var bundles = new List<(
+            PstOutputPlan Plan,
+            IEnumerable<PlannedMessage> PlannedMessages,
+            List<PlannedContact> Planned,
+            List<IReadOnlyList<string>> ContactFolders,
+            List<PlannedTask> PlannedTasks,
+            List<IReadOnlyList<string>> TaskFolders,
+            List<PlannedAppointment> PlannedAppointments,
+            List<IReadOnlyList<string>> AppointmentFolders)>();
+
         try
         {
             foreach (PstOutputPlan plan in plans)
             {
                 IEnumerable<PlannedMessage> plannedMessages = EnumeratePlannedMessages(plan, report, enrichmentOptions, onProgress);
-
-                // Per-plan calendar/task category names for the baked colour FAI (mail-tag colours come
-                // from prefs.js independently). Populated alongside report.RecordCalendarCategories.
-                var planCategoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 // Assemble contacts for this output group before handing off to the writer.
                 var planned = new List<PlannedContact>();
@@ -216,7 +225,6 @@ public class ConversionRunner
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), taskAttResolver, report.RecordTaskWarning);
                                         report.RecordCalendarCategories(mapped.Categories);
-                                        foreach (string cat in mapped.Categories) planCategoryNames.Add(cat);
                                         plannedTasks.Add(new PlannedTask
                                         {
                                             Task = mapped,
@@ -285,7 +293,6 @@ public class ConversionRunner
                                     {
                                         ApplyCalendarAttachments(mapped, group.Master?.Attachments ?? new List<RawSideText>(), apptAttResolver, report.RecordAppointmentWarning);
                                         report.RecordCalendarCategories(mapped.Categories);
-                                        foreach (string cat in mapped.Categories) planCategoryNames.Add(cat);
                                         plannedAppointments.Add(new PlannedAppointment
                                         {
                                             Appointment = mapped,
@@ -303,9 +310,24 @@ public class ConversionRunner
                     }
                 }
 
-                byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(config.ProfilePath, planCategoryNames.ToArray());
+                bundles.Add((plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders));
+            }
 
-                List<string> outputFiles = _writer.WritePlan(plan, plannedMessages, planned, contactFolders, plannedTasks, taskFolders, plannedAppointments, appointmentFolders, outputDirectory, report, total, onProgress, cancellationToken, memoryObserver, faiXml);
+            // Compute the baked colour FAI ONCE, from the GLOBAL union of calendar/task category
+            // names across every output group (report.CalendarCategoryNames was populated by
+            // report.RecordCalendarCategories calls throughout phase 1, above) — plus the profile's
+            // mail-tag colours (already global; read from prefs.js inside BuildXmlBytes). Baking the
+            // same union into every PST means whichever one the user makes primary carries the full
+            // category list (Outlook reads the master list from the primary store only).
+            byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(config.ProfilePath, report.CalendarCategoryNames);
+
+            // Phase 2: write every output group now that the global FAI is known.
+            foreach (var bundle in bundles)
+            {
+                List<string> outputFiles = _writer.WritePlan(
+                    bundle.Plan, bundle.PlannedMessages, bundle.Planned, bundle.ContactFolders,
+                    bundle.PlannedTasks, bundle.TaskFolders, bundle.PlannedAppointments, bundle.AppointmentFolders,
+                    outputDirectory, report, total, onProgress, cancellationToken, memoryObserver, faiXml);
                 report.AddOutputFiles(outputFiles);
             }
 
