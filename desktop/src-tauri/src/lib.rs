@@ -72,9 +72,15 @@ fn convert_args(config_path: &str, output_dir: &str, expected_total: Option<i32>
 // in the test module below. Outlook profile creation and colour apply/apply-plan legitimately
 // need Outlook to start/stop a COM session (cold verify + retry-once), so they get longer caps
 // than the default; everything else keeps the original 120 s.
+//
+// APPLY_TIMEOUT_SECS's true worst case is NOT just the two per-attempt STA caps (apply + cold
+// verify) — it also includes the retry orchestration's cleanup guards: up to four
+// `ensureNoTrackedProcess` waits (30 s each, KB-004) between attempts. A completing worst-case
+// orchestration can reach ~450 s, so the cap needs headroom above that, not just above the raw
+// STA budgets; 600 s is a generous deadlock backstop over saving seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const CREATE_TIMEOUT_SECS: u64 = 180;
-const APPLY_TIMEOUT_SECS: u64 = 420;
+const APPLY_TIMEOUT_SECS: u64 = 600;
 
 // Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
 // something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
@@ -789,7 +795,7 @@ mod tests {
     fn sidecar_timeout_caps() {
         assert_eq!(DEFAULT_TIMEOUT_SECS, 120, "default cap (preview/list/open/scan/convert)");
         assert_eq!(CREATE_TIMEOUT_SECS, 180, "outlook_profiles_create cap");
-        assert_eq!(APPLY_TIMEOUT_SECS, 420, "apply_colours / apply_colours_plan cap");
+        assert_eq!(APPLY_TIMEOUT_SECS, 600, "apply_colours / apply_colours_plan cap");
     }
 
     #[test]
