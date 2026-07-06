@@ -99,10 +99,15 @@ internal static class ImportColoursCommand
                     maxAttempts: 3,
                     sleep: i => Thread.Sleep(TimeSpan.FromMilliseconds(500 * i)));
             }
-            catch (Exception ex) when (!OutlookDetection.LooksLikeInteractiveLogonRequired(ex))
+            catch (Exception ex) when (ComErrorClassifier.IsTransientOpen(ex))
             {
-                // Let an interactive-logon-shaped failure propagate as-is (caught below, unchanged
-                // message) — everything else opening the store is "store not ready".
+                // ONLY a transient "store not ready" failure that exhausted TransientComRetry's attempts
+                // becomes OutlookStoreNotReadyException (stage outlook-store-not-ready). Every other
+                // store-open failure propagates with its ORIGINAL type so the command's existing catches
+                // handle it: interactive-logon → outlook-profile-logon-failed, anything else → the generic
+                // catch → import-colours. (Until Task 0 seeds a real transient HRESULT into
+                // ComErrorClassifier this branch is unreachable — correct: there is no store-not-ready
+                // condition to detect yet.)
                 throw new OutlookStoreNotReadyException(ex.Message, ex);
             }
 
