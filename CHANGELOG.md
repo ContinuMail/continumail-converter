@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-07
+
 ### Added
 - **Converted PSTs now carry Outlook category colours intrinsically.** The master category list —
   mail tags resolved from the Thunderbird profile plus calendar/task categories — is baked into
@@ -90,6 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `import-colours` and `outlook-profiles` CLI commands and the desktop one-click
   colour-apply flow. Category colours are now baked directly into the converted PST instead (see
   Added), so no separate Outlook step is needed.
+
+### Fixed
+- Mail folders whose names start or end with a dot (for example a Thunderbird `.Trash` folder) now convert
+  instead of being skipped — the folder-name handling no longer rejects leading or trailing dots. Export
+  succeeds and the folders import into Outlook cleanly.
 
 ### Internal
 - Desktop calendar/tasks/contacts wiring: engine `discover` now emits a per-item `accountId` for each
