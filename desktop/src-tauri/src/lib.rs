@@ -67,10 +67,23 @@ fn convert_args(config_path: &str, output_dir: &str, expected_total: Option<i32>
     args
 }
 
+// Per-command sidecar timeout caps (KB-004 defence-in-depth — see run_sidecar_capture below).
+// Named constants so a future edit can't silently drift a cap; pinned by `sidecar_timeout_caps`
+// in the test module below. Outlook profile creation and colour apply/apply-plan legitimately
+// need Outlook to start/stop a COM session (cold verify + retry-once), so they get longer caps
+// than the default; everything else keeps the original 120 s.
+const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const CREATE_TIMEOUT_SECS: u64 = 180;
+const APPLY_TIMEOUT_SECS: u64 = 420;
+
 // Like run_sidecar, but returns stdout even when the sidecar exits nonzero AS LONG AS it printed
 // something — import-colours' handled failures exit 1 while emitting a structured {type:"error"} JSON
 // object the frontend needs. Err only on a spawn failure or a nonzero exit with no stdout.
-async fn run_sidecar_capture(app: &tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
+async fn run_sidecar_capture(
+    app: &tauri::AppHandle,
+    args: Vec<String>,
+    timeout: std::time::Duration,
+) -> Result<String, String> {
     let cmd = app
         .shell()
         .sidecar("mail2pst-cli")
@@ -80,7 +93,7 @@ async fn run_sidecar_capture(app: &tauri::AppHandle, args: Vec<String>) -> Resul
     // Outlook work and kills its transient instance, but if a child ever keeps the stdout pipe open
     // `.output()` would await EOF indefinitely. Cap it so the command always resolves; the colour-import
     // card surfaces a retry on this error. ("timed out" maps to a friendly message in ColourImportCard.)
-    let output = match tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await {
+    let output = match tokio::time::timeout(timeout, cmd.output()).await {
         Ok(r) => r.map_err(|e| format!("failed to run engine: {e}"))?,
         Err(_) => return Err("timed out waiting for Outlook — close any Outlook window and retry.".to_string()),
     };
@@ -142,7 +155,12 @@ async fn discover_profile(app: tauri::AppHandle, dir: String) -> Result<String, 
 
 #[tauri::command]
 async fn preview_colours(app: tauri::AppHandle, dir: String) -> Result<String, String> {
-    run_sidecar_capture(&app, vec!["import-colours".to_string(), "--profile".to_string(), dir]).await
+    run_sidecar_capture(
+        &app,
+        vec!["import-colours".to_string(), "--profile".to_string(), dir],
+        std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -150,6 +168,7 @@ async fn apply_colours(app: tauri::AppHandle, dir: String) -> Result<String, Str
     run_sidecar_capture(
         &app,
         vec!["import-colours".to_string(), "--profile".to_string(), dir, "--apply".to_string()],
+        std::time::Duration::from_secs(APPLY_TIMEOUT_SECS),
     )
     .await
 }
@@ -161,12 +180,22 @@ async fn outlook_profiles_list(app: tauri::AppHandle) -> Result<String, String> 
 
 #[tauri::command]
 async fn outlook_profiles_create(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    run_sidecar_capture(&app, vec!["outlook-profiles".into(), "create".into(), "--name".into(), name]).await
+    run_sidecar_capture(
+        &app,
+        vec!["outlook-profiles".into(), "create".into(), "--name".into(), name],
+        std::time::Duration::from_secs(CREATE_TIMEOUT_SECS),
+    )
+    .await
 }
 
 #[tauri::command]
 async fn open_in_outlook(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    run_sidecar_capture(&app, vec!["outlook-profiles".into(), "open".into(), "--name".into(), name]).await
+    run_sidecar_capture(
+        &app,
+        vec!["outlook-profiles".into(), "open".into(), "--name".into(), name],
+        std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+    )
+    .await
 }
 
 /// Writes the supplied colour plan to a temp file and runs `import-colours --apply --plan-file`,
@@ -194,7 +223,7 @@ async fn apply_colours_plan(
         args.push("--outlook-profile".into());
         args.push(name);
     }
-    let result = run_sidecar_capture(&app, args).await;
+    let result = run_sidecar_capture(&app, args, std::time::Duration::from_secs(APPLY_TIMEOUT_SECS)).await;
     let _ = std::fs::remove_file(&plan_path); // best-effort cleanup
     result
 }
@@ -750,7 +779,18 @@ Path=Profiles/xyz.dev\n";
 
 #[cfg(test)]
 mod tests {
-    use super::{convert_args, drain_lines, scan_args};
+    use super::{convert_args, drain_lines, scan_args, APPLY_TIMEOUT_SECS, CREATE_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS};
+
+    // Pins the per-command sidecar timeout caps so a future edit can't silently drift them
+    // (Task 9: `apply_colours` and `apply_colours_plan` both got a wider cap since applying
+    // colours legitimately needs Outlook to start/stop a COM session — a single stray edit to
+    // only one of the two call sites is the classic bug this guards against).
+    #[test]
+    fn sidecar_timeout_caps() {
+        assert_eq!(DEFAULT_TIMEOUT_SECS, 120, "default cap (preview/list/open/scan/convert)");
+        assert_eq!(CREATE_TIMEOUT_SECS, 180, "outlook_profiles_create cap");
+        assert_eq!(APPLY_TIMEOUT_SECS, 420, "apply_colours / apply_colours_plan cap");
+    }
 
     #[test]
     fn scan_args_one_input_passes_progress_flag() {
