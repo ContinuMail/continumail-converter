@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Versioning;
-using System.Threading;
 using Mail2Pst.Core.OutlookCategories;
 
 namespace Mail2Pst.Cli;
@@ -34,7 +33,7 @@ internal static class OutlookCategoryVerifier
 
         try
         {
-            return RunOnSta(() =>
+            return Sta.Run(() =>
             {
                 using var store = new OutlookComCategoryStore(profileName, readOnly: true);
                 IReadOnlyDictionary<string, int> actual = store.ReadPersistedColours();
@@ -53,23 +52,6 @@ internal static class OutlookCategoryVerifier
             // stage colour-verify-failed.
             return new ColdVerifyOutcome(AllPresent: false, Missing: Array.Empty<string>(), VerifierFailed: true);
         }
-    }
-
-    // Mirrors ImportColoursCommand.RunOnSta: runs the COM interaction on a dedicated STA thread; throws
-    // TimeoutException if it doesn't finish in time. Duplicated (not shared) because that one is private
-    // to ImportColoursCommand and this verifier's failure handling collapses TimeoutException into the
-    // same VerifierFailed path as any other COM error.
-    private static T RunOnSta<T>(Func<T> work, TimeSpan timeout)
-    {
-        T result = default!;
-        Exception? error = null;
-        var thread = new Thread(() => { try { result = work(); } catch (Exception ex) { error = ex; } });
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        if (!thread.Join(timeout)) throw new TimeoutException();
-        if (error is not null) throw error;
-        return result;
     }
 }
 

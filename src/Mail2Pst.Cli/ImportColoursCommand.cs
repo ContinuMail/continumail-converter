@@ -88,7 +88,7 @@ internal static class ImportColoursCommand
         var lastStartedPids = new List<int>();
         IReadOnlyList<CategoryCandidate> appliedResults = Array.Empty<CategoryCandidate>();
 
-        bool Attempt() => RunOnSta(() =>
+        bool Attempt() => Sta.Run(() =>
         {
             OutlookComCategoryStore store;
             try
@@ -266,19 +266,5 @@ internal static class ImportColoursCommand
             retryCount = result.RetryCount,
         };
         Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
-    }
-
-    // Runs the COM interaction on a dedicated STA thread; throws TimeoutException if it doesn't finish in time.
-    private static T RunOnSta<T>(Func<T> work, TimeSpan timeout)
-    {
-        T result = default!;
-        Exception? error = null;
-        var thread = new Thread(() => { try { result = work(); } catch (Exception ex) { error = ex; } });
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        if (!thread.Join(timeout)) throw new TimeoutException();
-        if (error is not null) throw error;
-        return result;
     }
 }
