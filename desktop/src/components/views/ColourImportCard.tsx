@@ -51,8 +51,14 @@ export function ColourImportCard({ plan }: { plan: ColourPlanEntry[] }) {
   const [opening, setOpening] = useState(false);
   const [opened, setOpened] = useState(false);
   // Guard against setState after unmount (user clicks "Convert another" mid-apply).
+  // Reset to true on (re)mount: in React 18 StrictMode the effect runs setup→cleanup→setup on the
+  // same instance, so a cleanup-only version would leave mounted.current=false forever and silently
+  // swallow every async result (froze the create flow on "Creating…").
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     outlookProfilesList()
