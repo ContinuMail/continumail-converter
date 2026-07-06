@@ -3,6 +3,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -15,7 +16,8 @@ namespace Mail2Pst.Cli;
 
 internal static class ImportColoursCommand
 {
-    private static readonly TimeSpan ApplyTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ApplyTimeout = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan ColdVerifyCap = TimeSpan.FromSeconds(60);
 
     internal static int Run(string[] args)
     {
@@ -78,16 +80,69 @@ internal static class ImportColoursCommand
             return 1;
         }
 
+        // Outer state carried across ColourApplyCoordinator's attempt(s): the durable "what we've ever
+        // expected to have added" set (a retry's own results can under-report — see coldVerify below),
+        // the transient Outlook PIDs we most recently started (for the KB-004 shutdown guard), and the
+        // last successful attempt's candidate list (for the success emit).
+        var expectedDurable = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lastStartedPids = new List<int>();
+        IReadOnlyList<CategoryCandidate> appliedResults = Array.Empty<CategoryCandidate>();
+
+        bool Attempt() => RunOnSta(() =>
+        {
+            OutlookComCategoryStore store;
+            try
+            {
+                store = TransientComRetry.Run(
+                    () => new OutlookComCategoryStore(target.Name),
+                    ComErrorClassifier.IsTransientOpen,
+                    maxAttempts: 3,
+                    sleep: i => Thread.Sleep(TimeSpan.FromMilliseconds(500 * i)));
+            }
+            catch (Exception ex) when (!OutlookDetection.LooksLikeInteractiveLogonRequired(ex))
+            {
+                // Let an interactive-logon-shaped failure propagate as-is (caught below, unchanged
+                // message) — everything else opening the store is "store not ready".
+                throw new OutlookStoreNotReadyException(ex.Message, ex);
+            }
+
+            using (store)
+            {
+                IReadOnlyList<CategoryCandidate> results = CategoryColorApplier.Apply(plan, store);
+                appliedResults = results;
+                CategoryVerify.MergeAdded(expectedDurable, results);
+                store.Commit(CategoryVerify.ExpectedAdded(results)); // in-session read-back verifies this attempt's adds
+                store.Shutdown();
+                lastStartedPids = store.StartedPids.ToList();
+                return store.CleanExit;
+            }
+        }, ApplyTimeout);
+
+        bool ColdVerify()
+        {
+            ColdVerifyOutcome outcome = OutlookCategoryVerifier.Verify(target.Name!, expectedDurable, ColdVerifyCap);
+            if (outcome.VerifierFailed) throw new ColourVerifierFailedException();
+            return outcome.AllPresent;
+        }
+
+        void EnsureNoTrackedProcess()
+        {
+            if (!ProcessCleanup.WaitUntilGone(lastStartedPids, IsOutlookPidAlive, TimeSpan.FromSeconds(30), i => Thread.Sleep(250)))
+                throw new OutlookProcessCleanupTimeoutException();
+        }
+
         try
         {
-            IReadOnlyList<CategoryCandidate> applied = RunOnSta(() =>
+            ColourApplyResult result = ColourApplyCoordinator.Run(Attempt, ColdVerify, EnsureNoTrackedProcess);
+            if (!result.Success)
             {
-                using var store = new OutlookComCategoryStore(target.Name);
-                IReadOnlyList<CategoryCandidate> result = CategoryColorApplier.Apply(plan, store);
-                store.Commit(); // atomically persist the buffered adds before Dispose flushes + closes Outlook
-                return result;
-            }, ApplyTimeout);
-            Emit("apply", outlookAvailable: true, applied);
+                string failMsg = "Colour import could not be verified as persisted after a retry — Outlook state is uncertain; re-run import-colours --apply once Outlook is fully closed.";
+                CliArgs.WriteJsonLine(new { type = "error", stage = result.FailureStage ?? "colour-apply-unverified", message = failMsg, fatal = true });
+                Console.Error.WriteLine(failMsg);
+                return 1;
+            }
+
+            EmitApplySuccess(appliedResults, result);
             return 0;
         }
         catch (TimeoutException)
@@ -105,11 +160,34 @@ internal static class ImportColoursCommand
             Console.Error.WriteLine(msg);
             return 1;
         }
+        catch (Exception ex) when (ex is OutlookStoreNotReadyException or ColourReadbackException
+            or ColourVerifierFailedException or OutlookProcessCleanupTimeoutException)
+        {
+            CliArgs.WriteJsonLine(new { type = "error", stage = ColourApplyStages.FromException(ex), message = ex.Message, fatal = true });
+            Console.Error.WriteLine($"import-colours failed: {ex.Message}");
+            return 1;
+        }
         catch (Exception ex)
         {
             CliArgs.WriteJsonLine(new { type = "error", stage = "import-colours", message = ex.Message, fatal = true });
             Console.Error.WriteLine($"import-colours failed: {ex.Message}");
             return 1;
+        }
+    }
+
+    // KB-004 process-liveness probe for ProcessCleanup.WaitUntilGone: alive iff the PID still resolves to
+    // an OUTLOOK.EXE process; any failure (already exited, access denied, ...) is treated as "gone" — never
+    // throw out of this probe.
+    private static bool IsOutlookPidAlive(int pid)
+    {
+        try
+        {
+            using Process p = Process.GetProcessById(pid);
+            return p.ProcessName == "OUTLOOK";
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -162,6 +240,25 @@ internal static class ImportColoursCommand
             mode,
             outlookAvailable,
             categories = categories.Select(c => new { name = c.Name, hex = c.Hex, outlookColor = c.OutlookColor, action = c.Action }),
+        };
+        Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
+    }
+
+    // Apply-path success emit: the base "apply" shape plus additive verify-then-close diagnostics.
+    // shutdownClean:false with an otherwise-successful result means Outlook had to be force-killed but a
+    // cold read-back proved the write persisted anyway — never a fatal condition, just visibility.
+    private static void EmitApplySuccess(IReadOnlyList<CategoryCandidate> categories, ColourApplyResult result)
+    {
+        var output = new
+        {
+            type = "importColours",
+            mode = "apply",
+            outlookAvailable = true,
+            categories = categories.Select(c => new { name = c.Name, hex = c.Hex, outlookColor = c.OutlookColor, action = c.Action }),
+            shutdownClean = result.ShutdownClean,
+            coldVerifyAttempted = result.ColdVerifyAttempted,
+            coldVerified = result.ColdVerified,
+            retryCount = result.RetryCount,
         };
         Console.WriteLine(CliEventSerializer.Serialize(output, indented: true));
     }
