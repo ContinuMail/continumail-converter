@@ -105,7 +105,7 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
     /// re-Save (in-session read-back retry count = 1); if still missing after that, throws
     /// <see cref="ColourReadbackException"/> rather than silently reporting success. An empty
     /// <paramref name="expectedAdded"/> skips the read-back entirely.</summary>
-    public void Commit(IReadOnlyDictionary<string, int> expectedAdded)
+    internal void Commit(IReadOnlyDictionary<string, int> expectedAdded)
     {
         ArgumentNullException.ThrowIfNull(expectedAdded);
         if (_readOnly) throw new InvalidOperationException("Cannot Commit on a read-only store.");
@@ -234,8 +234,12 @@ internal sealed class OutlookComCategoryStore : IOutlookCategoryStore, IDisposab
                 if (remaining > 0) p.WaitForExit(remaining);
                 if (!p.HasExited)
                 {
-                    p.Kill(entireProcessTree: true); // Quit() didn't take — don't leak/hold the pipe
+                    // A PID that hasn't self-exited within budget breaks the clean-exit guarantee the moment
+                    // we observe it — set the verdict BEFORE attempting Kill(), so an access-denied
+                    // Win32Exception (or a race where the process dies between this check and Kill) can't be
+                    // swallowed by the catch and leave clean == true.
                     clean = false;
+                    p.Kill(entireProcessTree: true); // Quit() didn't take — don't leak/hold the pipe
                 }
             }
             catch { /* already exited / not found / access denied */ }
