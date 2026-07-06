@@ -9,8 +9,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
-using Mail2Pst.Core.Msf;
-using Mail2Pst.Core.OutlookCategories;
 using Mail2Pst.Core.Progress;
 
 namespace Mail2Pst.Cli;
@@ -191,23 +189,7 @@ internal static class ConvertCommand
 
     private static object[] BuildColourPlan(string? profilePath, IReadOnlyList<string> calendarCategoryNames)
     {
-        if (string.IsNullOrEmpty(profilePath)) return Array.Empty<object>();
-        string prefsPath = Path.Combine(profilePath, "prefs.js");
-        if (!File.Exists(prefsPath)) return Array.Empty<object>();
-        string content;
-        try { content = File.ReadAllText(prefsPath); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { return Array.Empty<object>(); }
-
-        var calColors = CalendarCategoryColorResolver.Resolve(
-            calendarCategoryNames,
-            CalendarCategoryOverrideReader.ParseText(content));
-
-        var plan = CategoryColorPlan.Build(
-            PrefsTagReader.ParseText(content),
-            PrefsTagReader.ParseColors(content),
-            calColors);
-
+        var plan = Mail2Pst.Core.OutlookCategories.CategoryFaiPlanner.BuildPlan(profilePath, calendarCategoryNames);
         var list = new List<object>();
         foreach (var c in plan)
             list.Add(new { name = c.Name, hex = c.Hex, outlookColor = c.OutlookColor, action = c.Action });

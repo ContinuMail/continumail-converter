@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Converted PSTs now carry Outlook category colours intrinsically.** The master category list —
+  mail tags resolved from the Thunderbird profile plus calendar/task categories — is baked into
+  every output PST as an `IPM.Configuration.CategoryList` associated (FAI) message in a top-level
+  "Calendar" folder (created for this purpose on mail-only conversions that have none). Colours
+  render in classic Outlook **when the PST is your primary/default data store** — Outlook reads the
+  master category list from the default store only, so opening the PST as a *secondary* data file
+  shows the category names without colour.
 - **Colour import now targets a chosen Outlook profile.** Instead of relying on the default MAPI
   profile, `import-colours --apply` logs on to an explicitly resolved profile: pass
   `--outlook-profile <name>`, or let it resolve the registry default / sole profile (a clear error
