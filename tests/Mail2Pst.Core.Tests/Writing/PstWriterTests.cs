@@ -456,7 +456,11 @@ public class PstWriterTests
             Assert.Equal("text/plain", attachment.PC.GetStringProperty(PropertyID.PidTagAttachMimeTag));
             Assert.Equal((int)AttachMethod.ByValue, attachment.PC.GetInt32Property(PropertyID.PidTagAttachMethod));
             Assert.Equal(attachmentBytes, attachment.PC.GetBytesProperty(PropertyID.PidTagAttachData));
-            Assert.Equal(attachmentBytes.Length, attachment.PC.GetInt32Property(PropertyID.PidTagAttachSize));
+            // PidTagAttachSize is the attachment OBJECT size (all PC properties including the
+            // payload), not the raw payload length — scanpst validates exactly this (2026-07-07
+            // root-cause, class 2; see AttachmentSizeFidelityTests).
+            Assert.Equal(attachment.PC.GetTotalLengthOfAllProperties(),
+                attachment.PC.GetInt32Property(PropertyID.PidTagAttachSize));
 
             pst.CloseFile();
         }
