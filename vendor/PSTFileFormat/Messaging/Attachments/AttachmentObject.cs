@@ -38,15 +38,13 @@ namespace PSTFileFormat
             PC.SetDateTimeProperty(PropertyID.PidTagExceptionReplaceTime, modifiedInstance.StartDTUtc);
             PC.SetDateTimeProperty(PropertyID.PidTagExceptionStartTime, modifiedInstance.GetStartDTZone(timezone));
             PC.SetDateTimeProperty(PropertyID.PidTagExceptionEndTime, modifiedInstance.GetEndDTZone(timezone));
-            int dataSize;
-            if (this.File.WriterCompatibilityMode < WriterCompatibilityMode.Outlook2007SP2)
-            {
-                dataSize = modifiedInstance.PC.GetTotalLengthOfAllProperties();
-            }
-            else
-            {
-                dataSize = modifiedInstance.DataTree.TotalDataLength;
-            }
+            // ContinuMail modification: always use the sub-object's on-disk size, regardless of
+            // WriterCompatibilityMode. scanpst recomputes exactly this for the PtypObject record
+            // and PidTagAttachSize; the upstream pre-Outlook2007SP2 formula undercounts, yielding
+            // "sub-object with invalid size" + "missing or invalid PR_ATTACH_SIZE" (RepairRequired).
+            // Valid here because modifiedInstance.SaveChanges (which flushes the PC) always runs
+            // before StoreModifiedInstance. Guarded by ExceptionInstanceSizeFidelityTests.
+            int dataSize = modifiedInstance.DataTree.TotalDataLength;
             // The length must include the message size as well, so we add it as placeholder
             PC.SetInt32Property(PropertyID.PidTagAttachSize, 0);
             int attachmentSize = this.PC.GetTotalLengthOfAllProperties() + dataSize;

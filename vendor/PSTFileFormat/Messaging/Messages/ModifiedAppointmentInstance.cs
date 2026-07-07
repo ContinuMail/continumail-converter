@@ -28,16 +28,12 @@ namespace PSTFileFormat
             PC.SetDateTimeProperty(PropertyID.PidTagLastModificationTime, DateTime.UtcNow);
             // The length must include the message size as well, so we add it as placeholder
             PC.SetInt32Property(PropertyID.PidTagMessageSize, 0);
-            int messageSize;
-            if (this.File.WriterCompatibilityMode < WriterCompatibilityMode.Outlook2007SP2)
-            {
-                messageSize = PC.GetTotalLengthOfAllProperties();
-            }
-            else
-            {
-                PC.FlushToDataTree();
-                messageSize = this.DataTree.TotalDataLength;
-            }
+            // ContinuMail modification: always compute PidTagMessageSize as the on-disk size,
+            // regardless of WriterCompatibilityMode — same fix as MessageObject.SaveChanges
+            // (scanpst validates sizes against on-disk lengths; the upstream pre-Outlook2007SP2
+            // formula undercounts). Guarded by ExceptionInstanceSizeFidelityTests.
+            PC.FlushToDataTree();
+            int messageSize = this.DataTree.TotalDataLength;
             PC.SetInt32Property(PropertyID.PidTagMessageSize, messageSize);
 
             base.SaveChanges();
