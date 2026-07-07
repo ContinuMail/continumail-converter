@@ -20,10 +20,9 @@ const PHASE_HEADING: Record<string, string> = {
 
 export function ConvertView({ state }: { state: ConvertState }) {
   const [cancelling, setCancelling] = useState(false);
-  const { displayConverted, mbPerSec, etaSec } = useSmoothedProgress(state);
+  const { displayConverted, displayRatio, mbPerSec, etaSec } = useSmoothedProgress(state);
   const shown = Math.min(Math.floor(displayConverted), state.converted);
-  const ratio = state.total > 0 ? shown / state.total : 0;
-  const pct = Math.round(ratio * 100);
+  const pct = Math.round(displayRatio * 100);
   return (
     <div className="flex flex-1 flex-col">
       <h1 className="text-xl font-semibold text-foreground">{PHASE_HEADING[state.currentPhase ?? "mail"] ?? "Converting your mail…"}</h1>
@@ -52,7 +51,7 @@ export function ConvertView({ state }: { state: ConvertState }) {
         ) : null;
       })()}
       <div className="mt-1.5">
-        <ProgressBar value={ratio} />
+        <ProgressBar value={displayRatio} />
       </div>
       <div className="mt-1.5 flex justify-between text-xs text-light-gray">
         <span>{formatRate(mbPerSec)}</span>
