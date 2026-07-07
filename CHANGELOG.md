@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on-disk size; the category-list FAI message is allocated with the associated-message node type;
   and subjects are sanitized (control characters stripped) and capped at the 255-char MAPI limit.
   A full 16,000-message real-profile conversion — mail, calendar, tasks, contacts — now scans
-  completely clean.
+  completely clean: zero findings in the scan log, the same verdict scanpst gives Outlook's own
+  freshly-created data files, and a scanpst *repair* pass changes zero bytes.
 - **Messages whose only attachments are inline (CID) images now set `MSGFLAG_HASATTACH`**, as
   MS-OXCMSG specifies and scanpst enforces. Such messages show a paperclip in classic Outlook's
   message list — the same behaviour Outlook itself exhibits for mail received with inline images.
