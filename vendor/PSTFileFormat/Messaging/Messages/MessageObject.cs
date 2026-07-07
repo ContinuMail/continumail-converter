@@ -310,7 +310,26 @@ namespace PSTFileFormat
             return CreateNewMessage(file, folderItemType, parentNodeID, Guid.NewGuid());
         }
 
+        /// <summary>
+        /// ContinuMail addition: create a message whose node ID has NID_TYPE_ASSOC_MESSAGE —
+        /// required for folder-associated (FAI) messages. scanpst rejects a NORMAL_MESSAGE nid
+        /// in a folder's ASSOCIATED contents table ("Associated Contents Table has a bad RowID")
+        /// and orphan-recovers the message as a visible item. Guarded by
+        /// CategoryListFaiWriterTests.Stamp_fai_node_has_assoc_message_nid_type.
+        /// </summary>
+        public static MessageObject CreateNewAssociatedMessage(PSTFile file, FolderItemTypeName folderItemType, NodeID parentNodeID)
+        {
+            return CreateNewMessage(file, folderItemType, parentNodeID, Guid.NewGuid(), NodeTypeName.NID_TYPE_ASSOC_MESSAGE);
+        }
+
         public static MessageObject CreateNewMessage(PSTFile file, FolderItemTypeName folderItemType, NodeID parentNodeID, Guid searchKey)
+        {
+            return CreateNewMessage(file, folderItemType, parentNodeID, searchKey, NodeTypeName.NID_TYPE_NORMAL_MESSAGE);
+        }
+
+        // ContinuMail modification: nodeType parameter extracted so associated (FAI) messages can be
+        // allocated with NID_TYPE_ASSOC_MESSAGE (behavior unchanged for normal messages).
+        private static MessageObject CreateNewMessage(PSTFile file, FolderItemTypeName folderItemType, NodeID parentNodeID, Guid searchKey, NodeTypeName nodeType)
         {
             // [MS-PST] The following properties must be present in any valid Message object PC:
             PropertyContext pc = PropertyContext.CreateNewPropertyContext(file);
@@ -330,7 +349,7 @@ namespace PSTFileFormat
             
             pc.SaveChanges();
 
-            NodeID pcNodeID = file.Header.AllocateNextNodeID(NodeTypeName.NID_TYPE_NORMAL_MESSAGE);
+            NodeID pcNodeID = file.Header.AllocateNextNodeID(nodeType);
             file.NodeBTree.InsertNodeEntry(pcNodeID, pc.DataTree, pc.SubnodeBTree, parentNodeID);
 
             // NOTE: According to [MS-PST], A Recipient Table MUST exist for any Message object,

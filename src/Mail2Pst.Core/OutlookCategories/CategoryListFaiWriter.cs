@@ -52,10 +52,12 @@ public static class CategoryListFaiWriter
             }
         }
 
-        // Insert: create a fresh config message. CreateNewMessage seeds the required PC properties
-        // (flags/status/creation+mod time/search key); we override class/subject/stream. The
+        // Insert: create a fresh config message. CreateNewAssociatedMessage seeds the required PC
+        // properties (flags/status/creation+mod time/search key) and allocates the node with
+        // NID_TYPE_ASSOC_MESSAGE — scanpst rejects a NORMAL_MESSAGE nid in an associated contents
+        // table ("bad RowID" + orphan recovery). We override class/subject/stream. The
         // MSGFLAG_ASSOCIATED flag is guaranteed by AddAssociatedMessage, so we do not set it here.
-        MessageObject fai = MessageObject.CreateNewMessage(file, FolderItemTypeName.Note, calendarFolder.NodeID);
+        MessageObject fai = MessageObject.CreateNewAssociatedMessage(file, FolderItemTypeName.Note, calendarFolder.NodeID);
         fai.PC.SetStringProperty(PropertyID.PidTagMessageClass, CategoryListMessageClass);
         fai.PC.SetStringProperty(PropertyID.PidTagSubject, CategoryListMessageClass);
         fai.PC.SetStringProperty(PidTagNormalizedSubject, CategoryListMessageClass);
