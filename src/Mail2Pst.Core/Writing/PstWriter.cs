@@ -519,6 +519,36 @@ public class PstWriter
 
     private static readonly string[] ThreadingPrefixes = { "Re:", "Fwd:", "FW:", "AW:", "SV:", "TR:" };
 
+    // 255 chars is the MAPI subject cap, and the vendored Subject setter prepends the 2-char
+    // MS-PST subject-prefix marker — so the value itself may carry at most 253 chars.
+    private const int MaxSubjectLength = 253;
+
+    /// <summary>
+    /// Sanitizes a source subject for PST storage (see SubjectSanitizationTests):
+    ///  - strips C0 control characters (0x00–0x1F) and DEL — a leading 0x01 collides with the
+    ///    MS-PST subject-prefix encoding, so raw control bytes from a mangled source header make
+    ///    scanpst reject the folder's contents-table row ("row doesn't match sub-object");
+    ///  - truncates to the 255-char MAPI cap (incl. the 2-char prefix) — Outlook does the same,
+    ///    and an overlong subject spills the contents-table row cell past the heap allocation
+    ///    limit into a subnode, which scanpst also rejects as a row mismatch.
+    /// </summary>
+    private static string SanitizeSubject(string? subject)
+    {
+        string text = subject ?? string.Empty;
+        if (text.Length == 0) return text;
+        int keep = 0;
+        Span<char> buffer = text.Length <= 512 ? stackalloc char[text.Length] : new char[text.Length];
+        foreach (char c in text)
+        {
+            if (c >= 0x20 && c != 0x7F)
+            {
+                buffer[keep++] = c;
+                if (keep == MaxSubjectLength) break;
+            }
+        }
+        return keep == text.Length ? text : new string(buffer[..keep]);
+    }
+
     private static string StripThreadingPrefixes(string? subject)
     {
         if (string.IsNullOrEmpty(subject)) return string.Empty;
@@ -677,7 +707,8 @@ public class PstWriter
         }
 
         Note note = Note.CreateNewNote(file, folder.NodeID);
-        note.Subject = message.Subject ?? string.Empty;
+        string sanitizedSubject = SanitizeSubject(message.Subject);
+        note.Subject = sanitizedSubject;
 
         if (message.From is not null)
         {
@@ -738,7 +769,7 @@ public class PstWriter
         note.PC.SetInt32Property(PropertyID.PidTagImportance, (int)message.Importance);
         note.PC.SetInt32Property(PropertyID.PidTagPriority, (int)message.Importance - 1);
 
-        string normalizedSubject = StripThreadingPrefixes(message.Subject);
+        string normalizedSubject = StripThreadingPrefixes(sanitizedSubject);
         note.PC.SetStringProperty(PropertyID.PidTagConversationTopic, normalizedSubject);
         note.PC.SetStringProperty((PropertyID)0x0E1D, normalizedSubject);
 
