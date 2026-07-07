@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-07-08
+
 ### Fixed
 - **Converted PSTs now pass `scanpst.exe` (Microsoft's Inbox Repair Tool) with zero findings.**
   Previously every written message tripped scanpst's contents-table cross-check
@@ -23,6 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   message list — the same behaviour Outlook itself exhibits for mail received with inline images.
   (Previously the flag was cleared to avoid the paperclip, which made every such message a
   scanpst repair-required finding.)
+- **Converted PSTs larger than ~2 GB now also pass `scanpst.exe` cleanly.** The Free Page Map
+  (FPMap) allocation page — which only exists once a store grows past ~2 GB — was written at the
+  wrong slot of its allocation interval, which orphaned it and let a message block overwrite the
+  location `scanpst` validates it in; the header free-space counter (`cbAMapFree`) also drifted at
+  that scale. The FPMap is now placed correctly and `cbAMapFree` is recomputed from the allocation
+  bitmaps at close, so a real 3.8 GB profile conversion scans with zero findings. (Smaller PSTs
+  were already clean — this only surfaced at multi-gigabyte scale.)
+- **Converting a Thunderbird/IMAP account whose folder is named "Deleted Items" no longer aborts
+  the run.** A source folder matching a name the blank store already seeds was rejected mid-
+  conversion; those folders are now adopted, so the account's deleted mail lands in the PST's
+  Deleted Items folder.
+- **Desktop: the conversion progress bar now tracks the percentage accurately.** During large
+  conversions the bar lagged far behind the number; it now advances in step with it.
+
+### Changed
+- **Desktop: the Review step lists the largest folders first**, so big inboxes are at the top and
+  empty or skipped folders sink to the bottom.
 
 ## [0.3.0] — 2026-07-07
 
