@@ -28,9 +28,8 @@ src-tauri/binaries/
 src-tauri/resources/
 src-tauri/.sidecar-publish/
 
-# generated marketing/app captures (regenerated on demand). The screenshot
-# harness SOURCE under screenshots/ is tracked — only its output is ignored.
-screenshots/out/
+# generated marketing/app screenshots (produced by the screenshot tool)
+screenshots/
 
 # local-only screenshot tool — dev capture harness + scripts, not part of the
 # public release. Decoupled from the app (standalone Vite entry shot.html), so
