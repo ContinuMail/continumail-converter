@@ -311,4 +311,26 @@ authoritative description of the local PSTFileFormat modifications.
     a visible message. Used by the converter's `CategoryListFaiWriter`. Guarded by
     `tests/Mail2Pst.Core.Tests/OutlookCategories/CategoryListFaiWriterTests.cs`.
 
+- Large-PST FPMap page-index fix (ContinuMail, 2026-07-08 — surfaced by scanpst on a 3.6 GB
+  converted store; only reachable on PSTs larger than ~2 GB, which the earlier scanpst-clean rung
+  ladder (1–2-message stores) never grew large enough to hit):
+  - `NodeDatabse/Pages/FPMapPage.cs` + `NodeDatabse/AllocationHelper.cs` (`GrowPST`): place the
+    first (and every) FPMap page at the **+1024** slot of its AMap interval, not +1536. The FMap is
+    always absent at an FPMap interval (FPMap intervals ≡ 256 mod 496, FMap intervals ≡ 128 mod 496
+    — they never coincide), so the special pages pack `AMap@+0, PMap@+512, FPMap@+1024`. The vendored
+    code used a fixed +1536 slot, which (a) put the FPMap one page past where scanpst validates it
+    (`FirstPageOffset` was `0x7C004A00`; corrected to `0x7C004800`) and (b) left +1024 unallocated,
+    so a message block overwrote it → scanpst Sig/PTYPE/CRC/BID mismatches on the FPMap page. Also
+    fixed `GetFPMapPageIndex` to scale ×64 (`(n-128*64)/(496*64)`, was FMap's `(n-128)/496`) so the
+    trailer BID resolves to the page's own offset. Only reachable on PSTs > ~2 GB. Verified
+    scanpst-clean on a source-grown >2 GB store; guarded by
+    `tests/Mail2Pst.Core.Tests/PSTFileFormat/AllocationPageOffsetTests.cs` and
+    `tests/Mail2Pst.Integration.Tests/LargeStoreFPMapTests.cs`.
+  - `NodeDatabse/Pages/AllocationMapPage.cs` (`GetFreeByteCount`, new) +
+    `NodeDatabse/AllocationHelper.cs` (`ValidateAllocationMap`): recompute the header's
+    `cbAMapFree` from the actual AMap bitmaps at finalize instead of trusting the running
+    `-=`/`+=` counter, which accumulates drift over the millions of allocations a large store
+    performs (scanpst: "Computed cbAMapFree of X, but header has Y"). Small stores were already
+    self-consistent, so their output is byte-unchanged; only large (multi-GB) stores are corrected.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.

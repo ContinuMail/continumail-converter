@@ -136,6 +136,22 @@ namespace PSTFileFormat
             rgbAMapBits[byteOffset] &= (byte)~(0x01 << bitOffset);
         }
 
+        /// <summary>
+        /// Total free bytes mapped by this AMap page: every clear bit represents 64 free bytes.
+        /// Used at finalize to reconcile the header's running cbAMapFree counter with reality
+        /// (ContinuMail 2026-07-08).
+        /// </summary>
+        public int GetFreeByteCount()
+        {
+            int usedBits = 0;
+            for (int i = 0; i < rgbAMapBits.Length; i++)
+            {
+                usedBits += System.Numerics.BitOperations.PopCount(rgbAMapBits[i]);
+            }
+            int totalBits = rgbAMapBits.Length * 8;
+            return (totalBits - usedBits) * 64;
+        }
+
         /// <returns>Max contiguous space in bytes</returns>
         public int GetMaxContiguousSpace()
         {
