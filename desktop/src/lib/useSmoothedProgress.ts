@@ -13,9 +13,16 @@ const EASE_K = 0.15;
 
 export interface SmoothedProgress {
   displayConverted: number;
+  /** Eased fraction 0..1 for the progress bar. Advances in fine steps (see
+   * RATIO_STEPS) so the bar moves smoothly without a main-thread CSS transition. */
+  displayRatio: number;
   mbPerSec: number | null;
   etaSec: number | null;
 }
+
+// Bar-width re-render granularity: the bar re-renders when the eased ratio crosses
+// one of this many buckets across the whole run (~sub-pixel steps → smooth motion).
+const RATIO_STEPS = 2000;
 
 /** Display-only smoothing over raw convert state: eased count (~30 fps) and a
  * windowed MB/s + ETA refreshed ~1x/sec. Mounted only while converting (App
@@ -27,6 +34,7 @@ export function useSmoothedProgress(raw: ConvertState): SmoothedProgress {
 
   const [smoothed, setSmoothed] = useState<SmoothedProgress>({
     displayConverted: raw.converted,
+    displayRatio: raw.total > 0 ? Math.min(raw.converted, raw.total) / raw.total : 0,
     mbPerSec: null,
     etaSec: null,
   });
@@ -37,7 +45,7 @@ export function useSmoothedProgress(raw: ConvertState): SmoothedProgress {
   const lastTextAtRef = useRef(0);
   const seenStartRef = useRef<number | null>(raw.startedAtMs);
   const rateRef = useRef<{ mbPerSec: number | null; etaSec: number | null }>({ mbPerSec: null, etaSec: null });
-  const pushedRef = useRef<SmoothedProgress>({ displayConverted: -1, mbPerSec: null, etaSec: null });
+  const pushedRef = useRef<SmoothedProgress>({ displayConverted: -1, displayRatio: -1, mbPerSec: null, etaSec: null });
 
   useEffect(() => {
     let frame = 0;
@@ -83,15 +91,19 @@ export function useSmoothedProgress(raw: ConvertState): SmoothedProgress {
         };
       }
 
-      // Re-render only when something visible changed (integer count or rate/eta).
+      // Re-render only when something visible changed (integer count, bar bucket, or rate/eta).
+      const r2 = rawRef.current;
+      const displayRatio = r2.total > 0 ? Math.min(displayRef.current, r2.converted) / r2.total : 0;
       const next: SmoothedProgress = {
         displayConverted: displayRef.current,
+        displayRatio,
         mbPerSec: rateRef.current.mbPerSec,
         etaSec: rateRef.current.etaSec,
       };
       const p = pushedRef.current;
       if (
         Math.floor(next.displayConverted) !== Math.floor(p.displayConverted) ||
+        Math.round(next.displayRatio * RATIO_STEPS) !== Math.round(p.displayRatio * RATIO_STEPS) ||
         next.mbPerSec !== p.mbPerSec ||
         next.etaSec !== p.etaSec
       ) {
