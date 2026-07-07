@@ -290,4 +290,25 @@ authoritative description of the local PSTFileFormat modifications.
   addition 2026: PST-baked category colours). Proven by
   `tests/Mail2Pst.Core.Tests/PSTFileFormat/AssociatedMessageTests.cs`.
 
+- scanpst-clean writer fixes (ContinuMail, 2026 — root-caused via differential scanpst
+  repair-diff/poke experiments; before these, EVERY written message failed scanpst's
+  contents-table cross-check with "row doesn't match sub-object" → RepairRequired):
+  - `Messaging/Messages/MessageObject.cs` (`SaveChanges`): compute `PidTagMessageSize` as the
+    on-disk size (data tree + all subnodes) unconditionally, removing the pre-Outlook2007SP2
+    legacy branch (`GetTotalLengthOfAllProperties + attachments`) that undercounts — scanpst
+    recomputes the on-disk size and validates each folder contents-table row against it.
+    Guarded by `tests/Mail2Pst.Integration.Tests/MessageSizeFidelityTests.cs`.
+  - `Messaging/Attachments/AttachmentObject.cs` (`StoreModifiedInstance`) and
+    `Messaging/Messages/ModifiedAppointmentInstance.cs` (`SaveChanges`): same fix for
+    recurrence-exception sub-objects — the PtypObject record size, `PidTagAttachSize`, and the
+    instance's own `PidTagMessageSize` now use the on-disk data length unconditionally. Guarded
+    by `tests/Mail2Pst.Core.Tests/Writing/ExceptionInstanceSizeFidelityTests.cs`.
+  - `Messaging/Messages/MessageObject.cs`: added `CreateNewAssociatedMessage(PSTFile,
+    FolderItemTypeName, NodeID)` and extracted a private node-type parameter from
+    `CreateNewMessage` (normal-message path unchanged) so FAI messages are allocated with
+    `NID_TYPE_ASSOC_MESSAGE` — scanpst rejects a `NID_TYPE_NORMAL_MESSAGE` nid in an associated
+    contents table ("Associated Contents Table has a bad RowID") and orphan-recovers the FAI as
+    a visible message. Used by the converter's `CategoryListFaiWriter`. Guarded by
+    `tests/Mail2Pst.Core.Tests/OutlookCategories/CategoryListFaiWriterTests.cs`.
+
 See the project git history (`git log -- vendor/PSTFileFormat`) for the full diffs.
