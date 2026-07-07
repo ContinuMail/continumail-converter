@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Converted PSTs now pass `scanpst.exe` (Microsoft's Inbox Repair Tool) with zero findings.**
+  Previously every written message tripped scanpst's contents-table cross-check
+  ("row doesn't match sub-object" → *errors were found, repair*), because the writer stored a
+  legacy-formula `PidTagMessageSize` instead of the on-disk size scanpst recomputes. Five further
+  real-corpus findings fixed alongside: attachments now carry `PidTagRenderingPosition` and an
+  attachment-object-size `PidTagAttachSize`; recurrence-exception sub-objects store their true
+  on-disk size; the category-list FAI message is allocated with the associated-message node type;
+  and subjects are sanitized (control characters stripped) and capped at the 255-char MAPI limit.
+  A full 16,000-message real-profile conversion — mail, calendar, tasks, contacts — now scans
+  completely clean.
+- **Messages whose only attachments are inline (CID) images now set `MSGFLAG_HASATTACH`**, as
+  MS-OXCMSG specifies and scanpst enforces. Such messages show a paperclip in classic Outlook's
+  message list — the same behaviour Outlook itself exhibits for mail received with inline images.
+  (Previously the flag was cleared to avoid the paperclip, which made every such message a
+  scanpst repair-required finding.)
+
 ## [0.3.0] — 2026-07-07
 
 ### Added
