@@ -380,9 +380,16 @@ internal sealed class PstPartManager
     // Two-way guard: a reused leaf's container class must match the requested item type
     // (mail asks for IPF.Note, contacts for IPF.Contact). Non-leaf segments are containers
     // and are not type-checked.
+    //
+    // Exception: a store-seeded special folder (e.g. "Deleted Items") carries an EMPTY
+    // PidTagContainerClass — every writer-CREATED folder always gets a real IPF class, so an
+    // empty/unset class uniquely marks an untyped seeded special. These are adoptable as any
+    // item type (a source folder named "Deleted Items" then lands its mail in the store's
+    // Deleted Items — the correct fidelity outcome), so reuse them rather than fail the run.
     private static void GuardLeafClass(bool isLeaf, FolderItemTypeName segType, PSTFolder folder, string key)
     {
         if (!isLeaf) return;
+        if (string.IsNullOrEmpty(folder.ContainerClass)) return;   // untyped seeded special — adoptable
         string expected = PSTFolder.GetContainerClass(segType);   // e.g. "IPF.Contact" / "IPF.Note"
         if (!string.Equals(folder.ContainerClass, expected, StringComparison.Ordinal))
             throw new ConfigValidationException(
