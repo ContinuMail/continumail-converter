@@ -15,7 +15,12 @@ namespace PSTFileFormat
 {
     public class FPMapPage : Page // FPMAPPAGE
     {
-        public const int FirstPageOffset = 0x7C004A00; // offset of the first FMAPPAGE within the PST file (0x4A00 + 253952 * 64 * 128)
+        // ContinuMail fix (2026-07-08): the first FPMap sits at the +1024 slot of AMap interval
+        // 128*64, NOT +1536. FMap is always absent at FPMap intervals (FPMap intervals ≡ 256 mod
+        // 496, FMap intervals ≡ 128 mod 496 — never coincide), so the special pages pack as
+        // AMap@+0, PMap@+512, FPMap@+1024. scanpst validates the FPMap at this offset; the old
+        // 0x7C004A00 (+1536) left +1024 unallocated (a message overwrote it) and orphaned the FPMap.
+        public const int FirstPageOffset = 0x7C004800; // 0x4800 + 253952 * 64 * 128
         public const long MapppedLength = 8061452288; // the number of bytes mapped by an FMap (496 * 253952 * 64)
 
         public byte[] rgbFPMapBits = new byte[496];
@@ -50,7 +55,12 @@ namespace PSTFileFormat
             }
             else
             {
-                return (aMapPageIndex - 128) / 496;
+                // ContinuMail fix (2026-07-08): FPMap is FMap scaled ×64 — it starts at AMap index
+                // 128*64 and each FPMap covers 496*64 AMaps (see MapppedLength + GetFPMapEntryIndex).
+                // The original ((n-128)/496) was copied verbatim from FreeMapPage, so the first
+                // FPMap resolved to page index 16, encoding a PAGETRAILER BID ~131 GB from where the
+                // page sits → scanpst Sig/PTYPE/CRC/BID mismatches on every PST > ~2 GB.
+                return (aMapPageIndex - 128 * 64) / (496 * 64);
             }
         }
 

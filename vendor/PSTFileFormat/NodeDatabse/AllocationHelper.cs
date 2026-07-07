@@ -214,10 +214,12 @@ namespace PSTFileFormat
                     FPMapPage fpmap = new FPMapPage();
                     int fpmapPageIndex = FPMapPage.GetFPMapPageIndex(newPageIndex);
                     ulong fpmapOffset = FPMapPage.FirstPageOffset + (ulong)fpmapPageIndex * FPMapPage.MapppedLength;
-                    Array.Copy(fpmap.GetBytes(fpmapOffset), 0, buffer, 1536, Page.Length);
+                    // ContinuMail fix (2026-07-08): FMap is always absent at an FPMap interval, so the
+                    // FPMap packs into the +1024 slot (matching FPMapPage.FirstPageOffset), not +1536.
+                    Array.Copy(fpmap.GetBytes(fpmapOffset), 0, buffer, 1024, Page.Length);
 
                     // Allocate the FPMap out of the AMap
-                    amap.AllocateSpace(1536, 512);
+                    amap.AllocateSpace(1024, 512);
                     freeSpaceInAMap -= 512;
                 }
             }
@@ -285,6 +287,19 @@ namespace PSTFileFormat
 
         public static void ValidateAllocationMap(PSTFile file)
         {
+            // ContinuMail (2026-07-08): reconcile the running cbAMapFree counter with the actual
+            // AMap bitmaps before finalizing. The incremental -=/+= bookkeeping in
+            // AllocateSpace/GrowPST accumulates drift over the millions of allocations a large
+            // store performs, which scanpst flags as "Computed cbAMapFree of X, but header has Y".
+            // Recomputing from the true bitmaps makes the header exact regardless of per-op drift.
+            EnsureAMapCache(file);
+            ulong totalFree = 0;
+            foreach (AllocationMapPage page in file.AMapCache.Values)
+            {
+                totalFree += (ulong)page.GetFreeByteCount();
+            }
+            file.Header.root.cbAMapFree = totalFree;
+
             file.Header.root.IsAllocationMapValid = true;
             file.Header.WriteToStream(file.BaseStream, file.WriterCompatibilityMode);
         }
