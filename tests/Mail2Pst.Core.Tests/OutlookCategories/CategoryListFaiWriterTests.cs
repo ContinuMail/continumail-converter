@@ -49,6 +49,39 @@ public class CategoryListFaiWriterTests
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
+    /// <summary>
+    /// scanpst requires an associated (FAI) message's node ID to have NID_TYPE_ASSOC_MESSAGE
+    /// (0x08), not NID_TYPE_NORMAL_MESSAGE (0x04). With the wrong type it reports
+    /// "Associated Contents Table has a bad RowID", ejects the FAI, and orphan-recovers it as a
+    /// NORMAL message ("Message flags shouldn't have MSGFLAG_ASSOCIATED") — RepairRequired
+    /// (2026-07-07 scanpst root-cause, real-corpus follow-up).
+    /// </summary>
+    [Fact]
+    public void Stamp_fai_node_has_assoc_message_nid_type()
+    {
+        byte[] xml = Encoding.UTF8.GetBytes("<categories><category name=\"Meeting\" color=\"4\"/></categories>");
+        string path = NewStoreWithCalendar(out PSTFolder calendar, out PSTFile file);
+        try
+        {
+            CategoryListFaiWriter.Stamp(file, calendar, xml);
+            file.EndSavingChanges();
+            file.CloseFile();
+
+            var reopened = new PSTFile(path, FileAccess.Read, WriterCompatibilityMode.Outlook2007RTM);
+            try
+            {
+                PSTFolder cal = reopened.TopOfPersonalFolders.FindChildFolder("Calendar");
+                MessageObject fai = cal.GetAssociatedMessage(0);
+                Assert.True(fai.NodeID.nidType == NodeTypeName.NID_TYPE_ASSOC_MESSAGE,
+                    $"FAI node type is {fai.NodeID.nidType} (nid=0x{fai.NodeID.Value:X}) but an associated " +
+                    "message must be NID_TYPE_ASSOC_MESSAGE — scanpst ejects it from the associated " +
+                    "contents table otherwise ('bad RowID' + orphan recovery)");
+            }
+            finally { reopened.CloseFile(); }
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
     [Fact]
     public void Stamp_twice_upserts_updates_stream_no_duplicate()
     {
