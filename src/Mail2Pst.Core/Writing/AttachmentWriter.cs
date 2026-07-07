@@ -50,21 +50,6 @@ public sealed class AttachmentWriter
         if (spec.Content.Length > int.MaxValue)
             throw new AttachmentTooLargeException(spec.FileName, spec.Content.Length);
 
-        bool canStream = spec.Content.Length >= _streamingThresholdBytes
-            && file.Header.bCryptMethod == bCryptMethodName.NDB_CRYPT_PERMUTE
-            && !_streamingDisabled;
-        if (canStream)
-        {
-            using Stream s = spec.Content.OpenRead();
-            att.PC.SetExternalProperty(PropertyID.PidTagAttachData, PropertyTypeName.PtypBinary,
-                s, spec.Content.Length, ct);
-        }
-        else
-        {
-            att.PC.SetBytesProperty(PropertyID.PidTagAttachData, spec.Content.ReadAllBytes());
-        }
-        att.PC.SetInt32Property(PropertyID.PidTagAttachSize, (int)spec.Content.Length);
-
         if (!string.IsNullOrEmpty(spec.ContentId))
             att.PC.SetStringProperty(PropertyID.PidTagAttachContentId, spec.ContentId);
         if (!string.IsNullOrEmpty(spec.ContentLocation))
@@ -80,6 +65,33 @@ public sealed class AttachmentWriter
             att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentContactPhoto, true);
             att.PC.SetBooleanProperty(PropertyID.PidTagAttachmentHidden, false);
         }
+
+        // scanpst validates two attachment invariants (2026-07-07 root-cause, class 2):
+        //  - PidTagRenderingPosition must be present; -1 = not rendered inline in the RTF body.
+        //  - PidTagAttachSize must be the attachment OBJECT size (all PC properties including the
+        //    payload), not the raw payload length. Measure the non-payload properties BEFORE the
+        //    payload is written — with the 4-byte PidTagAttachSize slot already present as a
+        //    placeholder — so multi-GB streamed payloads are never materialized just to be measured.
+        att.PC.SetInt32Property(PropertyID.PidTagRenderingPosition, -1);
+        att.PC.SetInt32Property(PropertyID.PidTagAttachSize, 0);
+        long objectSize = att.PC.GetTotalLengthOfAllProperties() + spec.Content.Length;
+        if (objectSize > int.MaxValue)
+            throw new AttachmentTooLargeException(spec.FileName, spec.Content.Length);
+
+        bool canStream = spec.Content.Length >= _streamingThresholdBytes
+            && file.Header.bCryptMethod == bCryptMethodName.NDB_CRYPT_PERMUTE
+            && !_streamingDisabled;
+        if (canStream)
+        {
+            using Stream s = spec.Content.OpenRead();
+            att.PC.SetExternalProperty(PropertyID.PidTagAttachData, PropertyTypeName.PtypBinary,
+                s, spec.Content.Length, ct);
+        }
+        else
+        {
+            att.PC.SetBytesProperty(PropertyID.PidTagAttachData, spec.Content.ReadAllBytes());
+        }
+        att.PC.SetInt32Property(PropertyID.PidTagAttachSize, (int)objectSize);
 
         att.SaveChanges(owner.SubnodeBTree);
         owner.AddAttachment(att);
