@@ -415,10 +415,13 @@ public class PstWriterMetadataTests
     };
 
     [Fact]
-    public void Write_InlineOnlyAttachment_NoHasAttachFlag_AndAttachmentHidden()
+    public void Write_InlineOnlyAttachment_HasAttachFlagSet_AndAttachmentHidden()
     {
-        // A message whose only attachments are inline (CID) images is the
-        // original mail showing no attachment — it must not get a paperclip.
+        // Policy change (2026-07-07, owner-approved, scanpst root-cause follow-up): scanpst
+        // requires MSGFLAG_HASATTACH whenever a message carries ANY attachment object — inline
+        // included — and validates the contents-table row against it ("Message flags missing
+        // MSGFLAG_HASATTACH" → RepairRequired). Outlook stores inline images the same way:
+        // flag set, paperclip suppressed via PidTagAttachmentHidden on each inline part.
         var message = MinimalMessage();
         message.Attachments = new List<MailAttachment> { InlineAttachment("logo.png", "logo1") };
 
@@ -426,9 +429,9 @@ public class PstWriterMetadataTests
         try
         {
             int flags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags)!.Value;
-            Assert.Equal(0, flags & 0x0010); // MSGFLAG_HASATTACH not set
+            Assert.NotEqual(0, flags & 0x0010); // MSGFLAG_HASATTACH set (scanpst requirement)
             var att = note.GetAttachmentObject(0);
-            Assert.True(att.PC.GetBooleanProperty(PropertyID.PidTagAttachmentHidden, false));
+            Assert.True(att.PC.GetBooleanProperty(PropertyID.PidTagAttachmentHidden, false)); // paperclip suppression
         }
         finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
     }

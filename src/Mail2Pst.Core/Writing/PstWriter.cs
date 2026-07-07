@@ -786,10 +786,13 @@ public class PstWriter
         int messageFlags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags) ?? 0;
         if (message.IsRead) messageFlags |= MSGFLAG_READ;
         else messageFlags &= ~MSGFLAG_READ;
-        // Only set MSGFLAG_HASATTACH for non-inline attachments. Inline (CID)
-        // images are part of the HTML body, not user-visible attachments, so a
-        // message whose only attachments are inline must not show a paperclip.
-        if (message.Attachments.Any(a => !a.IsInline)) messageFlags |= MSGFLAG_HASATTACH;
+        // Set MSGFLAG_HASATTACH whenever the message carries ANY attachment object — inline
+        // included. scanpst validates the contents-table row against this rule ("Message flags
+        // missing MSGFLAG_HASATTACH" → RepairRequired for every inline-only message otherwise).
+        // The paperclip is suppressed the way Outlook itself does it: PidTagAttachmentHidden on
+        // each inline (CID) part, which WriteAttachment already sets. (Policy changed 2026-07-07,
+        // owner-approved, from flag-cleared-for-inline-only; see PstWriterMetadataTests.)
+        if (message.Attachments.Count > 0) messageFlags |= MSGFLAG_HASATTACH;
         else messageFlags &= ~MSGFLAG_HASATTACH;
         note.PC.SetInt32Property(PropertyID.PidTagMessageFlags, messageFlags);
 
