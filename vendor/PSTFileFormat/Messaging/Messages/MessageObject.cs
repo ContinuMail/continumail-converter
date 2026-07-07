@@ -58,20 +58,20 @@ namespace PSTFileFormat
 
             // The length must include the message size as well, so we add it as placeholder
             PC.SetInt32Property(PropertyID.PidTagMessageSize, 0);
+            // ContinuMail modification: always compute PidTagMessageSize as the on-disk size
+            // (data tree + all subnodes), regardless of WriterCompatibilityMode. scanpst
+            // recomputes exactly this and cross-checks each folder contents-table row against
+            // the message sub-object; the upstream pre-Outlook2007SP2 formula
+            // (GetTotalLengthOfAllProperties + attachments) undercounts, making EVERY written
+            // message fail scanpst with "Contents Table row doesn't match sub-object"
+            // (RepairRequired). Root-caused 2026-07-07; guarded by MessageSizeFidelityTests.
             int messageSize;
-            if (this.File.WriterCompatibilityMode < WriterCompatibilityMode.Outlook2007SP2)
+            PC.FlushToDataTree();
+            messageSize = this.DataTree.TotalDataLength;
+            if (this.SubnodeBTree != null)
             {
-                messageSize = PC.GetTotalLengthOfAllProperties() + sizeOfAttachments;
-            }
-            else
-            {
-                PC.FlushToDataTree();
-                messageSize = this.DataTree.TotalDataLength;
-                if (this.SubnodeBTree != null)
-                {
-                    // We should only call this method after all subnode changes has been saves
-                    messageSize += this.SubnodeBTree.GetDataLengthOfAllSubnodes();
-                }
+                // We should only call this method after all subnode changes has been saves
+                messageSize += this.SubnodeBTree.GetDataLengthOfAllSubnodes();
             }
             PC.SetInt32Property(PropertyID.PidTagMessageSize, messageSize);
             
