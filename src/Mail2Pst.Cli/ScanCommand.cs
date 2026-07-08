@@ -21,8 +21,14 @@ internal static class ScanCommand
         string sourceType = CliArgs.Flag(args, "--type") ?? "mbox";
         bool streaming = CliArgs.HasFlag(args, "--progress");
 
-        // --input-list: one path per line (blank lines ignored). Lets callers with
-        // hundreds of sources stay under the Windows 32,767-char command-line limit.
+        // --input-list: one path per line, used verbatim (blank lines ignored). Lets
+        // callers with hundreds of sources stay under the Windows 32,767-char
+        // command-line limit.
+        if (CliArgs.HasFlag(args, "--input-list") && inputListPath is null)
+        {
+            Console.Error.WriteLine("--input-list requires a file path.");
+            return 1;
+        }
         if (inputListPath is not null)
         {
             if (!File.Exists(inputListPath))
@@ -30,9 +36,19 @@ internal static class ScanCommand
                 Console.Error.WriteLine($"Input list file not found: {inputListPath}");
                 return 1;
             }
-            foreach (string line in File.ReadAllLines(inputListPath))
+            string[] listLines;
+            try
             {
-                if (!string.IsNullOrWhiteSpace(line)) inputPaths.Add(line.Trim());
+                listLines = File.ReadAllLines(inputListPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"Cannot read input list file: {ex.Message}");
+                return 1;
+            }
+            foreach (string line in listLines)
+            {
+                if (!string.IsNullOrWhiteSpace(line)) inputPaths.Add(line);
             }
         }
 

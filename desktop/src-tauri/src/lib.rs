@@ -52,12 +52,28 @@ fn scan_args(input_list_path: &str) -> Vec<String> {
     ]
 }
 
-/// The --input-list file body: one path per line (paths cannot contain newlines
-/// on any supported filesystem).
+/// The --input-list file body: one path per line, read verbatim by the CLI. The
+/// line-based format cannot represent a path containing a newline — fine here
+/// because Windows (the only GUI platform) forbids newlines in file names.
 fn scan_input_list_content(paths: &[String]) -> String {
     let mut content = paths.join("\n");
     content.push('\n');
     content
+}
+
+// A unique temp-file path (`continumail-<kind>-<pid>-<nanos><ext>`): the per-run
+// name avoids collisions with stale files / a second app instance. Shared by
+// start_scan (input list) and start_convert (config).
+fn unique_temp_path(kind: &str, ext: &str) -> std::path::PathBuf {
+    let unique = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    std::env::temp_dir().join(format!("continumail-{kind}-{unique}{ext}"))
 }
 
 // The exact CLI argument vector for a conversion run. `expected_total`, when present,
@@ -173,17 +189,8 @@ async fn start_scan(
         return Err("A scan is already running.".into());
     }
 
-    // Write the input paths to a UNIQUE temp file the sidecar will read (per-run
-    // name avoids collisions with stale files / a second app instance).
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let list_path = std::env::temp_dir().join(format!("continumail-scan-inputs-{unique}.txt"));
+    // Write the input paths to a unique temp file the sidecar will read.
+    let list_path = unique_temp_path("scan-inputs", ".txt");
     std::fs::write(&list_path, scan_input_list_content(&paths))
         .map_err(|e| format!("cannot write input list: {e}"))?;
     let list_path_str = list_path.to_string_lossy().to_string();
@@ -274,17 +281,8 @@ async fn start_convert(
         return Err("A conversion is already running.".into());
     }
 
-    // Write the config to a UNIQUE temp file the sidecar will read (per-run name
-    // avoids collisions with stale files / a second app instance).
-    let unique = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let config_path = std::env::temp_dir().join(format!("continumail-convert-config-{unique}.json"));
+    // Write the config to a unique temp file the sidecar will read.
+    let config_path = unique_temp_path("convert-config", ".json");
     let config_text = serde_json::to_string(&config).map_err(|e| e.to_string())?;
     std::fs::write(&config_path, config_text).map_err(|e| format!("cannot write config: {e}"))?;
     let config_path_str = config_path.to_string_lossy().to_string();

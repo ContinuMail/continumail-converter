@@ -62,7 +62,7 @@ public class ScanCommandInputListTests
             string listPath = Path.Combine(root, "inputs.txt");
             File.WriteAllLines(listPath, new[] { a, "", "   ", b });
 
-            (int exit, string stdout, _) = RunScan("scan", "--input-list", listPath);
+            (int exit, string stdout, _) = RunScan("--input-list", listPath);
 
             Assert.Equal(0, exit);
             using JsonDocument doc = JsonDocument.Parse(stdout);
@@ -86,7 +86,7 @@ public class ScanCommandInputListTests
             string listPath = Path.Combine(root, "inputs.txt");
             File.WriteAllLines(listPath, new[] { b });
 
-            (int exit, string stdout, _) = RunScan("scan", "--input", a, "--input-list", listPath);
+            (int exit, string stdout, _) = RunScan("--input", a, "--input-list", listPath);
 
             Assert.Equal(0, exit);
             using JsonDocument doc = JsonDocument.Parse(stdout);
@@ -103,10 +103,69 @@ public class ScanCommandInputListTests
     {
         string listPath = Path.Combine(Path.GetTempPath(), "m2p-missing-" + Guid.NewGuid() + ".txt");
 
-        (int exit, _, string stderr) = RunScan("scan", "--input-list", listPath);
+        (int exit, _, string stderr) = RunScan("--input-list", listPath);
 
         Assert.Equal(1, exit);
         Assert.Contains("Input list file not found", stderr);
+    }
+
+    [Fact]
+    public void Scan_DanglingInputListFlagWithoutValue_FailsWithMessage()
+    {
+        (int exit, _, string stderr) = RunScan("--input-list");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--input-list requires a file path", stderr);
+    }
+
+    [Fact]
+    public void Scan_UnreadableInputListFile_FailsCleanlyNotWithStackTrace()
+    {
+        // FileShare.None only enforces a mandatory lock on Windows; CI also runs
+        // this suite on Linux/macOS where the second open would succeed.
+        if (!OperatingSystem.IsWindows()) return;
+
+        string listPath = Path.Combine(Path.GetTempPath(), "m2p-locked-" + Guid.NewGuid() + ".txt");
+        File.WriteAllText(listPath, "whatever\n");
+        try
+        {
+            using var _lock = new FileStream(listPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            (int exit, _, string stderr) = RunScan("--input-list", listPath);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Cannot read input list file", stderr);
+        }
+        finally
+        {
+            File.Delete(listPath);
+        }
+    }
+
+    [Fact]
+    public void Scan_InputListPathsAreNotTrimmed()
+    {
+        // Filenames with line-edge whitespace are legal on Linux/macOS (the CLI is
+        // cross-platform), so each list line must be used verbatim. Windows can't
+        // create such a file, so pin the behaviour via the not-found message: it
+        // must echo the path exactly as listed, trailing space intact.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string spaced = Path.Combine(root, "nonexistent.mbox ");
+            string listPath = Path.Combine(root, "inputs.txt");
+            File.WriteAllLines(listPath, new[] { spaced });
+
+            (int exit, _, string stderr) = RunScan("--input-list", listPath);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Input file not found: " + spaced + Environment.NewLine, stderr);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -119,7 +178,7 @@ public class ScanCommandInputListTests
             string listPath = Path.Combine(root, "inputs.txt");
             File.WriteAllText(listPath, "\n");
 
-            (int exit, _, string stderr) = RunScan("scan", "--input-list", listPath);
+            (int exit, _, string stderr) = RunScan("--input-list", listPath);
 
             Assert.Equal(1, exit);
             Assert.Contains("Usage:", stderr);
