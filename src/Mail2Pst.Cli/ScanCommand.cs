@@ -52,6 +52,29 @@ internal static class ScanCommand
             }
         }
 
+        // C3: the same source given twice (across --input and --input-list) is almost
+        // certainly accidental — scan it once and say so. Dedupe key = canonical full path
+        // (Path.GetFullPath; symlinks/hardlinks are NOT resolved); case-insensitive on
+        // Windows/macOS (deliberate simplification matching the common platform default),
+        // case-sensitive on Linux.
+        StringComparer pathComparer = OperatingSystem.IsLinux()
+            ? StringComparer.Ordinal
+            : StringComparer.OrdinalIgnoreCase;
+        var seen = new HashSet<string>(pathComparer);
+        var deduped = new List<string>(inputPaths.Count);
+        foreach (string inputPath in inputPaths)
+        {
+            string canonical;
+            try { canonical = Path.GetFullPath(inputPath); }
+            catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+            {
+                canonical = inputPath; // let the existing not-found validation surface it
+            }
+            if (seen.Add(canonical)) deduped.Add(inputPath);
+            else Console.Error.WriteLine($"Warning: duplicate input ignored: {inputPath}");
+        }
+        inputPaths = deduped;
+
         if (inputPaths.Count == 0)
         {
             Console.Error.WriteLine("Usage: continumail-convert scan --input <path> [--input <path> ...] [--input-list <file>] [--type mbox]");
