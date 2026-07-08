@@ -100,6 +100,74 @@ public class ScanCommandInputListTests
     }
 
     [Fact]
+    public void Scan_DuplicateInputs_AreScannedOnceWithWarning()
+    {
+        // Tier 0 — C3: duplicates dedupe on the same CANONICAL FULL PATH (Path.GetFullPath —
+        // symlinks/hardlinks are NOT resolved); giving one file twice is almost certainly
+        // accidental and produces confusing reports.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string listPath = Path.Combine(root, "inputs.txt");
+            // Same file three ways: verbatim in the list, again via a redundant "..\<dir>"
+            // segment (different string, same canonical path), and once via --input.
+            string redundant = Path.Combine(root, "..", Path.GetFileName(root), "a.mbox");
+            File.WriteAllLines(listPath, new[] { a, redundant });
+
+            (int exit, string stdout, string stderr) = RunScan("--input", a, "--input-list", listPath);
+
+            Assert.Equal(0, exit);
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement totals = doc.RootElement.GetProperty("totals");
+            Assert.Equal(1, totals.GetProperty("sources").GetInt32());
+            Assert.Equal(1, totals.GetProperty("messages").GetInt32());
+            // Contract: EACH ignored duplicate warns once — three references, one kept → 2 warnings.
+            int warningCount = stderr.Split("Warning: duplicate input ignored:").Length - 1;
+            Assert.Equal(2, warningCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_CaseDifferingDuplicates_FollowConfiguredPlatformComparer()
+    {
+        // Tier 0 — C3: dedupe comparison is case-insensitive on Windows/macOS (deliberate
+        // simplification matching the common platform default), case-sensitive on Linux.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string upper = Path.Combine(Path.GetDirectoryName(a)!, "A.MBOX");
+            string listPath = Path.Combine(root, "inputs.txt");
+            File.WriteAllLines(listPath, new[] { a, upper });
+
+            (int exit, string stdout, _) = RunScan("--input-list", listPath);
+
+            if (OperatingSystem.IsLinux())
+            {
+                // Case-sensitive: A.MBOX is a distinct (and nonexistent) file → clean failure.
+                Assert.Equal(1, exit);
+            }
+            else
+            {
+                Assert.Equal(0, exit);
+                using JsonDocument doc = JsonDocument.Parse(stdout);
+                Assert.Equal(1, doc.RootElement.GetProperty("totals").GetProperty("sources").GetInt32());
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Scan_MissingInputListFile_FailsWithMessage()
     {
         string listPath = Path.Combine(Path.GetTempPath(), "m2p-missing-" + Guid.NewGuid() + ".txt");
