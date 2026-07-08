@@ -39,14 +39,25 @@ fn drain_lines(buf: &mut String) -> Vec<String> {
 // `--progress` (the Rust reader consumes the advisory `scanProgress` lines plus
 // the final authoritative `scan` object). Pure + unit-tested so the contract the
 // sidecar is invoked with can't drift silently.
-fn scan_args(paths: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = vec!["scan".into()];
-    for p in paths {
-        args.push("--input".into());
-        args.push(p.clone());
-    }
-    args.push("--progress".into());
-    args
+// Scan inputs are handed to the engine via a temp file (--input-list) rather than
+// one --input argument per path: a Thunderbird profile can hold hundreds of mail
+// folders, and per-path args blew past the Windows 32,767-char CreateProcess limit
+// ("os error 206", GitHub issue #66).
+fn scan_args(input_list_path: &str) -> Vec<String> {
+    vec![
+        "scan".into(),
+        "--input-list".into(),
+        input_list_path.into(),
+        "--progress".into(),
+    ]
+}
+
+/// The --input-list file body: one path per line (paths cannot contain newlines
+/// on any supported filesystem).
+fn scan_input_list_content(paths: &[String]) -> String {
+    let mut content = paths.join("\n");
+    content.push('\n');
+    content
 }
 
 // The exact CLI argument vector for a conversion run. `expected_total`, when present,
@@ -162,15 +173,36 @@ async fn start_scan(
         return Err("A scan is already running.".into());
     }
 
-    let args = scan_args(&paths);
+    // Write the input paths to a UNIQUE temp file the sidecar will read (per-run
+    // name avoids collisions with stale files / a second app instance).
+    let unique = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let list_path = std::env::temp_dir().join(format!("continumail-scan-inputs-{unique}.txt"));
+    std::fs::write(&list_path, scan_input_list_content(&paths))
+        .map_err(|e| format!("cannot write input list: {e}"))?;
+    let list_path_str = list_path.to_string_lossy().to_string();
 
+    // On any failure to launch the sidecar, remove the temp list we just wrote — the
+    // async reader task (which owns cleanup on normal exit) never starts in that case.
     let (mut rx, child) = app
         .shell()
         .sidecar("mail2pst-cli")
-        .map_err(|e| format!("sidecar not found: {e}"))?
-        .args(args)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&list_path);
+            format!("sidecar not found: {e}")
+        })?
+        .args(scan_args(&list_path_str))
         .spawn()
-        .map_err(|e| format!("failed to start engine: {e}"))?;
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&list_path);
+            format!("failed to start engine: {e}")
+        })?;
 
     // Store the child BEFORE the reader task starts.
     *state.0.lock().unwrap() = Some(child);
@@ -202,6 +234,7 @@ async fn start_scan(
                     }
                     buf.clear();
                     *app_for_task.state::<ScanState>().0.lock().unwrap() = None;
+                    let _ = std::fs::remove_file(&list_path);
                     let _ = app_for_task.emit("scan://exit", payload.code);
                 }
                 _ => {}
@@ -209,13 +242,14 @@ async fn start_scan(
         }
         // Defensive: if the stream ended WITHOUT a Terminated event, no exit was
         // emitted and the frontend Promise would hang forever. Flush any partial
-        // line, clear the slot, and emit a synthetic failure so it rejects.
+        // line, clear the slot + temp file, and emit a synthetic failure so it rejects.
         if !terminated {
             let rest = buf.trim_end_matches(|c| c == '\r' || c == '\n').to_string();
             if !rest.is_empty() {
                 let _ = app_for_task.emit("scan://line", rest);
             }
             *app_for_task.state::<ScanState>().0.lock().unwrap() = None;
+            let _ = std::fs::remove_file(&list_path);
             let _ = app_for_task.emit(
                 "scan://stderr",
                 "Scan process ended without a termination event.".to_string(),
@@ -656,21 +690,25 @@ Path=Profiles/xyz.dev\n";
 
 #[cfg(test)]
 mod tests {
-    use super::{convert_args, drain_lines, scan_args};
+    use super::{convert_args, drain_lines, scan_args, scan_input_list_content};
 
+    // Scan inputs travel via a temp file (--input-list), NOT as one command-line
+    // argument per path: a Thunderbird profile can hold hundreds of mail folders,
+    // and repeated --input args blew past the Windows 32,767-char CreateProcess
+    // limit ("os error 206", GitHub issue #66).
     #[test]
-    fn scan_args_one_input_passes_progress_flag() {
+    fn scan_args_passes_input_list_file_and_progress_flag() {
         assert_eq!(
-            scan_args(&["a.mbox".to_string()]),
-            vec!["scan", "--input", "a.mbox", "--progress"]
+            scan_args("C:/tmp/inputs.txt"),
+            vec!["scan", "--input-list", "C:/tmp/inputs.txt", "--progress"]
         );
     }
 
     #[test]
-    fn scan_args_repeats_input_flag_per_path_in_order() {
+    fn scan_input_list_content_is_one_path_per_line() {
         assert_eq!(
-            scan_args(&["a.mbox".to_string(), "b.mbox".to_string()]),
-            vec!["scan", "--input", "a.mbox", "--input", "b.mbox", "--progress"]
+            scan_input_list_content(&["a.mbox".to_string(), "b.mbox".to_string()]),
+            "a.mbox\nb.mbox\n"
         );
     }
 
@@ -734,7 +772,7 @@ mod tests {
 // `cargo test` — not currently wired into CI (see roadmap: add a cargo-test job).
 #[cfg(test)]
 mod sidecar_integration_tests {
-    use super::{drain_lines, scan_args};
+    use super::{drain_lines, scan_args, scan_input_list_content};
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -805,8 +843,21 @@ mod sidecar_integration_tests {
             return;
         }
 
-        let args = scan_args(&[sample.to_string_lossy().to_string()]);
+        // Exercise the REAL contract: paths go via a temp --input-list file,
+        // exactly as start_scan hands them to the sidecar.
+        let list_path = std::env::temp_dir().join(format!(
+            "continumail-scan-inputs-test-{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(
+            &list_path,
+            scan_input_list_content(&[sample.to_string_lossy().to_string()]),
+        )
+        .expect("write input list");
+
+        let args = scan_args(&list_path.to_string_lossy());
         let (code, lines) = run(&prog, &lead, &args);
+        let _ = std::fs::remove_file(&list_path);
         assert_eq!(code, 0, "scan should exit 0");
         assert!(!lines.is_empty(), "scan --progress emits at least the final scan line");
 

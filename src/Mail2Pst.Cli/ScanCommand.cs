@@ -17,12 +17,28 @@ internal static class ScanCommand
     internal static int Run(string[] args)
     {
         List<string> inputPaths = CliArgs.Flags(args, "--input");
+        string? inputListPath = CliArgs.Flag(args, "--input-list");
         string sourceType = CliArgs.Flag(args, "--type") ?? "mbox";
         bool streaming = CliArgs.HasFlag(args, "--progress");
 
+        // --input-list: one path per line (blank lines ignored). Lets callers with
+        // hundreds of sources stay under the Windows 32,767-char command-line limit.
+        if (inputListPath is not null)
+        {
+            if (!File.Exists(inputListPath))
+            {
+                Console.Error.WriteLine($"Input list file not found: {inputListPath}");
+                return 1;
+            }
+            foreach (string line in File.ReadAllLines(inputListPath))
+            {
+                if (!string.IsNullOrWhiteSpace(line)) inputPaths.Add(line.Trim());
+            }
+        }
+
         if (inputPaths.Count == 0)
         {
-            Console.Error.WriteLine("Usage: continumail-convert scan --input <path> [--input <path> ...] [--type mbox]");
+            Console.Error.WriteLine("Usage: continumail-convert scan --input <path> [--input <path> ...] [--input-list <file>] [--type mbox]");
             return 1;
         }
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.1] — 2026-07-08
 
 ### Fixed
+- **Scanning a large Thunderbird profile no longer fails with "The filename or extension is too
+  long. (os error 206)"** ([#66]). The desktop app passed every discovered mail folder to the
+  engine as a command-line argument, so profiles with roughly 250+ folders exceeded Windows'
+  32,767-character command-line limit and the scan could not even start. The app now hands the
+  folder list to the engine through a temporary file, via a new additive `scan --input-list <file>`
+  CLI flag (one path per line; combines with the existing repeatable `--input`).
+
+[#66]: https://github.com/ContinuMail/continumail-converter/issues/66
 - **Converted PSTs now pass `scanpst.exe` (Microsoft's Inbox Repair Tool) with zero findings.**
   Previously every written message tripped scanpst's contents-table cross-check
   ("row doesn't match sub-object" → *errors were found, repair*), because the writer stored a
