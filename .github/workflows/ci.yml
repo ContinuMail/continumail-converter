@@ -45,10 +45,6 @@ jobs:
 
       - name: Test (Release)
         run: dotnet test Mail2Pst.sln -c Release --no-build
-        # Tier-2 (heavy generated-profile) tests run on pushes to main only — PR CI stays
-        # inside the fast-tier budget.
-        env:
-          MAIL2PST_RUN_TIER2: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '1' || '' }}
 
       # Prove the actual published CLI runs end-to-end on this OS, not just unit tests.
       # Use the SAME single-file self-contained packaging shape as the desktop sidecar

@@ -15,10 +15,12 @@ using Xunit;
 namespace Mail2Pst.Core.Tests.Cli;
 
 /// <summary>
-/// Process-level stress ladder for the scan --input-list transport: spawns the REAL built
-/// CLI (same boundary the desktop sidecar crosses) against generated profiles at increasing
-/// scale and with hostile-but-legal path shapes. Companion to the in-process contract tests
-/// in Integration.Tests and the permanent #66 regression.
+/// Process-level tests for the scan --input-list transport: spawns the REAL built CLI
+/// (same boundary the desktop sidecar crosses) against generated profiles with
+/// hostile-but-legal path shapes and the long-path contract pair. Scale coverage lives in
+/// the permanent #66 regression (400 folders, Integration.Tests) — no separate scale
+/// ladder: the transport is a line-based file read with no plausible failure mode between
+/// N and 4N lines.
 /// </summary>
 public class ScanTransportE2ETests
 {
@@ -70,42 +72,6 @@ public class ScanTransportE2ETests
     {
         using JsonDocument doc = JsonDocument.Parse(stdout);
         return doc.RootElement.GetProperty("totals").GetProperty("sources").GetInt32();
-    }
-
-    // Tier 1 — scale rungs that fit PR CI.
-    [Theory]
-    [InlineData(1)]
-    [InlineData(50)]
-    [InlineData(250)]
-    public async Task Scan_ScaleLadder_ReturnsOneSourcePerInput(int count)
-    {
-        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
-            .WithAccount("alice@example.com", "imap.example.com")
-            .WithFolders(count, "Ladder-{0:D4}", messagesEach: 1)
-            .Build();
-
-        (int exit, string stdout, string stderr) = await RunScanProcessAsync(profile.MailFilePaths);
-
-        Assert.True(exit == 0, $"exit {exit}; stderr: {stderr}");
-        Assert.Equal(count, SourcesOf(stdout));
-    }
-
-    // Tier 2 — heavy rung; pushes to main only (MAIL2PST_RUN_TIER2=1).
-    [Fact]
-    public async Task Scan_1000Inputs_ReturnsOneSourcePerInput()
-    {
-        if (Environment.GetEnvironmentVariable("MAIL2PST_RUN_TIER2") != "1") return;
-
-        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
-            .WithDeepRoot(approximatePrefixChars: 100)
-            .WithAccount("alice@example.com", "imap.example.com")
-            .WithFolders(1000, "Heavy-Ladder-Folder-With-A-Long-Name-{0:D4}", messagesEach: 1)
-            .Build();
-
-        (int exit, string stdout, string stderr) = await RunScanProcessAsync(profile.MailFilePaths);
-
-        Assert.True(exit == 0, $"exit {exit}; stderr: {stderr}");
-        Assert.Equal(1000, SourcesOf(stdout));
     }
 
     // Tier 1 — hostile-but-legal folder names travel the whole pipe: generator → list file
