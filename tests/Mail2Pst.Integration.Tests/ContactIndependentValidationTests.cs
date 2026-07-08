@@ -16,6 +16,7 @@ namespace Mail2Pst.Integration.Tests;
 /// Requires MAIL2PST_PST_VALIDATOR to be set (same env-var as IndependentValidationTests).
 /// Without it the test is skipped so CI (no Rust validator) stays green.
 /// </summary>
+[Trait("Category", "IndependentValidation")]
 public class ContactIndependentValidationTests
 {
     // Zero-count folders the independent reader may surface that the converter did not create
