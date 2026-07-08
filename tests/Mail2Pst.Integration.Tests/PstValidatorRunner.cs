@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -41,6 +42,11 @@ public static class PstValidatorRunner
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                // pst-validate emits UTF-8 JSON. Without pinning the read encoding, .NET decodes the
+                // child's stdout using the console's OEM code page on Windows, turning any non-ASCII
+                // folder/message name into mojibake (e.g. UTF-8 'æ' C3 A6 read as CP437 '├ª'). Pin UTF-8.
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
             },
         };
         proc.StartInfo.ArgumentList.Add(pstPath);
