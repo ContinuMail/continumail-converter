@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Mail2Pst.Core/Mail2Pst.Core.csproj" />
     <ProjectReference Include="..\..\src\Mail2Pst.Cli\Mail2Pst.Cli.csproj" />
+    <ProjectReference Include="..\Mail2Pst.TestSupport\Mail2Pst.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../fixtures/**/*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />
