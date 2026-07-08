@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-07-08
+
 ### Fixed
 - **Scanning a large Thunderbird profile no longer fails with "The filename or extension is too
   long. (os error 206)"**
