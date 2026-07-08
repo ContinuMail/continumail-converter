@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Mail2Pst.Cli;
 using Xunit;
@@ -99,6 +100,74 @@ public class ScanCommandInputListTests
     }
 
     [Fact]
+    public void Scan_DuplicateInputs_AreScannedOnceWithWarning()
+    {
+        // Tier 0 — C3: duplicates dedupe on the same CANONICAL FULL PATH (Path.GetFullPath —
+        // symlinks/hardlinks are NOT resolved); giving one file twice is almost certainly
+        // accidental and produces confusing reports.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string listPath = Path.Combine(root, "inputs.txt");
+            // Same file three ways: verbatim in the list, again via a redundant "..\<dir>"
+            // segment (different string, same canonical path), and once via --input.
+            string redundant = Path.Combine(root, "..", Path.GetFileName(root), "a.mbox");
+            File.WriteAllLines(listPath, new[] { a, redundant });
+
+            (int exit, string stdout, string stderr) = RunScan("--input", a, "--input-list", listPath);
+
+            Assert.Equal(0, exit);
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            JsonElement totals = doc.RootElement.GetProperty("totals");
+            Assert.Equal(1, totals.GetProperty("sources").GetInt32());
+            Assert.Equal(1, totals.GetProperty("messages").GetInt32());
+            // Contract: EACH ignored duplicate warns once — three references, one kept → 2 warnings.
+            int warningCount = stderr.Split("Warning: duplicate input ignored:").Length - 1;
+            Assert.Equal(2, warningCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_CaseDifferingDuplicates_FollowConfiguredPlatformComparer()
+    {
+        // Tier 0 — C3: dedupe comparison is case-insensitive on Windows/macOS (deliberate
+        // simplification matching the common platform default), case-sensitive on Linux.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string upper = Path.Combine(Path.GetDirectoryName(a)!, "A.MBOX");
+            string listPath = Path.Combine(root, "inputs.txt");
+            File.WriteAllLines(listPath, new[] { a, upper });
+
+            (int exit, string stdout, _) = RunScan("--input-list", listPath);
+
+            if (OperatingSystem.IsLinux())
+            {
+                // Case-sensitive: A.MBOX is a distinct (and nonexistent) file → clean failure.
+                Assert.Equal(1, exit);
+            }
+            else
+            {
+                Assert.Equal(0, exit);
+                using JsonDocument doc = JsonDocument.Parse(stdout);
+                Assert.Equal(1, doc.RootElement.GetProperty("totals").GetProperty("sources").GetInt32());
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Scan_MissingInputListFile_FailsWithMessage()
     {
         string listPath = Path.Combine(Path.GetTempPath(), "m2p-missing-" + Guid.NewGuid() + ".txt");
@@ -139,6 +208,89 @@ public class ScanCommandInputListTests
         finally
         {
             File.Delete(listPath);
+        }
+    }
+
+    [Fact]
+    public void Scan_InputListWithUtf8Bom_IsTolerated()
+    {
+        // Tier 0 — C3: BOM tolerated. Pins BCL behavior so a future reader swap can't regress it.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string listPath = Path.Combine(root, "inputs.txt");
+            // Explicit UTF-8 BOM followed by the path.
+            File.WriteAllBytes(listPath, new byte[] { 0xEF, 0xBB, 0xBF }
+                .Concat(System.Text.Encoding.UTF8.GetBytes(a + "\n")).ToArray());
+
+            (int exit, string stdout, _) = RunScan("--input-list", listPath);
+
+            Assert.Equal(0, exit);
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            Assert.Equal(1, doc.RootElement.GetProperty("totals").GetProperty("sources").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_InputListLinesAreNotUnquoted()
+    {
+        // Tier 0 — C3: no quoting syntax; quotes are ordinary path characters. A quoted line
+        // must be treated as a path that CONTAINS quotes (and thus not found), never unquoted
+        // into a valid path.
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string a = WriteMbox(root, "a.mbox");
+            string listPath = Path.Combine(root, "inputs.txt");
+            File.WriteAllLines(listPath, new[] { "\"" + a + "\"" });
+
+            (int exit, _, string stderr) = RunScan("--input-list", listPath);
+
+            Assert.Equal(1, exit);
+            // The load-bearing contract is that the quotes were NOT stripped — assert the
+            // quoted string survives in the error, without pinning exact message phrasing.
+            Assert.Contains("Input file not found", stderr);
+            Assert.Contains("\"" + a + "\"", stderr);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_InputListPreservesLineEdgeWhitespaceNames()
+    {
+        // Tier 0 — C3: only line endings are trimmed. Filenames with line-edge whitespace are
+        // legal on Linux/macOS; Windows can't create them, so this runs on the Unix CI legs.
+        if (OperatingSystem.IsWindows()) return;
+
+        string root = Path.Combine(Path.GetTempPath(), "m2p-scan-inputlist-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            string leading = WriteMbox(root, " leading");
+            string trailing = WriteMbox(root, "trailing ");
+            string both = WriteMbox(root, " both ");
+            string listPath = Path.Combine(root, "inputs.txt");
+            File.WriteAllLines(listPath, new[] { leading, trailing, both });
+
+            (int exit, string stdout, _) = RunScan("--input-list", listPath);
+
+            Assert.Equal(0, exit);
+            using JsonDocument doc = JsonDocument.Parse(stdout);
+            Assert.Equal(3, doc.RootElement.GetProperty("totals").GetProperty("sources").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 

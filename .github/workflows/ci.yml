@@ -136,3 +136,66 @@ jobs:
       - name: Cargo test
         working-directory: desktop/src-tauri
         run: cargo test --locked
+
+  # Preflight: does this push/PR touch anything that could change PST output or the validation
+  # logic? Docs-only / non-code changes skip the validate job below, so documentation and
+  # release-note PRs don't spend CI on the independent-validation build.
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            relevant:
+              - 'src/**'
+              - 'tests/**'
+              - 'tools/pst-validate/**'
+              - 'fixtures/**'
+              - 'Mail2Pst.sln'
+              - '.github/workflows/ci.yml'
+
+  # Independent semantic validation: convert real output and re-read it with an INDEPENDENT MS-PST
+  # reader (tools/pst-validate, dev/test-only), then compare folder/message counts to the converter's
+  # own truth model. Breaks the closed-loop round-trip that shares the vendored reader. Advisory,
+  # not a required check (a paths-filtered skip must never block merges). ubuntu-only: PST output is
+  # byte-deterministic across OSes, so one leg validates all.
+  validate:
+    name: Independent PST validation (ubuntu)
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cache the cargo registry + pst-validate target dir so the outlook-pst build is paid once.
+      - name: Cache cargo (pst-validate)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/pst-validate
+
+      # Build the INDEPENDENT MS-PST reader (dev/test-only; never shipped). --locked pins outlook-pst.
+      - name: Build pst-validate
+        run: cargo build --locked --release --manifest-path tools/pst-validate/Cargo.toml
+
+      # Run ONLY the independent-validation gate, with the validator wired in. These tests skip in
+      # the build-test matrix (env unset there); here they execute against real converter output.
+      - name: Independent-reader gate
+        env:
+          MAIL2PST_PST_VALIDATOR: ${{ github.workspace }}/tools/pst-validate/target/release/pst-validate
+        run: dotnet test tests/Mail2Pst.Integration.Tests -c Release --filter "Category=IndependentValidation"

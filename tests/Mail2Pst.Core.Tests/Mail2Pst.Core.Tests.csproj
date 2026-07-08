@@ -17,6 +17,7 @@
     <!-- Build the CLI before tests so the schemaVersion E2E test can spawn it.
          ReferenceOutputAssembly=false: build-order dependency only, no assembly link. -->
     <ProjectReference Include="../../src/Mail2Pst.Cli/Mail2Pst.Cli.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Mail2Pst.TestSupport\Mail2Pst.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../fixtures/**/*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />
