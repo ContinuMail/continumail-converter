@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Desktop: a per-account PST name that is a reserved Windows device name with an extension** (for
   example `AUX.2024`) no longer aborts a multi-account conversion; such names are prefixed to a safe,
   valid file name.
+- A configuration whose output group lists contacts but no mail sources (`sources: null`) now
+  converts normally instead of failing with an opaque "Object reference not set" error.
+- `maxSizeMB` is now capped at 50 GB and validated, so an extreme value can no longer overflow into
+  a negative or garbage size limit (which previously produced one PST per message).
+- A recurring event with an astronomically large `COUNT` (for example 100,000,000) no longer risks
+  exhausting memory; the recurrence is degraded with a warning instead of enumerating the entire
+  series just to find its last instance.
+- A contact address whose only populated part is a PO Box (or a building/suite in the extended
+  address field) is now preserved — folded into the street line — instead of being silently dropped.
 
 ## [0.3.2] — 2026-07-08
 
