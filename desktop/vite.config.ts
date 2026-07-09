@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { defineConfig } from "vite";
+// defineConfig from vitest/config is vite's, extended with the typed `test` key below; it still
+// produces a valid Vite config for `vite build` / Tauri.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
@@ -14,6 +16,13 @@ export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
+  },
+  test: {
+    // The default 5s per-test timeout is too tight for a cold CI runner, where Vite charges the
+    // first-hit transform/import cost to the first test in each file (observed ~7s in CI, vs a
+    // ~2.5s whole-suite run locally). This headroom only matters on a cold first run.
+    testTimeout: 15000,
+    hookTimeout: 15000,
   },
   clearScreen: false,
   server: {
