@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   series just to find its last instance.
 - A contact address whose only populated part is a PO Box (or a building/suite in the extended
   address field) is now preserved — folded into the street line — instead of being silently dropped.
+- **Desktop: closing the app during a conversion or scan no longer leaves the background engine
+  process running or its temporary config/input file on disk.** The app now stops the engine and
+  cleans up when it exits.
+- **Desktop: cancelling a conversion now force-stops the engine if it doesn't respond within a few
+  seconds**, and a stuck scan can be cleared instead of blocking further scans for the rest of the
+  session.
 
 ## [0.3.2] — 2026-07-08
 
