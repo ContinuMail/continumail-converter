@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completes.
 - A recurring event with two overrides on the same day no longer aborts the conversion — the
   duplicate override is dropped with a warning and the event still converts.
-- A single pathologically large message in an mbox is now skipped with a warning and the rest of
-  the mailbox still converts, instead of aborting the conversion of every later message.
+- A single pathologically large message in an mbox is now skipped (and noted in the conversion
+  report) while the rest of the mailbox still converts, instead of aborting the conversion of every
+  later message.
 
 ## [0.3.2] — 2026-07-08
 
