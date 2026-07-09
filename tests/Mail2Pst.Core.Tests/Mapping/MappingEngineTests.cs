@@ -282,4 +282,25 @@ public class MappingEngineTests
         Assert.Empty(plans[0].SourceMappings);
         Assert.Single(plans[0].ContactMappings);
     }
+
+    [Fact]
+    public void BuildPlan_MaxSizeMBOverflow_DoesNotProduceNegativeMaxSizeBytes()
+    {
+        // Defense-in-depth: even bypassing ConfigValidator, the MB->bytes multiply must not silently
+        // wrap to a negative/garbage cap. With checked{} it surfaces as OverflowException.
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new()
+                {
+                    Name = "Personal",
+                    MaxSizeMB = long.MaxValue,
+                    Sources = new List<SourceConfig> { new() { Path = "Inbox.mbox", Type = "mbox" } },
+                },
+            },
+        };
+
+        Assert.Throws<OverflowException>(() => MappingEngine.BuildPlan(config));
+    }
 }
