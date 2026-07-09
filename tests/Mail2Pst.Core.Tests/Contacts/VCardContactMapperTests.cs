@@ -208,4 +208,37 @@ public class VCardContactMapperTests
         Assert.True(street.IndexOf("PO Box 123", StringComparison.Ordinal) < street.IndexOf("Building 4", StringComparison.Ordinal),
             $"expected PO-Box before Extended, got '{street}'");
     }
+
+    [Fact]
+    public void Map_PoBoxOnlyAdr_EmitsFoldWarning()
+    {
+        // Load-bearing fold: Street is empty, so PO-Box is what rescues the address from
+        // mapping empty. The warning must fire here.
+        string vcf = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Boxer\r\nADR;TYPE=HOME:PO Box 123;;;;;;\r\nEND:VCARD\r\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+
+        var warnings = new List<string>();
+        var c = new VCardContactMapper().Map(v, "c", warnings);
+
+        Assert.NotNull(c.HomeAddress);
+        Assert.Contains(warnings, w => w.Contains("folded into the street field", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Map_StreetWithExtendedAdr_DoesNotEmitFoldWarning()
+    {
+        // Non-load-bearing: Street is already populated, Extended is just an apartment/suite
+        // component. Folding it in is fine but shouldn't warn — this used to fire on any
+        // populated Extended, which is noisy for the very common apartment/suite case.
+        string vcf = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Suite\r\nADR;TYPE=HOME:;Apt 4;Main St;City;;;\r\nEND:VCARD\r\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+
+        var warnings = new List<string>();
+        var c = new VCardContactMapper().Map(v, "c", warnings);
+
+        Assert.NotNull(c.HomeAddress);
+        Assert.Contains("Apt 4", c.HomeAddress!.Street);
+        Assert.Contains("Main St", c.HomeAddress!.Street);
+        Assert.DoesNotContain(warnings, w => w.Contains("folded into the street field", StringComparison.OrdinalIgnoreCase));
+    }
 }
