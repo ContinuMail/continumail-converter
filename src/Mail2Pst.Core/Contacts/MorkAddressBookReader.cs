@@ -19,7 +19,21 @@ public class MorkAddressBookReader : IAddressBookReader
         var results = new List<ContactReadResult>();
         // MorkReader.Parse(string) -> MorkDocument (verified API). ParseSharedReadWrite also exists
         // for files another process may have open; prefer it if .mab files are locked in practice.
-        MorkDocument doc = MorkReader.Parse(book.Path);
+        MorkDocument doc;
+        try
+        {
+            doc = MorkReader.Parse(book.Path);
+        }
+        catch (MorkFormatException ex)
+        {
+            // A corrupt/truncated .mab is a whole-book format failure. The reader owns this
+            // boundary: degrade the entire book to one skipped result (ConversionRunner routes
+            // it to RecordContactSkipped) rather than letting the format error abort the run.
+            // Only MorkFormatException is caught — any other exception is a real bug and propagates.
+            results.Add(ContactReadResult.Failed(book.DisplayName, ex.Message));
+            return results;
+        }
+
         foreach (MorkRow row in EnumerateContactRows(doc))
         {
             string cardId = string.IsNullOrEmpty(row.Id) ? Guid.NewGuid().ToString("N") : row.Id;
