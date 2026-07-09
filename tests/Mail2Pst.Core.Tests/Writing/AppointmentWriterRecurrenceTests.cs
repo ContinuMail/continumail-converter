@@ -791,4 +791,34 @@ public class AppointmentWriterRecurrenceTests
         Assert.NotNull(blob);   // PidLidAppointmentRecur must be present
         Assert.True(isAllDayEvent, "PidLidAppointmentSubType must be true for an all-day recurring appointment");
     }
+
+    /// <summary>
+    /// Regression lock for #3: an EXDATE (deleted occurrence) and a single override on the SAME original
+    /// day must NOT collide — the override must survive. The EXDATE flows through DeletedInstanceDates
+    /// (ApplyDeletions) while the writer's same-day exception guard uses a SEPARATE set (exceptionDays),
+    /// so the EXDATE must never cause the override to be skipped. Both share the one deleted day, so the
+    /// vendored invariant (ModifiedInstanceDates.Count &lt;= DeletedInstanceDates.Count) still holds.
+    /// </summary>
+    [Fact]
+    public void Exdate_and_override_on_same_original_day_keep_the_override()
+    {
+        var rec = WeeklyRecord();
+        rec.DeletedOccurrences = new[] { new RecurrenceInstanceId(
+            new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+            new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false) };
+        rec.Exceptions = new[] { new AppointmentException {
+            OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+            NewStartUtc = new(2026,7,8,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,7,30,0,DateTimeKind.Utc),
+            Subject = "Moved despite EXDATE", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd } };
+
+        var (_, blob, _) = WriteAndReadAppointment(rec);
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+
+        Assert.Single(s.ExceptionList);            // the override survived (EXDATE did not block it)
+        Assert.Single(s.ModifiedInstanceDates);
+        Assert.Single(s.DeletedInstanceDates);     // EXDATE + override original day collapse to one deleted day
+        Assert.True(s.DeletedInstanceDates.Count >= s.ModifiedInstanceDates.Count);  // vendored invariant holds
+        Assert.Equal(1, ReopenAttachmentCount(rec));
+    }
 }
