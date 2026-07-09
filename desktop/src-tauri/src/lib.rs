@@ -91,6 +91,18 @@ fn remove_temp_file(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// How long cancel_convert waits after writing `cancel` before force-killing a sidecar that
+/// hasn't terminated on its own (KB-004 cap). Long enough for a normal cancel to flush and
+/// delete the in-progress PST part, short enough to unwedge a stuck engine quickly.
+const CANCEL_KILL_CAP: Duration = Duration::from_secs(10);
+
+/// True when the run currently in the slot is the same one whose cancel we're escalating
+/// (identified by its spawn instant), so the timed kill can never hit a later run that
+/// started after the cancelled one already finished.
+fn same_run(current: Option<Instant>, cancelled_at: Instant) -> bool {
+    current == Some(cancelled_at)
+}
+
 /// On app exit, kill any in-flight sidecar and remove its temp file so closing the window mid-run
 /// never orphans the engine process or leaks the temp config/input-list.
 fn kill_running_children(app: &AppHandle) {
@@ -393,16 +405,49 @@ async fn start_convert(
 }
 
 #[tauri::command]
-fn cancel_convert(state: State<'_, ConvertState>) -> Result<(), String> {
-    let mut guard = state.0.lock().unwrap();
-    match guard.as_mut() {
+fn cancel_convert(app: AppHandle, state: State<'_, ConvertState>) -> Result<(), String> {
+    // Graceful cancel first: the engine deletes the in-progress PST part and emits `cancelled`.
+    let cancelled_at = {
+        let mut guard = state.0.lock().unwrap();
+        match guard.as_mut() {
+            Some(rc) => {
+                rc.child
+                    .write(b"cancel\n")
+                    .map_err(|e| format!("cancel failed: {e}"))?;
+                rc.started_at
+            }
+            None => return Err("No conversion is running.".into()),
+        }
+    }; // lock released here — never held across the .await below
+
+    // Escalate: if the same run is still in the slot after the cap (engine ignored cancel /
+    // wedged), force-kill it and clear the slot so the user isn't locked out.
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(CANCEL_KILL_CAP).await;
+        let state = app.state::<ConvertState>();
+        let mut guard = state.0.lock().unwrap();
+        if same_run(guard.as_ref().map(|rc| rc.started_at), cancelled_at) {
+            if let Some(rc) = guard.take() {
+                let _ = rc.child.kill();
+                remove_temp_file(&rc.temp_path);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_scan(state: State<'_, ScanState>) -> Result<(), String> {
+    // Scan has no stdin cancel protocol, so recovery is a hard kill: take the child out of the
+    // slot, kill it, and remove its temp input-list. Frees a wedged scan so a new one can start.
+    match state.0.lock().unwrap().take() {
         Some(rc) => {
-            rc.child
-                .write(b"cancel\n")
-                .map_err(|e| format!("cancel failed: {e}"))?;
+            let _ = rc.child.kill();
+            remove_temp_file(&rc.temp_path);
             Ok(())
         }
-        None => Err("No conversion is running.".into()),
+        None => Err("No scan is running.".into()),
     }
 }
 
@@ -625,6 +670,7 @@ pub fn run() {
             start_convert,
             start_scan,
             cancel_convert,
+            cancel_scan,
             open_folder,
             open_junk_help,
             default_thunderbird_profiles_dir,
@@ -741,6 +787,15 @@ mod tests {
         assert!(!p.exists());
         remove_temp_file(&p); // second call on a missing file must not panic or error
         assert!(!p.exists());
+    }
+
+    #[test]
+    fn same_run_matches_only_identical_start_instant() {
+        let t = std::time::Instant::now();
+        assert!(same_run(Some(t), t)); // same run still in the slot
+        assert!(!same_run(None, t)); // slot already cleared (ran to completion)
+        let later = t + std::time::Duration::from_secs(1);
+        assert!(!same_run(Some(later), t)); // a different (later) run now occupies the slot
     }
 
     // Scan inputs travel via a temp file (--input-list), NOT as one command-line

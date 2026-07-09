@@ -35,10 +35,12 @@ export async function discoverProfile(dir: string): Promise<DiscoverResult> {
  * Rejects (with the engine's stderr text when present) on nonzero exit, a
  * missing final result, or an invoke failure.
  *
- * Scan is not cancellable: if the user navigates away mid-scan the Promise stays
+ * Scan has no graceful cancel: if the user navigates away mid-scan the Promise stays
  * pending and its three listeners remain registered until the sidecar exits, at
  * which point cleanup() runs. (The useScan stage-guard drops any late progress
- * update, so a stale bar never leaks into Review/ScanError.) */
+ * update, so a stale bar never leaks into Review/ScanError.) A wedged scan that
+ * never exits can be force-cleared with `cancelScan()`, which hard-kills the
+ * sidecar and frees the slot. */
 export async function scan(
   paths: string[],
   onProgress?: (p: { bytes: number; totalBytes: number }) => void,
@@ -169,6 +171,11 @@ export function startConvert(
 
 export function cancelConvert(): Promise<void> {
   return invoke<void>("cancel_convert");
+}
+
+/** Force-clears a wedged scan (hard-kills the sidecar and frees the slot) so a new scan can start. */
+export function cancelScan(): Promise<void> {
+  return invoke<void>("cancel_scan");
 }
 
 export function openFolder(path: string): Promise<void> {
