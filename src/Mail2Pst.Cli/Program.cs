@@ -4,7 +4,18 @@
 #nullable enable
 using System;
 using System.Reflection;
+using System.Text;
 using Mail2Pst.Cli;
+
+// Emit UTF-8 on stdout/stderr so non-ASCII folder names, subjects, and outputDirectory
+// survive the JSON-Lines contract (the Rust GUI decodes stdout as UTF-8). Separate guards:
+// a failure setting InputEncoding must not prevent setting OutputEncoding. Guarded for hosts
+// with no console attached (redirected/service), where the setter can throw.
+try { Console.OutputEncoding = new UTF8Encoding(false); }
+catch { /* no console / output unavailable — ignore */ }
+
+try { Console.InputEncoding = new UTF8Encoding(false); }
+catch { /* no console / input unavailable — ignore */ }
 
 if (args.Length == 0)
 {
