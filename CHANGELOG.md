@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Converting to a directory that already contains the output PST now stops immediately with a clear
   message instead of overwriting it, so a cancelled or failed re-run can no longer destroy a
   previously converted file. Remove the existing file or choose another output directory to proceed.
+- A Thunderbird mail folder whose name isn't a valid Outlook folder name (for example a leading
+  space or a reserved Windows device name) is now adjusted to a valid name, with a warning, instead
+  of aborting the whole profile at validation.
+- In folder-per-source (mirror) mode, two source files that would map to the same folder name — for
+  example `Project.v1` and `Project.v2` — are now kept as distinct folders (`Project`, `Project (2)`)
+  with a warning, instead of silently merging into one.
+- **Desktop: a per-account PST name that is a reserved Windows device name with an extension** (for
+  example `AUX.2024`) no longer aborts a multi-account conversion; such names are prefixed to a safe,
+  valid file name.
 
 ## [0.3.2] — 2026-07-08
 
