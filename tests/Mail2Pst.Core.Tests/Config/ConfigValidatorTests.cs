@@ -62,6 +62,18 @@ public class ConfigValidatorTests
         Assert.Throws<ConfigValidationException>(() => ConfigValidator.Validate(config));
     }
 
+    [Theory]
+    [InlineData(51201)]              // one MB above the 50 GB product cap
+    [InlineData(long.MaxValue)]      // would overflow MB -> bytes
+    public void Validate_MaxSizeMBAboveCap_Throws(long maxSizeMb)
+    {
+        var config = ValidConfig();
+        config.Outputs[0].MaxSizeMB = maxSizeMb;
+
+        var ex = Assert.Throws<ConfigValidationException>(() => ConfigValidator.Validate(config));
+        Assert.Contains("maxSizeMB", ex.Message);
+    }
+
     [Fact]
     public void Validate_OutputWithNoSources_Throws()
     {

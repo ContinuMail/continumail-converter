@@ -29,7 +29,7 @@ public static class MappingEngine
             var plan = new PstOutputPlan
             {
                 Name = output.Name,
-                MaxSizeBytes = output.MaxSizeMB * 1024L * 1024L,
+                MaxSizeBytes = checked(output.MaxSizeMB * 1024L * 1024L),
                 IncludeEmptyFolders = output.IncludeEmptyFolders,
             };
 

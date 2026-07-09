@@ -16,6 +16,11 @@ namespace Mail2Pst.Core.Config;
 /// </summary>
 public static class ConfigValidator
 {
+    // MB -> bytes must never approach Int64 overflow, and no real PST needs > 50 GB. This is a
+    // product cap that is easier to reason about than "anything below long.MaxValue bytes". The
+    // default (OutputGroupConfig.MaxSizeMB = 20000) sits well under it.
+    public const long MaxSizeMBCap = 51200; // 50 GB
+
     public static void Validate(ConversionConfig config)
     {
         if (config.Outputs is null || config.Outputs.Count == 0)
@@ -35,6 +40,9 @@ public static class ConfigValidator
             if (output.MaxSizeMB <= 0)
                 throw new ConfigValidationException(
                     $"Output '{output.Name}' has maxSizeMB={output.MaxSizeMB}; it must be greater than 0.");
+            if (output.MaxSizeMB > MaxSizeMBCap)
+                throw new ConfigValidationException(
+                    $"Output '{output.Name}' has maxSizeMB={output.MaxSizeMB}; it must not exceed {MaxSizeMBCap} (50 GB).");
 
             bool hasMail = output.Sources is { Count: > 0 };
             bool hasContacts = output.Contacts is { Count: > 0 };
