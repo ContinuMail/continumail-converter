@@ -34,7 +34,7 @@ public static class MappingEngine
             };
 
             var usedMailKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (SourceConfig source in output.Sources)
+            foreach (SourceConfig source in output.Sources ?? new List<SourceConfig>())
             {
                 IReadOnlyList<string> targetPath;
                 bool mirrorDerived = false;
