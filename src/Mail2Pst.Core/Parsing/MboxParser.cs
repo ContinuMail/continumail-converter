@@ -38,7 +38,8 @@ public class MboxParser : IMailSourceParser
         using FileStream stream = File.OpenRead(path);
 
         int index = 0;
-        foreach (SpillableMessageBuffer raw in SplitMessages(stream, onBytesRead))
+        foreach (MessageChunk chunk in EnumerateMessageChunks(
+                     stream, materialize: true, _rawSpillThreshold, onBytesRead, onMessageStart: null))
         {
             index++;
             var sourceRef = new SourceReference
@@ -46,6 +47,7 @@ public class MboxParser : IMailSourceParser
                 SourcePath = path,
                 Identifier = $"message #{index}",
             };
+            SpillableMessageBuffer raw = chunk.Buffer!;   // materialize mode never yields a null buffer (Task 2 adds oversized)
 
             MimeMessage? mime = null;
             string? error = null;
@@ -102,11 +104,11 @@ public class MboxParser : IMailSourceParser
         stream.Seek(startOffset, SeekOrigin.Begin);
 
         var messages = new List<RangeMessage>();
-        foreach (SpillableMessageBuffer raw in EnumerateMessageChunks(
+        foreach (MessageChunk chunk in EnumerateMessageChunks(
                      stream, materialize: true, _rawSpillThreshold, onBytesRead,
-                     onMessageStart: null, startAbsolute: startOffset, endOffset: endOffset)
-                 .Select(b => b!))
+                     onMessageStart: null, startAbsolute: startOffset, endOffset: endOffset))
         {
+            SpillableMessageBuffer raw = chunk.Buffer!;   // Task 2 adds the oversized branch
             // Same sourceRef shape as Parse, minus the rendered "message #N" identifier
             // (assigned only at merge in the range-merge step).
             var sourceRef = new SourceReference { SourcePath = path };
@@ -168,7 +170,7 @@ public class MboxParser : IMailSourceParser
     public int CountMessages(string path)
     {
         using FileStream stream = File.OpenRead(path);
-        // Same boundary engine as SplitMessages — for a given file state the count never
+        // Same boundary engine as Parse — for a given file state the count never
         // drifts from the messages Parse yields. (ConversionRunner reads the file twice:
         // count here, then Parse during conversion; external mutation of the file between
         // the two passes can still diverge — an accepted, out-of-scope limitation.)
@@ -188,15 +190,6 @@ public class MboxParser : IMailSourceParser
         { /* enumerate to drive the callback */ }
         return offsets;
     }
-
-    /// <summary>
-    /// Splits an mbox file into a <see cref="SpillableMessageBuffer"/> per message. Thin adapter over
-    /// the shared <see cref="EnumerateMessageChunks"/> engine (materialize mode). See that
-    /// method for the boundary rule and why we avoid MimeKit's <see cref="MimeFormat.Mbox"/>
-    /// parser. The `!` is sound: materialize mode never yields a null chunk.
-    /// </summary>
-    private IEnumerable<SpillableMessageBuffer> SplitMessages(Stream rawStream, Action<long>? onBytesRead = null) =>
-        EnumerateMessageChunks(rawStream, materialize: true, _rawSpillThreshold, onBytesRead, onMessageStart: null).Select(b => b!);
 
     /// <summary>
     /// THE single source of truth for "where do messages begin and end" in an mbox stream.
@@ -221,10 +214,10 @@ public class MboxParser : IMailSourceParser
     /// the engine yields the just-completed message (which is owned by this window) and stops —
     /// it does not begin/parse the out-of-window message. The defaults
     /// (<c>startAbsolute = 0</c>, <c>endOffset = long.MaxValue</c>) make whole-file callers
-    /// (<see cref="SplitMessages"/>, <see cref="CountMessages"/>, <see cref="ScanMessageStartOffsets"/>)
+    /// (<see cref="Parse"/>, <see cref="CountMessages"/>, <see cref="ScanMessageStartOffsets"/>)
     /// behave exactly as before.
     /// </summary>
-    private static IEnumerable<SpillableMessageBuffer?> EnumerateMessageChunks(
+    private static IEnumerable<MessageChunk> EnumerateMessageChunks(
         Stream rawStream, bool materialize, long rawSpillThreshold, Action<long>? onBytesRead,
         Action<long>? onMessageStart = null, long startAbsolute = 0, long endOffset = long.MaxValue)
     {
@@ -274,7 +267,7 @@ public class MboxParser : IMailSourceParser
                     {
                         onBytesRead?.Invoke(rawStream.Position);
                         onMessageStart?.Invoke(currentStart);
-                        yield return materialize ? current : null;
+                        yield return MessageChunk.Ok(materialize ? current : null);
                         if (materialize) current = new SpillableMessageBuffer(rawSpillThreshold);
                         currentHasContent = false;
                     }
@@ -311,7 +304,7 @@ public class MboxParser : IMailSourceParser
         {
             onBytesRead?.Invoke(rawStream.Position);
             onMessageStart?.Invoke(currentStart);
-            yield return materialize ? current : null;
+            yield return MessageChunk.Ok(materialize ? current : null);
         }
     }
 
