@@ -51,4 +51,31 @@ public class MorkAddressBookReaderTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Read_DeeplyNestedMab_ReturnsFailedBook_NotStackOverflow()
+    {
+        // Composition of #1 (reader catch) + #5 (depth ceiling): a pathologically deep .mab must
+        // degrade to a single skipped book, never crash the process. 128 levels is past the
+        // ceiling but will not actually overflow the stack on the red path.
+        string path = Path.Combine(Path.GetTempPath(), $"m2p-deep-{Guid.NewGuid():N}.mab");
+        File.WriteAllText(path, new string('<', 128) + new string('>', 128));
+        try
+        {
+            var book = new AddressBook
+            {
+                DisplayName = "deep.mab",
+                Path = path,
+                Format = AddressBookFormat.ThunderbirdMab,
+            };
+
+            var results = new MorkAddressBookReader().Read(book).ToList();
+
+            var failed = Assert.Single(results);
+            Assert.False(failed.Success);
+            Assert.Contains("deep.mab", failed.Source);
+            Assert.False(string.IsNullOrWhiteSpace(failed.Error));
+        }
+        finally { File.Delete(path); }
+    }
 }
