@@ -46,9 +46,15 @@ describe("sanitizePstName", () => {
   it("falls back to 'Account' when empty after sanitizing", () => {
     expect(sanitizePstName("...")).toBe("Account");
   });
-  it("escapes reserved Windows device names", () => {
-    expect(sanitizePstName("CON")).toBe("CON-mail");
-    expect(sanitizePstName("LPT1.backup")).toBe("LPT1.backup-mail"); // stem LPT1 is reserved
+  it("escapes reserved Windows device names, including with an extension", () => {
+    // Prefix (not suffix) so no "<reserved>.<ext>" form survives the backend regex.
+    expect(sanitizePstName("CON")).toBe("mail-CON");
+    expect(sanitizePstName("LPT1.backup")).toBe("mail-LPT1.backup");
+    expect(sanitizePstName("AUX.2024")).toBe("mail-AUX.2024");   // stem+ext — the backend-abort bug
+    expect(sanitizePstName("con.backup")).toBe("mail-con.backup");
+    expect(sanitizePstName("com1.log")).toBe("mail-com1.log");
+    // A normal name that merely contains a reserved substring is untouched.
+    expect(sanitizePstName("Console")).toBe("Console");
   });
 });
 

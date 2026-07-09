@@ -12,8 +12,10 @@ export interface AccountGroup {
   defaultPstName: string;
 }
 
-// Windows reserved device names (stem only), mirroring Core OutputNameValidator.
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+// Windows reserved device names, optionally with an extension — mirrors Core OutputNameValidator's
+// /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i. Testing the WHOLE string (not just the pre-dot
+// stem) is load-bearing: "AUX.2024" is reserved to the backend, so the frontend must catch it too.
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
 /** Match the engine's OutputNameValidator policy so a per-account PST name never fails validation. */
 export function sanitizePstName(raw: string): string {
@@ -22,8 +24,9 @@ export function sanitizePstName(raw: string): string {
   s = s.trim();                                // 2. whitespace
   s = s.replace(/^\.+|\.+$/g, "").trim();       // 3. leading/trailing periods
   if (s.length === 0) return "Account";         // 4. empty fallback
-  const stem = s.split(".")[0];                 // 5. reserved device-name stem -> suffix
-  if (RESERVED.test(stem)) s = `${s}-mail`;
+  // 5. Reserved device name (whole string, incl. "<reserved>.<ext>") -> PREFIX a safe token so the
+  //    result no longer starts with the reserved name and passes the backend regex.
+  if (RESERVED.test(s)) s = `mail-${s}`;
   return s;
 }
 
