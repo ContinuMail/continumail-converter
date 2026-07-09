@@ -75,8 +75,14 @@ public class VCardContactMapper
             if (adr is null) continue;
             var pa = ToPostal(adr);
             if (pa.IsEmpty) continue;
-            if (Parts(adr.Value.POBox).Any(s => !string.IsNullOrWhiteSpace(s)) ||
-                Parts(adr.Value.Extended).Any(s => !string.IsNullOrWhiteSpace(s)))
+            // Warn only when the fold was load-bearing: Street itself was empty, so the
+            // PO-Box/Extended component is what rescued the address from mapping empty.
+            // A populated Street with an Extended component (apartment/suite) is common and
+            // not worth a warning even though it's still folded into Street below.
+            bool hasBoxOrExtended = Parts(adr.Value.POBox).Any(s => !string.IsNullOrWhiteSpace(s))
+                                  || Parts(adr.Value.Extended).Any(s => !string.IsNullOrWhiteSpace(s));
+            bool streetEmpty = !Parts(adr.Value.Street).Any(s => !string.IsNullOrWhiteSpace(s));
+            if (hasBoxOrExtended && streetEmpty)
                 warnings.Add($"Contact '{c.DisplayName ?? cardId}': PO-Box/extended-address folded into the street field.");
             if (adr.Parameters.PropertyClass.IsSet(PCl.Work)) c.BusinessAddress ??= pa;
             else                                               c.HomeAddress     ??= pa;
