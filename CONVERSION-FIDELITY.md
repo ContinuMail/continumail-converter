@@ -48,7 +48,7 @@ _Thunderbird messages → PST mail items_
 ├─────────────────────────┼───────────────────────────┼───────────┼─────────────────────────────┼───────────────────────────────────────┤
 │ Replied / forwarded     │ Reply / forward icons     │ Converted │                             │ PidTagLastVerbExecuted                │
 ├─────────────────────────┼───────────────────────────┼───────────┼─────────────────────────────┼───────────────────────────────────────┤
-│ Flagged / starred       │ Follow-up flag            │ Converted │                             │ PidTagFlagStatus                      │
+│ Flagged / starred       │ Star category (yellow)    │ Converted │ Not a To-Do follow-up flag  │ PidNameKeywords (Star)                │
 ├─────────────────────────┼───────────────────────────┼───────────┼─────────────────────────────┼───────────────────────────────────────┤
 │ Importance / priority   │ Importance                │ Converted │                             │ PidTagImportance                      │
 ├─────────────────────────┼───────────────────────────┼───────────┼─────────────────────────────┼───────────────────────────────────────┤

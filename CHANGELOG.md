@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A Thunderbird-starred (Marked) message now converts to a yellow "Star" category instead of an
+  Outlook follow-up flag.** Previously every starred message was written with a follow-up flag,
+  which places it in Outlook's To-Do list. For a Gmail account synced over IMAP the same message
+  appears under each of its labels, so one starred email became several red To-Do entries,
+  cluttering the list. The star (read from the Thunderbird `.msf` index, or an inline
+  `X-Mozilla-Status` header) is now surfaced as a "Star" category — baked into the master category
+  list in yellow so it renders in colour — added alongside any existing Thunderbird tags rather than
+  replacing them.
+
 ### Fixed
 - **A corrupt, truncated, or pathologically deep-nested Thunderbird `.mab` (Mork) address book is
   now recorded as a skipped contact instead of aborting the whole conversion.** Previously a Mork
