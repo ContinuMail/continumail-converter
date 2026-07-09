@@ -1268,6 +1268,43 @@ public class CalendarEventMapperTests
         Assert.Null(appt.TimeZone);
         Assert.Contains(warnings, w => w.Contains("Mars/Phobos", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void Map_TwoOverridesSameOriginalDay_KeepsOneWithWarning_NoInvalidRecurrenceException()
+    {
+        // A DAILY master with TWO overrides whose RECURRENCE-ID lands on the SAME day (2026-07-11).
+        // MS-OXOCAL stores at most one exception per day; two would trip the vendored recurrence
+        // invariant (ModifiedInstanceDates.Count <= DeletedInstanceDates.Count) and abort the whole
+        // run. The mapper must keep one exception and warn.
+        var group = SimpleGroup(e =>
+        {
+            e.Title = "Daily Standup";
+            e.Recurrence.Add(new RawSideText("RRULE:FREQ=DAILY"));
+        });
+        group.Overrides.Add(new RawEvent
+        {
+            Id = "ovr-1@example.com", Title = "Standup moved (a)",
+            RecurrenceId = MicrosFor(2026, 7, 11, 14, 0), RecurrenceIdTz = "UTC",
+            EventStart = MicrosFor(2026, 7, 11, 15, 0), EventStartTz = "UTC",
+            EventEnd = MicrosFor(2026, 7, 11, 16, 0), EventEndTz = "UTC",
+        });
+        group.Overrides.Add(new RawEvent
+        {
+            Id = "ovr-2@example.com", Title = "Standup moved (b)",
+            RecurrenceId = MicrosFor(2026, 7, 11, 14, 0), RecurrenceIdTz = "UTC",
+            EventStart = MicrosFor(2026, 7, 11, 17, 0), EventStartTz = "UTC",
+            EventEnd = MicrosFor(2026, 7, 11, 18, 0), EventEndTz = "UTC",
+        });
+
+        var result = CalendarEventMapper.Map(group, out var warnings);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Recurrence);
+        Assert.Single(result.Exceptions);   // the second same-day override was dropped
+        // Prove the policy is "keep FIRST", not just "some one survived".
+        Assert.Equal("Standup moved (a)", result.Exceptions[0].Subject);
+        Assert.Contains(warnings, x => x.Contains("2026-07-11") && x.Contains("kept the first"));
+    }
 }
 
 /// <summary>
