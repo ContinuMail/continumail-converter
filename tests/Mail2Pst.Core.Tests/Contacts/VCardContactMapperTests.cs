@@ -174,4 +174,38 @@ public class VCardContactMapperTests
         var c = new VCardContactMapper().Map(v, "c", new System.Collections.Generic.List<string>());
         Assert.Equal("https://untyped.example", c.Webpage);
     }
+
+    [Fact]
+    public void Map_PoBoxOnlyAdr_PreservesAddressInStreet()
+    {
+        // ADR components: POBox;Extended;Street;Locality;Region;PostalCode;Country
+        // Only the PO-Box is populated. Previously ToPostal read only Street/Locality/..., so the
+        // whole address mapped empty and was dropped by the `if (pa.IsEmpty) continue;` guard.
+        string vcf = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Boxer\r\nADR;TYPE=HOME:PO Box 123;;;;;;\r\nEND:VCARD\r\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+
+        var c = new VCardContactMapper().Map(v, "c", new List<string>());
+
+        Assert.NotNull(c.HomeAddress);
+        Assert.Contains("PO Box 123", c.HomeAddress!.Street);
+    }
+
+    [Fact]
+    public void Map_PoBoxAndExtendedAdr_FoldsInStableOrder_PoBoxThenExtended()
+    {
+        // POBox="PO Box 123", Extended="Building 4". Fold order must be PO-Box then Extended then
+        // Street, and the extended-address component must not be lost. ADR has SEVEN components
+        // (POBox;Extended;Street;Locality;Region;PostalCode;Country) = six semicolons.
+        string vcf = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Boxer\r\nADR;TYPE=WORK:PO Box 123;Building 4;;;;;\r\nEND:VCARD\r\n";
+        var v = FolkerKinzel.VCards.Vcf.Parse(vcf).Single();
+
+        var c = new VCardContactMapper().Map(v, "c", new List<string>());
+
+        Assert.NotNull(c.BusinessAddress);
+        string street = c.BusinessAddress!.Street!;
+        Assert.Contains("PO Box 123", street);
+        Assert.Contains("Building 4", street);
+        Assert.True(street.IndexOf("PO Box 123", StringComparison.Ordinal) < street.IndexOf("Building 4", StringComparison.Ordinal),
+            $"expected PO-Box before Extended, got '{street}'");
+    }
 }

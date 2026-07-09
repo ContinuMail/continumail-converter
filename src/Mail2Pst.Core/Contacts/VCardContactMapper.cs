@@ -75,6 +75,9 @@ public class VCardContactMapper
             if (adr is null) continue;
             var pa = ToPostal(adr);
             if (pa.IsEmpty) continue;
+            if (Parts(adr.Value.POBox).Any(s => !string.IsNullOrWhiteSpace(s)) ||
+                Parts(adr.Value.Extended).Any(s => !string.IsNullOrWhiteSpace(s)))
+                warnings.Add($"Contact '{c.DisplayName ?? cardId}': PO-Box/extended-address folded into the street field.");
             if (adr.Parameters.PropertyClass.IsSet(PCl.Work)) c.BusinessAddress ??= pa;
             else                                               c.HomeAddress     ??= pa;
         }
@@ -203,9 +206,20 @@ public class VCardContactMapper
         .OrderBy(e => e!.Parameters.Preference == 0 ? int.MaxValue : e!.Parameters.Preference)
         .Select(e => e!.Value!);
 
+    /// <summary>Null-safe view over an ADR component list — <c>Join</c> tolerates a null list, but
+    /// chaining <c>.Concat</c> on a raw (possibly null) <c>adr.Value.*</c> list throws.</summary>
+    private static IEnumerable<string> Parts(IEnumerable<string>? values) =>
+        values ?? Enumerable.Empty<string>();
+
     private static PostalAddress ToPostal(AddressProperty adr) => new()
     {
-        Street     = NullIfEmpty(Join(adr.Value.Street)),
+        // A non-empty ADR must never vanish. PostalAddress has no PO-Box / extended-address field,
+        // so fold those components into Street in stable order (PO-Box, then Extended, then Street)
+        // — otherwise a box-only or suite-only address maps empty and is dropped (finding #17).
+        Street     = NullIfEmpty(Join(
+                         Parts(adr.Value.POBox)
+                             .Concat(Parts(adr.Value.Extended))
+                             .Concat(Parts(adr.Value.Street)))),
         City       = NullIfEmpty(Join(adr.Value.Locality)),
         State      = NullIfEmpty(Join(adr.Value.Region)),
         PostalCode = NullIfEmpty(Join(adr.Value.PostalCode)),
