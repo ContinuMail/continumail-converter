@@ -12,7 +12,7 @@ public static class ParserRegistry
     private static readonly Dictionary<string, IMailSourceParser> Parsers =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["mbox"] = new MboxParser(),
+            ["mbox"] = new MboxParser(rawSpillThreshold: MboxParser.DefaultRawSpillThreshold),
         };
 
     private static readonly Dictionary<string, IMailSourceParser> ScanParsers =

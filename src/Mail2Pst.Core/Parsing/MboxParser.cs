@@ -24,12 +24,27 @@ public class MboxParser : IMailSourceParser
     private readonly MimeMessageMapper _mapper;
     private readonly long _rawSpillThreshold;
 
+    /// <summary>Largest a single message may be before it is skipped. 1900 MiB — safely under
+    /// Array.MaxLength (~2 GiB) with headroom for MemoryStream capacity-doubling, so neither the
+    /// per-line MemoryStream nor the per-message buffer can reach the ~2 GiB overflow point.</summary>
+    public const long DefaultMaxMessageBytes = 1900L * 1024 * 1024;
+
+    /// <summary>Convert-path raw-message spill threshold (64 MiB): a message larger than this spills to
+    /// a temp file during conversion so parse-side peak RAM stays bounded. Used by the convert parser in
+    /// <see cref="ParserRegistry"/>; scan uses its own tighter 4 MiB threshold.</summary>
+    public const long DefaultRawSpillThreshold = 64L * 1024 * 1024;
+
+    private readonly long _maxMessageBytes;
+
     public MboxParser(long tempFileThresholdBytes = 4L * 1024 * 1024, bool measureOnly = false,
-                      long rawSpillThreshold = long.MaxValue)
+                      long rawSpillThreshold = long.MaxValue, long maxMessageBytes = DefaultMaxMessageBytes)
     {
         if (tempFileThresholdBytes < 0)
             throw new ArgumentOutOfRangeException(nameof(tempFileThresholdBytes), tempFileThresholdBytes, "Temp-file threshold must be non-negative.");
+        if (maxMessageBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxMessageBytes), maxMessageBytes, "Max message size must be positive.");
         _rawSpillThreshold = rawSpillThreshold;
+        _maxMessageBytes = maxMessageBytes;
         _mapper = new MimeMessageMapper(tempFileThresholdBytes, measureOnly);
     }
 
@@ -39,7 +54,8 @@ public class MboxParser : IMailSourceParser
 
         int index = 0;
         foreach (MessageChunk chunk in EnumerateMessageChunks(
-                     stream, materialize: true, _rawSpillThreshold, onBytesRead, onMessageStart: null))
+                     rawStream: stream, materialize: true, rawSpillThreshold: _rawSpillThreshold,
+                     maxMessageBytes: _maxMessageBytes, onBytesRead: onBytesRead, onMessageStart: null))
         {
             index++;
             var sourceRef = new SourceReference
@@ -47,7 +63,16 @@ public class MboxParser : IMailSourceParser
                 SourcePath = path,
                 Identifier = $"message #{index}",
             };
-            SpillableMessageBuffer raw = chunk.Buffer!;   // materialize mode never yields a null buffer (Task 2 adds oversized)
+
+            if (chunk.IsOversized)
+            {
+                yield return ParseResult.Failed(sourceRef,
+                    $"message exceeds the maximum size of {_maxMessageBytes} bytes and was skipped " +
+                    $"(read ~{chunk.OversizedBytes} bytes)");
+                continue;
+            }
+
+            SpillableMessageBuffer raw = chunk.Buffer!;   // materialize mode never yields a null buffer (except oversized, handled above)
 
             MimeMessage? mime = null;
             string? error = null;
@@ -105,13 +130,24 @@ public class MboxParser : IMailSourceParser
 
         var messages = new List<RangeMessage>();
         foreach (MessageChunk chunk in EnumerateMessageChunks(
-                     stream, materialize: true, _rawSpillThreshold, onBytesRead,
-                     onMessageStart: null, startAbsolute: startOffset, endOffset: endOffset))
+                     rawStream: stream, materialize: true, rawSpillThreshold: _rawSpillThreshold,
+                     maxMessageBytes: _maxMessageBytes, onBytesRead: onBytesRead, onMessageStart: null,
+                     startAbsolute: startOffset, endOffset: endOffset))
         {
-            SpillableMessageBuffer raw = chunk.Buffer!;   // Task 2 adds the oversized branch
             // Same sourceRef shape as Parse, minus the rendered "message #N" identifier
             // (assigned only at merge in the range-merge step).
             var sourceRef = new SourceReference { SourcePath = path };
+
+            if (chunk.IsOversized)
+            {
+                messages.Add(new RangeMessage(0, null,
+                    $"message exceeds the maximum size of {_maxMessageBytes} bytes and was skipped " +
+                    $"(read ~{chunk.OversizedBytes} bytes)",
+                    Array.Empty<string>()));
+                continue;
+            }
+
+            SpillableMessageBuffer raw = chunk.Buffer!;
 
             MimeMessage? mime = null;
             string? error = null;
@@ -174,7 +210,8 @@ public class MboxParser : IMailSourceParser
         // drifts from the messages Parse yields. (ConversionRunner reads the file twice:
         // count here, then Parse during conversion; external mutation of the file between
         // the two passes can still diverge — an accepted, out-of-scope limitation.)
-        return EnumerateMessageChunks(stream, materialize: false, rawSpillThreshold: 0, onBytesRead: null, onMessageStart: null).Count();
+        return EnumerateMessageChunks(rawStream: stream, materialize: false, rawSpillThreshold: 0,
+            maxMessageBytes: _maxMessageBytes, onBytesRead: null, onMessageStart: null).Count();
     }
 
     /// <summary>
@@ -186,7 +223,8 @@ public class MboxParser : IMailSourceParser
     {
         using FileStream stream = File.OpenRead(path);
         var offsets = new List<long>();
-        foreach (var _ in EnumerateMessageChunks(stream, materialize: false, rawSpillThreshold: 0, onBytesRead: null, onMessageStart: offsets.Add))
+        foreach (var _ in EnumerateMessageChunks(rawStream: stream, materialize: false, rawSpillThreshold: 0,
+                     maxMessageBytes: _maxMessageBytes, onBytesRead: null, onMessageStart: offsets.Add))
         { /* enumerate to drive the callback */ }
         return offsets;
     }
@@ -218,16 +256,20 @@ public class MboxParser : IMailSourceParser
     /// behave exactly as before.
     /// </summary>
     private static IEnumerable<MessageChunk> EnumerateMessageChunks(
-        Stream rawStream, bool materialize, long rawSpillThreshold, Action<long>? onBytesRead,
-        Action<long>? onMessageStart = null, long startAbsolute = 0, long endOffset = long.MaxValue)
+        Stream rawStream, bool materialize, long rawSpillThreshold, long maxMessageBytes,
+        Action<long>? onBytesRead, Action<long>? onMessageStart = null,
+        long startAbsolute = 0, long endOffset = long.MaxValue)
     {
         var buffer = new byte[BufferSize];
         using var line = new MemoryStream(256);
         SpillableMessageBuffer? current = materialize ? new SpillableMessageBuffer(rawSpillThreshold) : null;
         bool previousLineWasBlank = true;
         bool currentHasContent = false;
-        long consumed = 0;      // total bytes of completed lines (independent of rawStream.Position)
-        long currentStart = 0;  // byte offset of the current message's From_ boundary line
+        long consumed = 0;       // logical byte offset of line starts (drives boundary offsets)
+        long currentStart = 0;   // byte offset of the current message's From_ boundary line
+        long messageBytes = 0;   // content bytes accumulated for the current message (for the cap)
+        bool currentOversized = false;
+        bool skipToNewline = false;   // draining the tail of a single over-cap line
 
         int bytesRead;
         while ((bytesRead = rawStream.Read(buffer, 0, buffer.Length)) > 0)
@@ -235,30 +277,80 @@ public class MboxParser : IMailSourceParser
             int offset = 0;
             while (offset < bytesRead)
             {
+                if (skipToNewline)
+                {
+                    // Discard bytes (advancing `consumed`) until this over-cap line's newline.
+                    int nlIdx = Array.IndexOf(buffer, (byte)'\n', offset, bytesRead - offset);
+                    int take = (nlIdx == -1 ? bytesRead : nlIdx + 1) - offset;
+                    consumed += take;
+                    messageBytes += take;        // drained bytes still count toward OversizedBytes (report only)
+                    offset += take;
+                    if (nlIdx == -1)
+                        break;                        // whole remaining buffer was mid-line; read more
+                    skipToNewline = false;
+                    previousLineWasBlank = false;     // an over-cap line is never a blank line
+                    line.SetLength(0);
+                    continue;
+                }
+
                 int newlineIndex = Array.IndexOf(buffer, (byte)'\n', offset, bytesRead - offset);
                 if (newlineIndex == -1)
                 {
-                    // Partial line — carry it across to the next read.
-                    line.Write(buffer, offset, bytesRead - offset);
-                    break;
+                    int chunk = bytesRead - offset;
+                    // Per-line cap: a single line whose accumulation would exceed the cap makes the
+                    // message oversized; account the bytes already in `line`, drop them, and drain the
+                    // rest of the line rather than growing `line` toward the ~2 GiB MemoryStream limit.
+                    if (!currentOversized && messageBytes + line.Length + chunk > maxMessageBytes)
+                    {
+                        MarkOversized(ref currentOversized, ref currentHasContent, ref current);
+                        messageBytes += line.Length;  // count the accumulated partial toward OversizedBytes
+                        consumed += line.Length;      // partial bytes already accumulated for this line
+                        line.SetLength(0);
+                        skipToNewline = true;
+                        continue;                     // re-enter into the skip branch (offset unchanged)
+                    }
+                    line.Write(buffer, offset, chunk);
+                    break;                            // partial line — carry to next read
                 }
 
                 int lineLength = newlineIndex - offset + 1;
+
+                // Completed-line cap check BEFORE writing into the per-line buffer, so `line` never grows
+                // past the cap even when the segment that crosses the cap also contains the newline (the
+                // partial-line branch above handles the no-newline-in-this-buffer case). This keeps
+                // `line.Length <= maxMessageBytes` for ANY cap value — the default 1900 MiB already has
+                // headroom below Array.MaxLength for one 80 KiB segment, but a caller may set a larger cap.
+                if (!currentOversized && messageBytes + line.Length + lineLength > maxMessageBytes)
+                {
+                    long fullLine = line.Length + lineLength;   // accumulated partial + this final segment
+                    MarkOversized(ref currentOversized, ref currentHasContent, ref current);
+                    messageBytes += fullLine;                   // honest OversizedBytes
+                    consumed += fullLine;                       // the whole line's bytes, counted once
+                    line.SetLength(0);
+                    offset = newlineIndex + 1;
+                    previousLineWasBlank = false;               // an over-cap line is content, never a boundary/blank
+                    continue;
+                }
+
                 line.Write(buffer, offset, lineLength);
                 offset = newlineIndex + 1;
 
-                // Process the fully-assembled line. Derive all span-based values (booleans
-                // and any content writes) BEFORE clearing `line` or crossing a yield point —
-                // ReadOnlySpan<byte> is a ref struct and cannot survive a yield boundary.
                 int lineLen = (int)line.Length;
                 bool isBoundary = IsMessageBoundary(line.GetBuffer().AsSpan(0, lineLen), previousLineWasBlank);
                 bool isBlank    = IsBlankLine(line.GetBuffer().AsSpan(0, lineLen));
-                if (!isBoundary && materialize)
-                    WriteUnescapedFromLine(line.GetBuffer().AsSpan(0, lineLen), current!);
 
-                long lineStart = consumed;  // byte offset of this line's first byte
-                consumed += lineLen;        // advance AFTER capturing lineStart
+                if (!isBoundary)
+                {
+                    // Under the cap here (enforced above). The content write is still gated on
+                    // !currentOversized so a message already made oversized by an EARLIER line keeps
+                    // parsing lines for boundary detection without buffering any more content.
+                    if (!currentOversized && materialize)
+                        WriteUnescapedFromLine(line.GetBuffer().AsSpan(0, lineLen), current!);
+                    messageBytes += lineLen;
+                }
 
+                long lineStart = consumed;
+                consumed += lineLen;
                 line.SetLength(0);
 
                 if (isBoundary)
@@ -267,17 +359,17 @@ public class MboxParser : IMailSourceParser
                     {
                         onBytesRead?.Invoke(rawStream.Position);
                         onMessageStart?.Invoke(currentStart);
-                        yield return MessageChunk.Ok(materialize ? current : null);
-                        if (materialize) current = new SpillableMessageBuffer(rawSpillThreshold);
+                        yield return currentOversized
+                            ? MessageChunk.Oversized(messageBytes)
+                            : MessageChunk.Ok(materialize ? current : null);
+                        current = materialize ? new SpillableMessageBuffer(rawSpillThreshold) : null;
                         currentHasContent = false;
+                        messageBytes = 0;
+                        currentOversized = false;
                     }
-                    // A boundary at or beyond endOffset begins the NEXT window's first message:
-                    // the message just yielded above is the last one this window owns, so stop
-                    // here without starting (or parsing) the out-of-window message.
                     if (startAbsolute + lineStart >= endOffset)
                         yield break;
-                    currentStart = lineStart;  // this boundary begins the next message
-                    // The marker line is not written into the message.
+                    currentStart = lineStart;
                 }
                 else
                 {
@@ -288,24 +380,46 @@ public class MboxParser : IMailSourceParser
             }
         }
 
-        // Flush the final line if the file doesn't end with '\n'.
-        if (line.Length > 0)
+        // Flush a final line with no trailing '\n' (unless we're still draining an over-cap line).
+        if (line.Length > 0 && !skipToNewline)
         {
             int finalLen = (int)line.Length;
             if (!IsMessageBoundary(line.GetBuffer().AsSpan(0, finalLen), previousLineWasBlank))
             {
-                if (materialize) WriteUnescapedFromLine(line.GetBuffer().AsSpan(0, finalLen), current!);
+                if (!currentOversized && messageBytes + finalLen > maxMessageBytes)
+                    MarkOversized(ref currentOversized, ref currentHasContent, ref current);
+                if (!currentOversized && materialize)
+                    WriteUnescapedFromLine(line.GetBuffer().AsSpan(0, finalLen), current!);
+                messageBytes += finalLen;
                 currentHasContent = true;
             }
-            // A bare trailing boundary line yields nothing (no content) — matches splitting.
         }
 
         if (currentHasContent)
         {
             onBytesRead?.Invoke(rawStream.Position);
             onMessageStart?.Invoke(currentStart);
-            yield return MessageChunk.Ok(materialize ? current : null);
+            yield return currentOversized
+                ? MessageChunk.Oversized(messageBytes)
+                : MessageChunk.Ok(materialize ? current : null);
         }
+    }
+
+    /// <summary>Marks the current message oversized and releases its partial buffer (deletes any temp
+    /// file), so a message past the cap consumes no further memory/disk. Content writes stop; the engine
+    /// keeps parsing lines for boundary detection and yields a <see cref="MessageChunk.Oversized"/>.
+    /// <para>Also sets <paramref name="currentHasContent"/>: a message big enough to trip the cap always
+    /// has content, so it MUST still be yielded (as oversized) even when the cap trips on the FIRST
+    /// content line via the partial-line path — where the normal <c>currentHasContent = true</c> in the
+    /// completed-line <c>else</c> branch never runs. Without this, a bare <c>From </c> boundary followed
+    /// by one huge no-newline line at EOF would be silently dropped — the exact tail-drop this fix
+    /// prevents.</para></summary>
+    private static void MarkOversized(ref bool oversized, ref bool currentHasContent, ref SpillableMessageBuffer? current)
+    {
+        oversized = true;
+        currentHasContent = true;
+        current?.Dispose();
+        current = null;
     }
 
     /// <summary>Back-seek window for <see cref="FindBoundaryAtOrAfter"/>'s context bootstrap.</summary>
