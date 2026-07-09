@@ -717,10 +717,31 @@ public static class CalendarEventMapper
         appt.DeletedOccurrences = deleted;
 
         // Map override exceptions (appointment-only; stays here).
-        appt.Exceptions = group.Overrides
+        var mappedExceptions = group.Overrides
             .Select(o => ToException(o, w))
             .Where(e => e is not null)
             .Select(e => e!)
             .ToList();
+
+        // De-duplicate overrides that fall on the same calendar day. MS-OXOCAL stores at most one
+        // exception per day, and the writer collapses DeletedInstanceDates by the appointment-zone-local
+        // original day (AppointmentWriter.AddDeletedDate). Two overrides on one day would make
+        // ModifiedInstanceDates.Count exceed DeletedInstanceDates.Count, which the vendored recurrence
+        // serializer rejects with InvalidRecurrencePatternException — aborting the whole run. Keep the
+        // first override per day (the writer re-sorts) and warn for each dropped collision so the event
+        // still converts. exZone matches the zone the writer resolves for the exception day.
+        TimeZoneInfo exZone = appt.TimeZone ?? TimeZoneInfo.Utc;
+        var seenDays = new HashSet<DateTime>();
+        var dedupedExceptions = new List<AppointmentException>();
+        foreach (AppointmentException e in mappedExceptions)
+        {
+            DateTime day = TimeZoneInfo.ConvertTimeFromUtc(e.OriginalInstance.OriginalStartUtc, exZone).Date;
+            if (seenDays.Add(day))
+                dedupedExceptions.Add(e);
+            else
+                w.Add($"recurrence: multiple overrides for '{appt.Subject}' fall on {day:yyyy-MM-dd}; " +
+                      "kept the first (PST stores at most one exception per day)");
+        }
+        appt.Exceptions = dedupedExceptions;
     }
 }
