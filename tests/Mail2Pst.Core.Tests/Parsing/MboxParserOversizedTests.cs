@@ -134,12 +134,15 @@ public class MboxParserOversizedTests
     [Fact]
     public void ScanMessageStartOffsets_IncludesOversizedAndFollowingMessages()
     {
-        // Byte-identity lock: even after draining the oversized message, the NEXT message's boundary
-        // offset must be correct (consumed accounting stays accurate through the drain path).
+        // Byte-identity lock (tightened): the SECOND message's start offset must equal the EXACT byte
+        // length of the first (oversized) message's region — even a 1-byte drift in the oversized-drain
+        // consumed accounting fails this. offsets[0] is the first From at 0; offsets[1] is where the
+        // second From begins, which is exactly the byte length of `big` (content == big + 2nd message).
         var big = new StringBuilder("From sender@example.com Mon Jan  1 00:00:00 2020\r\nSubject: Huge\r\n\r\n");
         for (int i = 0; i < 100; i++) big.Append("padding-line-x\r\n");
         big.Append("\r\n");
-        string content = big.ToString() + Msg("Two", "body two");
+        string bigStr = big.ToString();
+        string content = bigStr + Msg("Two", "body two");
         string path = WriteTempMbox(content);
         try
         {
@@ -147,7 +150,7 @@ public class MboxParserOversizedTests
 
             Assert.Equal(2, offsets.Count);
             Assert.Equal(0, offsets[0]);
-            Assert.True(offsets[1] > offsets[0]);
+            Assert.Equal((long)Encoding.UTF8.GetByteCount(bigStr), offsets[1]);   // exact offset, not just monotonic
         }
         finally { File.Delete(path); }
     }
