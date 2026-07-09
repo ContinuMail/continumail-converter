@@ -310,9 +310,20 @@ public sealed class AppointmentWriter
     private static void ApplyExceptions(RecurringAppointment ra, AppointmentRecord master,
         int masterDurationMinutes, BusyStatus masterBusy, TimeZoneInfo zone, HashSet<DateTime> deletedDates)
     {
+        // MS-OXOCAL stores at most one exception per calendar day: ModifiedInstanceDates is keyed by day,
+        // and DeletedInstanceDates below collapses by the same zone-local original day. Two exceptions on
+        // one original day would make ModifiedInstanceDates.Count exceed DeletedInstanceDates.Count, which
+        // the vendored recurrence serializer rejects with InvalidRecurrencePatternException — aborting the
+        // run. The mapper already de-dups+warns (CalendarEventMapper.ApplyRecurrence); this is the
+        // defensive backstop for any direct caller, keeping the first exception per original day.
+        var exceptionDays = new HashSet<DateTime>();
         foreach (var ex in master.Exceptions)
         {
             DateTime origStartUtc = ex.OriginalInstance.OriginalStartUtc;
+            DateTime origDay = TimeZoneInfo.ConvertTimeFromUtc(origStartUtc, zone).Date;
+            if (!exceptionDays.Add(origDay))
+                continue;   // duplicate original day — one exception already emitted for it
+
             DateTime newStartUtc = ex.NewStartUtc ?? origStartUtc;
             DateTime newEndUtc   = ex.NewEndUtc   ?? newStartUtc.AddMinutes(masterDurationMinutes);
             int newDuration = (int)Math.Max(0, Math.Round((newEndUtc - newStartUtc).TotalMinutes));
@@ -330,7 +341,7 @@ public sealed class AppointmentWriter
             ra.ExceptionList.Add(info);
 
             // Original date must also be a deleted instance (count-equality; de-dups shared set vs EXDATE).
-            AddDeletedDate(ra, deletedDates, TimeZoneInfo.ConvertTimeFromUtc(origStartUtc, zone).Date);
+            AddDeletedDate(ra, deletedDates, origDay);
         }
     }
 

@@ -565,6 +565,42 @@ public class AppointmentWriterRecurrenceTests
         Assert.Equal(UnicodeSubject, attachSubject);
     }
 
+    /// <summary>
+    /// Defensive backstop for #3: two exceptions whose ORIGINAL instance is the same day collapse to
+    /// one DeletedInstanceDate, which would trip the vendored ModifiedInstanceDates.Count &lt;=
+    /// DeletedInstanceDates.Count invariant (InvalidRecurrencePatternException, aborting the run). The
+    /// writer must keep one exception per original day so the appointment still writes. Both target the
+    /// 2026-07-08 instance of the Mon+Wed weekly series.
+    /// </summary>
+    [Fact]
+    public void Two_overrides_same_original_day_write_one_exception_without_invalid_recurrence()
+    {
+        var rec = WeeklyRecord();
+        rec.Exceptions = new[]
+        {
+            new AppointmentException {
+                OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                    new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+                NewStartUtc = new(2026,7,8,7,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,7,30,0,DateTimeKind.Utc),
+                Subject = "First move", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd },
+            new AppointmentException {
+                OriginalInstance = new RecurrenceInstanceId(new DateTime(2026,7,8,1,0,0,DateTimeKind.Utc),
+                    new DateTime(2026,7,8,1,0,0,DateTimeKind.Unspecified), "UTC", false),
+                NewStartUtc = new(2026,7,8,9,0,0,DateTimeKind.Utc), NewEndUtc = new(2026,7,8,9,30,0,DateTimeKind.Utc),
+                Subject = "Second move (same original day)", ChangeFlags = AppointmentExceptionChangeFlags.Subject | AppointmentExceptionChangeFlags.StartEnd },
+        };
+
+        var (_, blob, _) = WriteAndReadAppointment(rec);   // must NOT throw InvalidRecurrencePatternException
+        var s = AppointmentRecurrencePatternStructure.GetRecurrencePatternStructure(blob!);
+
+        Assert.Single(s.ExceptionList);
+        Assert.Single(s.ModifiedInstanceDates);
+        Assert.True(s.DeletedInstanceDates.Count >= s.ModifiedInstanceDates.Count);  // vendored GetBytes invariant holds
+        // The guard skips before AddModifiedInstanceAttachment, so only ONE embedded method=5
+        // exception attachment is written — not two with a de-duped blob.
+        Assert.Equal(1, ReopenAttachmentCount(rec));
+    }
+
     // -----------------------------------------------------------------------
     // Task 6: recurring MEETING preserves PR6 attendees + meeting state + recur blob
     // -----------------------------------------------------------------------
