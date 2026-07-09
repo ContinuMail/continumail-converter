@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A corrupt, truncated, or pathologically deep-nested Thunderbird `.mab` (Mork) address book is
+  now recorded as a skipped contact instead of aborting the whole conversion.** Previously a Mork
+  parse failure propagated out of the address-book reader and stopped the run (discarding all other
+  mail, contacts, and calendar output), and a maliciously deep-nested `.mab` could crash the
+  process with a stack overflow. Such a book is now skipped with a recorded reason and the run
+  completes.
+
 ## [0.3.2] — 2026-07-08
 
 ### Fixed
