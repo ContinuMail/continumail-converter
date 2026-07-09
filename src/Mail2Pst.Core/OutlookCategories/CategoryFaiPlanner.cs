@@ -64,13 +64,20 @@ public static class CategoryFaiPlanner
 
     /// <summary>The CategoryList master-list XML bytes for the plan's would-add entries, or
     /// <c>null</c> when there is nothing to bake (no profile, or no coloured category).</summary>
-    public static byte[]? BuildXmlBytes(string? profilePath, IReadOnlyList<string> categoryNames)
+    public static byte[]? BuildXmlBytes(string? profilePath, IReadOnlyList<string> categoryNames,
+        bool includeStarCategory = false)
     {
         IReadOnlyList<CategoryCandidate> plan = BuildPlan(profilePath, categoryNames);
         var additions = new List<(string Name, int OutlookColor)>();
         foreach (CategoryCandidate c in plan)
             if (c.Action == "would-add" && c.OutlookColor is int color)
                 additions.Add((c.Name, color));
+        // The synthetic "Star" category (Thunderbird "Marked"/starred → yellow category, see
+        // StarCategory) is baked so it renders in colour. Added unless a real tag already claims the
+        // name (OrdinalIgnoreCase) — that tag's own colour then wins.
+        if (includeStarCategory &&
+            !additions.Exists(a => string.Equals(a.Name, StarCategory.Name, StringComparison.OrdinalIgnoreCase)))
+            additions.Add((StarCategory.Name, StarCategory.OutlookColor));
         if (additions.Count == 0) return null;
         string xml = CategoryListXml.Append(string.Empty, additions);
         return Encoding.UTF8.GetBytes(xml);

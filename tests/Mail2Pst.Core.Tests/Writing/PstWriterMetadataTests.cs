@@ -468,16 +468,19 @@ public class PstWriterMetadataTests
     // --- Follow-up flag and last-verb (X-Mozilla-Status) tests ---
 
     [Fact]
-    public void Write_IsFlagged_FlagStatusAndFollowupIconSet()
+    public void Write_IsFlagged_NoFollowupFlag_SoNotInToDoList()
     {
+        // A Thunderbird-starred message must NOT get an Outlook follow-up flag — that would place it
+        // in Outlook's To-Do list. The star is surfaced as the "Star" category instead (see
+        // MailCategoryComposerTests). Neither the flag status nor the (red) follow-up icon is set.
         var message = MinimalMessage();
         message.IsFlagged = true;
 
         var (note, pst, tempDir) = WriteAndReadNote(message);
         try
         {
-            Assert.Equal(FollowupFlagged, note.PC.GetInt32Property(PropertyID.PidTagFlagStatus));
-            Assert.Equal(FollowupIconRed, note.PC.GetInt32Property(PropertyID.PidTagFollowupIcon));
+            Assert.Null(note.PC.GetInt32Property(PropertyID.PidTagFlagStatus));
+            Assert.Null(note.PC.GetInt32Property(PropertyID.PidTagFollowupIcon));
         }
         finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
     }
@@ -496,9 +499,10 @@ public class PstWriterMetadataTests
     }
 
     [Fact]
-    public void Write_UnreadAndFlagged_ReadBitClear_AndFlagStatusSet()
+    public void Write_UnreadAndFlagged_ReadBitClear_NoFollowupFlag()
     {
-        // Read and flagged are independent properties: unread + starred must round-trip as both.
+        // Read state is independent of the star: unread stays unread, and the star does NOT become a
+        // follow-up flag (it becomes the "Star" category — see MailCategoryComposerTests).
         var message = MinimalMessage();
         message.IsRead = false;
         message.IsFlagged = true;
@@ -507,8 +511,8 @@ public class PstWriterMetadataTests
         try
         {
             int flags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags)!.Value;
-            Assert.Equal(0, flags & MsgFlagRead);                                              // MSGFLAG_READ clear
-            Assert.Equal(FollowupFlagged, note.PC.GetInt32Property(PropertyID.PidTagFlagStatus)); // still flagged
+            Assert.Equal(0, flags & MsgFlagRead);                                     // MSGFLAG_READ clear
+            Assert.Null(note.PC.GetInt32Property(PropertyID.PidTagFlagStatus));       // no To-Do flag
         }
         finally { pst.CloseFile(); Directory.Delete(tempDir, true); }
     }

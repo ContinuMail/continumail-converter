@@ -135,7 +135,6 @@ public static class PstReader
 
         int msgFlags = note.PC.GetInt32Property(PropertyID.PidTagMessageFlags) ?? 0;
         bool isRead = (msgFlags & 0x0001) != 0;
-        bool isFlagged = note.PC.GetInt32Property(PropertyID.PidTagFlagStatus) == 2;
         int? lastVerb = note.PC.GetInt32Property(PropertyID.PidTagLastVerbExecuted);
         bool isReplied = lastVerb is 102 or 103;   // reply / reply-all
         bool isForwarded = lastVerb is 104;          // forward
@@ -148,6 +147,13 @@ public static class PstReader
             if (rec != null)
                 categories = PSTFileFormat.PropertyContext.DeserializeMultiString(note.PC.GetExternalRecordData(rec));
         }
+
+        // A Thunderbird "Marked"/starred message is surfaced as the "Star" category (not an Outlook
+        // follow-up flag, which would clutter the To-Do list). Reconstruct the logical "flagged"
+        // state from the presence of that category.
+        bool isFlagged = false;
+        foreach (string c in categories)
+            if (string.Equals(c, "Star", StringComparison.OrdinalIgnoreCase)) { isFlagged = true; break; }
 
         return new ReadBackMessage(
             Subject: note.Subject,
