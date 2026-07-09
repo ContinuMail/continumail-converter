@@ -19,6 +19,11 @@ namespace Mail2Pst.Core.Calendar;
 /// </summary>
 public static class RecurrenceMapping
 {
+    // Outlook/PST recurrence cannot practically benefit from enumerating millions of instances;
+    // past this point materializing the series to find its last instance is pure waste / OOM risk.
+    // Reject COUNT above this BEFORE any enumeration (see FromIcal), degrading to a warning.
+    public const int MaxMaterializedRecurrenceCount = 100_000;
+
     /// <summary>
     /// Attempts to build a <see cref="RecurrenceSpec"/> from the supplied raw iCal lines
     /// and event anchor.
@@ -58,6 +63,11 @@ public static class RecurrenceMapping
         string? degradeReason = ComputeDegradeReason(p, lines);
         if (degradeReason is not null)
             return (null, degradeReason);
+
+        // Reject a COUNT so large that ComputeLastInstanceUtc would materialize + sort the whole series.
+        if (p.Count > MaxMaterializedRecurrenceCount)
+            return (null,
+                $"COUNT={p.Count} exceeds the maximum materialized recurrence count ({MaxMaterializedRecurrenceCount}); recurrence degraded");
 
         // Build the RRULE body for Ical.Net (strip the "RRULE:" prefix).
         string rruleLine = lines.First(l => l.StartsWith("RRULE", StringComparison.OrdinalIgnoreCase));
