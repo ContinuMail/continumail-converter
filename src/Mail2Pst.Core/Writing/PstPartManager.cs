@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Models;
@@ -82,6 +83,7 @@ internal sealed class PstPartManager
     public void Begin(IReadOnlyList<FolderToPrecreate> foldersToPrecreate)
     {
         ValidateFolderInventory(foldersToPrecreate);   // fail before touching the filesystem
+        EnsureOutputDoesNotExist();                    // fail before overwriting a pre-existing output PST
 
         _currentPath = StartNewFile(_groupName, null, _outputDirectory);
         _outputFiles.Add(_currentPath);
@@ -145,6 +147,48 @@ internal sealed class PstPartManager
                     $"Folder '{string.Join("/", folder.Path)}' is requested as both {existing} and {folder.Type}.");
             seen[key] = folder.Type;
         }
+    }
+
+    /// <summary>Fail-fast guard: refuse to overwrite a pre-existing output PST. <see cref="Begin"/>
+    /// creates the first part with <c>PSTFile.CreateEmptyStore</c> (which truncates via
+    /// <c>FileMode.Create</c>), and a later cancel/fatal deletes the current part — so silently
+    /// overwriting a prior good PST would destroy it on an aborted re-run. We refuse instead, before
+    /// any file is created. Throws before <see cref="StartNewFile"/>, so <c>_currentPath</c> stays
+    /// empty and the fatal-cleanup <see cref="DeleteCurrentPart"/> is a no-op.
+    /// Checks the single-file name (<c>Name.pst</c>) and — because a prior run may have split into
+    /// <c>Name-1.pst</c>, <c>Name-2.pst</c>, … and we cannot know up front how many parts this run
+    /// makes — any converter-owned split part by pattern.</summary>
+    private void EnsureOutputDoesNotExist()
+    {
+        string singlePath = ResolveOutputPath(_groupName, partNumber: null, _outputDirectory);
+        if (File.Exists(singlePath))
+            throw new ConfigValidationException(
+                $"Output file '{singlePath}' already exists. Remove it or choose a different output " +
+                "directory, then run the conversion again.");
+
+        string dir = Path.GetDirectoryName(singlePath)!;   // = the resolved full output directory
+        string? existingPart = FindExistingSplitPart(dir, _groupName);
+        if (existingPart is not null)
+            throw new ConfigValidationException(
+                $"An output file from a previous run ('{existingPart}') already exists. Remove it or " +
+                "choose a different output directory, then run the conversion again.");
+    }
+
+    /// <summary>Returns the path of the first existing converter-owned split part
+    /// (<c>Name-1.pst</c>, <c>Name-2.pst</c>, …) in <paramref name="dir"/>, or <c>null</c>. Matches
+    /// the exact split-naming pattern (a positive integer with no leading zero — parts are numbered
+    /// from 1), so unrelated files such as <c>Name-old.pst</c> or <c>Name-0.pst</c> are ignored.
+    /// Case-insensitive on Windows, case-sensitive elsewhere (filesystem semantics).</summary>
+    private static string? FindExistingSplitPart(string dir, string groupName)
+    {
+        if (!Directory.Exists(dir))
+            return null;
+        RegexOptions options = OperatingSystem.IsWindows() ? RegexOptions.IgnoreCase : RegexOptions.None;
+        var partPattern = new Regex($"^{Regex.Escape(groupName)}-[1-9][0-9]*\\.pst$", options);
+        foreach (string path in Directory.EnumerateFiles(dir, "*.pst"))
+            if (partPattern.IsMatch(Path.GetFileName(path)))
+                return path;
+        return null;
     }
 
     public bool ShouldSplitBefore(long messageSize) =>
