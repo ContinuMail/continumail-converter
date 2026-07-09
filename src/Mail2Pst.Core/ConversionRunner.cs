@@ -45,6 +45,13 @@ public class ConversionRunner
         var report = new ConversionReport();
         List<PstOutputPlan> plans = MappingEngine.BuildPlan(config);
 
+        // Mirror-mode planning warnings (folder-name sanitization / collision disambiguation). Recorded
+        // into the report now; the live WarningEvents are emitted after the ScanEvent below so the
+        // documented event order (scan before any warning) is preserved.
+        var planningWarnings = plans.SelectMany(p => p.PlanningWarnings).ToList();
+        foreach (string planningWarning in planningWarnings)
+            report.RecordWarning(new SourceReference { SourcePath = "", Identifier = "(mapping)" }, planningWarning);
+
         var enrichmentOptions = new MsfEnrichmentOptions
         {
             TagResolver = MsfTagResolverFactory.Create(config.ProfilePath),
@@ -90,6 +97,9 @@ public class ConversionRunner
                 }
             }
             onProgress(new ScanEvent(total));
+
+            foreach (string planningWarning in planningWarnings)
+                onProgress(new WarningEvent("", "(mapping)", planningWarning));
         }
 
         // Track whether the "X disabled by --no-X" warning has already been emitted

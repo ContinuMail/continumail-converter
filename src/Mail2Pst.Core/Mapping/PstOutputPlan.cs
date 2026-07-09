@@ -19,4 +19,8 @@ public class PstOutputPlan
     public List<ContactMapping> ContactMappings { get; set; } = new();
     public List<TaskMapping> TaskMappings { get; set; } = new();
     public List<AppointmentMapping> AppointmentMappings { get; set; } = new();
+
+    /// <summary>Warnings raised while building this plan (e.g. a mirror-mode folder-name collision that
+    /// was disambiguated). Drained into the ConversionReport by ConversionRunner before writing.</summary>
+    public List<string> PlanningWarnings { get; set; } = new();
 }

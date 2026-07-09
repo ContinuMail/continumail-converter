@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Collections.Generic;
+using System.Linq;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Mapping;
 using Xunit;
@@ -177,4 +178,78 @@ public class MappingEngineTests
             new() { Name = "Out", MaxSizeMB = 100, FolderMapping = mode, Sources = new List<SourceConfig>(sources) },
         },
     };
+
+    [Fact]
+    public void BuildPlan_MirrorDottedExtensionlessNames_DoNotSilentlyMerge()
+    {
+        // "Project.v1" and "Project.v2" both reduce to stem "Project" via GetFileNameWithoutExtension.
+        // Mirror mode must keep them distinct (Project / Project (2)) with a planning warning, not merge.
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new()
+                {
+                    Name = "Out",
+                    FolderMapping = FolderMappingMode.Mirror,
+                    Sources = new List<SourceConfig>
+                    {
+                        new() { Path = "/mail/Project.v1", Type = "mbox" },
+                        new() { Path = "/mail/Project.v2", Type = "mbox" },
+                    },
+                },
+            },
+        };
+
+        List<PstOutputPlan> plans = MappingEngine.BuildPlan(config);
+
+        PstOutputPlan plan = Assert.Single(plans);
+        Assert.Equal(new[] { "Project" },     plan.SourceMappings[0].TargetFolderPath.ToArray());
+        Assert.Equal(new[] { "Project (2)" }, plan.SourceMappings[1].TargetFolderPath.ToArray());
+        Assert.Single(plan.PlanningWarnings);
+        Assert.Contains("Project (2)", plan.PlanningWarnings[0]);
+    }
+
+    [Fact]
+    public void BuildPlan_MirrorEmptyStem_FallsBackToValidName_AndWarns()
+    {
+        // "/mail/.mbox" -> GetFileNameWithoutExtension -> "" -> must not become an empty folder segment;
+        // it falls back to "Folder" AND records a planning warning (no silent rename).
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new() { Name = "Out", FolderMapping = FolderMappingMode.Mirror,
+                    Sources = new List<SourceConfig> { new() { Path = "/mail/.mbox", Type = "mbox" } } },
+            },
+        };
+
+        PstOutputPlan plan = Assert.Single(MappingEngine.BuildPlan(config));
+        Assert.Equal(new[] { "Folder" }, plan.SourceMappings[0].TargetFolderPath.ToArray());
+        Assert.Single(plan.PlanningWarnings);
+    }
+
+    [Fact]
+    public void BuildPlan_ExplicitTargetFolderCollisions_AreNotDisambiguated()
+    {
+        // Two sources explicitly targeting the same folder is the user's choice — keep both as-is
+        // (an intentional merge), no disambiguation, no planning warning. Guards the "mirror-only" rule.
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new() { Name = "Out", FolderMapping = FolderMappingMode.Mirror,
+                    Sources = new List<SourceConfig>
+                    {
+                        new() { Path = "/a/x", Type = "mbox", TargetFolder = "Shared" },
+                        new() { Path = "/b/y", Type = "mbox", TargetFolder = "Shared" },
+                    } },
+            },
+        };
+
+        PstOutputPlan plan = Assert.Single(MappingEngine.BuildPlan(config));
+        Assert.Equal(new[] { "Shared" }, plan.SourceMappings[0].TargetFolderPath.ToArray());
+        Assert.Equal(new[] { "Shared" }, plan.SourceMappings[1].TargetFolderPath.ToArray());   // NOT "Shared (2)"
+        Assert.Empty(plan.PlanningWarnings);
+    }
 }
