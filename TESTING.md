@@ -96,3 +96,23 @@ You can build the same confidence with your own mail:
 3. Compare the message counts and review `conversion-report.txt` for skips/warnings.
 4. Open the resulting `.pst` in Outlook (or import into a test profile) and spot-check
    folders, bodies, and attachments before relying on the output.
+
+## Desktop sidecar lifecycle (manual, Windows)
+
+These cover the GUI↔sidecar lifecycle that unit tests can't reach.
+
+1. **Close-during-convert:** start a conversion of a large profile; while it's running, close the
+   app window. Verify in Task Manager that no `mail2pst-cli*` process remains, and that no
+   `continumail-convert-config-*` file is left in `%TEMP%`.
+2. **Close-during-scan:** start a scan of a large profile; close the window mid-scan. Verify no
+   `mail2pst-cli*` process remains and no `continumail-scan-inputs-*` file is left in `%TEMP%`.
+3. **Cancel escalation:** start a conversion and cancel it. A normal cancel completes promptly; a
+   sidecar that ignores the cancel is force-killed within ~10s and the app can start a new
+   conversion afterward (slot freed).
+4. **Scan recovery:** if a scan wedges, calling the `cancelScan()` API (the new recovery wrapper in
+   `engine.ts` — e.g. from the app's dev console during testing, or once wired to a control) frees
+   the slot so a new scan can start.
+5. **Regression:** a normal conversion and a normal scan still complete and report their result.
+   Verify no temp file **from the current run** remains in `%TEMP%` — check the exact prefixes
+   `continumail-convert-config-` and `continumail-scan-inputs-` (ignore stale files from older
+   builds; match on the current run's PID/timestamp if in doubt).
