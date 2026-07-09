@@ -15,7 +15,8 @@ namespace Mail2Pst.Core.Discovery;
 /// Reconstructs a nested mail-folder tree (Thunderbird <name> + sibling <name>.sbd/ layout, or a
 /// flat directory of .mbox files) into a list of sources each carrying an explicit nested
 /// TargetFolderPath. Parse-free: filesystem reads only (a small prefix per file for the content
-/// sniff). Observational: emits raw names + structured warnings, never renames.
+/// sniff). Raw display names are preserved, but synthesized TargetFolderPath segments are sanitized
+/// to valid PST folder names, with a warning emitted when a segment changes.
 /// </summary>
 public static class MailTreeDiscovery
 {
@@ -139,8 +140,13 @@ public static class MailTreeDiscovery
                 if (name.EndsWith(".sbd", StringComparison.OrdinalIgnoreCase))
                 {
                     ctx.SawSbd = true;
-                    string segment = name[..^4]; // strip ".sbd"
+                    string rawSegment = name[..^4]; // strip ".sbd"
+                    string segment = FolderNameValidator.Sanitize(rawSegment, "Folder");
                     var childPrefix = new List<string>(prefix) { segment };
+                    if (!string.Equals(segment, rawSegment, StringComparison.Ordinal))
+                        ctx.Warnings.Add(new DiscoveryWarning("invalid-folder-name", entry,
+                            childPrefix, rawSegment, prefix.Count, null,
+                            $"Folder name '{rawSegment}' is not a valid PST folder name; using '{segment}'."));
                     Walk(entry, childPrefix, ctx);
                 }
                 else
@@ -184,7 +190,12 @@ public static class MailTreeDiscovery
             }
 
             string display = name.EndsWith(".mbox", StringComparison.OrdinalIgnoreCase) ? name[..^5] : name;
-            var targetPath = new List<string>(prefix) { display };
+            string leaf = FolderNameValidator.Sanitize(display, "Folder");
+            var targetPath = new List<string>(prefix) { leaf };
+            if (!string.Equals(leaf, display, StringComparison.Ordinal))
+                ctx.Warnings.Add(new DiscoveryWarning("invalid-folder-name", entry,
+                    targetPath, display, prefix.Count, null,
+                    $"Folder name '{display}' is not a valid PST folder name; using '{leaf}'."));
 
             // Pair this ACCEPTED mbox with its sibling <name>.msf, if present.
             string? msfPath = null;

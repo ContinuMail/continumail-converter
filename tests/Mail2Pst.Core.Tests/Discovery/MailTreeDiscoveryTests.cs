@@ -121,11 +121,12 @@ public class MailTreeDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void InvalidSegmentFromSbdDir_SourceEmitted_PlusWarning()
+    public void InvalidSegmentFromSbdDir_SourceSanitized_PlusWarning()
     {
         File_("CON.sbd/Child", Msg);   // "CON" is a reserved Windows name
         var r = MailTreeDiscovery.Discover(_root);
-        Assert.True(HasSource(r, "CON", "Child"));
+        Assert.True(HasSource(r, "Folder", "Child"));   // reserved name coerced via the fallback
+        Assert.False(HasSource(r, "CON", "Child"));
         Assert.Contains(r.Warnings, w => w.Code == "invalid-folder-name" && w.Segment == "CON" && w.SegmentIndex == 0);
     }
 
@@ -221,5 +222,28 @@ public class MailTreeDiscoveryTests : IDisposable
         Assert.Contains(r.Skipped, s => s.Code == "symlink-skipped");
         // The link's target children must NOT be discovered via the link (no "Link" segment).
         Assert.DoesNotContain(r.Sources, s => s.TargetFolderPath.Count > 0 && s.TargetFolderPath[0] == "Link");
+    }
+
+    // Leading spaces are the one PST-invalid folder-name form that is portably creatable on disk
+    // (Windows preserves leading — not trailing — spaces; Linux preserves both). FolderNameValidator
+    // rejects leading/trailing whitespace, so this exercises the sanitize path on any CI OS.
+    [Fact]
+    public void LeadingSpaceLeafFolderName_IsSanitized_AndWarned_ButDisplayNameStaysRaw()
+    {
+        File_(" To Read", Msg);   // leaf " To Read" -> "To Read"
+        var r = MailTreeDiscovery.Discover(_root);
+        DiscoveredSource s = Assert.Single(r.Sources);
+        Assert.Equal(new[] { "To Read" }, s.TargetFolderPath.ToArray());   // trimmed, valid path
+        Assert.Equal(" To Read", s.DisplayName);                          // raw name kept for the UI
+        Assert.Contains(r.Warnings, w => w.Code == "invalid-folder-name");
+    }
+
+    [Fact]
+    public void LeadingSpaceSbdParentSegment_IsSanitized_InChildPath_AndWarned()
+    {
+        File_(" Parent.sbd/Child", Msg);   // parent segment " Parent" -> "Parent"
+        var r = MailTreeDiscovery.Discover(_root);
+        Assert.True(HasSource(r, "Parent", "Child"));
+        Assert.Contains(r.Warnings, w => w.Code == "invalid-folder-name");
     }
 }
