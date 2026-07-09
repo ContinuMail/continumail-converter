@@ -24,6 +24,11 @@ public class IndependentValidationTests
         // folder under the IPM subtree, which the independent reader surfaces with 0 messages.
         // (Replaces the retired Outlook template's Danish "Slettet post".)
         FolderPathKey.Join(new[] { "Deleted Items" }),
+        // A mail conversion bakes the category master list (the CategoryList FAI — mail-tag colours
+        // plus the yellow "Star" category) into a top-level "Calendar" folder, created for that
+        // purpose when the store has none. It carries only the associated FAI message, so the
+        // independent reader (which counts regular messages) surfaces it with 0 messages.
+        FolderPathKey.Join(new[] { "Calendar" }),
     };
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
