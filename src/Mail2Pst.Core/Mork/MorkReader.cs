@@ -86,6 +86,13 @@ internal sealed class MorkAssembler
     private readonly IReadOnlyList<MorkToken> _tokens;
     private int _pos;
 
+    // Recursion ceiling for ReadDict. Real Thunderbird .msf/.mab nest ~2 levels; 64 is far
+    // above any legitimate file. Corrupt/hostile input can nest arbitrarily deep, and ReadDict
+    // recurses per level, so without this ceiling that is an UNCATCHABLE StackOverflowException
+    // that kills the process. Throwing the ordinary MorkFormatException instead routes into the
+    // callers' existing graceful format-error handling.
+    private const int MaxDictNestDepth = 64;
+
     // ---- atom dictionaries: hex-id string -> decoded string -----------------
     // Column atoms: populated from dicts whose first sub-dict is <(a=c)>.
     // Value atoms:  populated from all other dicts.
@@ -197,6 +204,10 @@ internal sealed class MorkAssembler
     /// </summary>
     private void ReadDict(int nestDepth, bool parentIsColumn)
     {
+        if (nestDepth > MaxDictNestDepth)
+            throw new MorkFormatException(
+                $"Mork dict nesting exceeded the maximum of {MaxDictNestDepth} levels at token index {_pos}");
+
         Expect(MorkTokenKind.DictOpen); // consume '<'
 
         // Nested dicts (nestDepth > 0) save and restore the charset so an inner
