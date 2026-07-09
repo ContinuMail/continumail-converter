@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
 using Microsoft.Data.Sqlite;
@@ -86,5 +87,45 @@ public class ConversionRunnerContactTests
                 w.Reason.Contains("Contact skipped [abook]", StringComparison.OrdinalIgnoreCase));
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Convert_OutputPathAlreadyExists_FailsFastWithoutDeletingPriorPst()
+    {
+        // #11 end-to-end: a re-run to a directory that already holds the output must fail fast and
+        // leave the prior PST byte-for-byte intact (never truncated, never deleted by the cancel path).
+        string dir = Path.Combine(Path.GetTempPath(), $"m2p-runner-exists-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        byte[] prior = Encoding.UTF8.GetBytes("PRIOR GOOD OUTPUT — must survive the aborted re-run");
+        string outPst = Path.Combine(dir, "Out.pst");
+        File.WriteAllBytes(outPst, prior);
+
+        string db = Path.Combine(dir, "abook.sqlite");
+        using (var conn = new SqliteConnection($"Data Source={db}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"CREATE TABLE properties(card TEXT,name TEXT,value TEXT);
+                INSERT INTO properties VALUES('c1','DisplayName','Alice');";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+        try
+        {
+            var config = new ConversionConfig
+            {
+                Outputs = new List<OutputGroupConfig>
+                {
+                    new() { Name = "Out", Sources = new List<SourceConfig>(),
+                        Contacts = new List<ContactSourceConfig>
+                        { new() { Path = db, Format = "thunderbird-sqlite" } } },
+                },
+            };
+
+            Assert.Throws<ConfigValidationException>(() => new ConversionRunner().Run(config, dir));
+            // The prior output is untouched — fail-fast happened before any write.
+            Assert.Equal(prior, File.ReadAllBytes(outPst));
+        }
+        finally { SqliteConnection.ClearAllPools(); Directory.Delete(dir, true); }
     }
 }
