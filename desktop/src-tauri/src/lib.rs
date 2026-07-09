@@ -106,11 +106,23 @@ fn same_run(current: Option<Instant>, cancelled_at: Instant) -> bool {
 /// On app exit, kill any in-flight sidecar and remove its temp file so closing the window mid-run
 /// never orphans the engine process or leaks the temp config/input-list.
 fn kill_running_children(app: &AppHandle) {
-    if let Some(rc) = app.state::<ConvertState>().0.lock().unwrap().take() {
+    if let Some(rc) = app
+        .state::<ConvertState>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
         let _ = rc.child.kill();
         remove_temp_file(&rc.temp_path);
     }
-    if let Some(rc) = app.state::<ScanState>().0.lock().unwrap().take() {
+    if let Some(rc) = app
+        .state::<ScanState>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+    {
         let _ = rc.child.kill();
         remove_temp_file(&rc.temp_path);
     }
@@ -407,13 +419,13 @@ async fn start_convert(
 #[tauri::command]
 fn cancel_convert(app: AppHandle, state: State<'_, ConvertState>) -> Result<(), String> {
     // Graceful cancel first: the engine deletes the in-progress PST part and emits `cancelled`.
+    // Best-effort write: if stdin is closed/unresponsive we do NOT bail — the escalation timer
+    // below still force-kills this run after the cap, so the slot always recovers.
     let cancelled_at = {
         let mut guard = state.0.lock().unwrap();
         match guard.as_mut() {
             Some(rc) => {
-                rc.child
-                    .write(b"cancel\n")
-                    .map_err(|e| format!("cancel failed: {e}"))?;
+                let _ = rc.child.write(b"cancel\n");
                 rc.started_at
             }
             None => return Err("No conversion is running.".into()),
