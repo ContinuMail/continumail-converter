@@ -796,13 +796,6 @@ public class PstWriter
         else messageFlags &= ~MSGFLAG_HASATTACH;
         note.PC.SetInt32Property(PropertyID.PidTagMessageFlags, messageFlags);
 
-        // Follow-up flag (Thunderbird "marked"/starred). Independent of MSGFLAG_READ.
-        if (message.IsFlagged)
-        {
-            note.PC.SetInt32Property(PropertyID.PidTagFlagStatus, 2);   // followupFlagged
-            note.PC.SetInt32Property(PropertyID.PidTagFollowupIcon, 6); // red
-        }
-
         // Last verb (replied/forwarded). PidTagLastVerbExecuted is single-valued: when both are
         // set we prefer reply (102) — replied is the more user-visible action (documented limitation).
         int? lastVerb = message.IsReplied ? 102 : (message.IsForwarded ? 104 : (int?)null);
@@ -812,10 +805,14 @@ public class PstWriter
             note.PC.SetDateTimeProperty(PropertyID.PidTagLastVerbExecutionTime, LastVerbTime(message));
         }
 
-        if (message.Categories.Count > 0)
+        // Categories = the message's Thunderbird tags, plus a synthetic "Star" category for a
+        // Thunderbird-"Marked"/starred message. A star is surfaced as a (yellow) category — NOT an
+        // Outlook follow-up flag, which would place every starred message into Outlook's To-Do list.
+        List<string> categories = MailCategoryComposer.Compose(message.Categories, message.IsFlagged);
+        if (categories.Count > 0)
         {
             ushort keywordsId = PSTFileFormat.PropertyNameToIDMap.GetOrCreateStringNamedProperty(file, 2, "Keywords");
-            note.PC.SetMultiStringProperty((PSTFileFormat.PropertyID)keywordsId, message.Categories);
+            note.PC.SetMultiStringProperty((PSTFileFormat.PropertyID)keywordsId, categories);
         }
 
         note.SaveChanges();

@@ -25,7 +25,7 @@ public class CategoryRoundTripTests
     }
 
     [Fact]
-    public void Categories_RoundTrip_IncludingNonAscii_AndFlagsPreserved()
+    public void Categories_RoundTrip_IncludingNonAscii_StarFromFlagAppended_NoFollowupFlag()
     {
         var msgs = new List<MailMessage>
         {
@@ -41,10 +41,16 @@ public class CategoryRoundTripTests
             IReadOnlyList<ReadBackMessage> read = PstReader.Read(outputs).SelectMany(f => f.Messages).ToList();
             ReadBackMessage By(string id) => read.Single(m => m.MessageId == id);
 
-            Assert.Equal(new[] { "Work", "Important", "Ældre" }, By("<c1@h>").Categories);
+            // A starred (flagged) message keeps its tags and gains the synthetic "Star" category
+            // (appended last). No Outlook follow-up flag is written (asserted at the unit level in
+            // PstWriterMetadataTests.Write_IsFlagged_NoFollowupFlag_SoNotInToDoList), so it never
+            // lands in the To-Do list; the harness reconstructs IsFlagged from the "Star" category.
+            Assert.Equal(new[] { "Work", "Important", "Ældre", "Star" }, By("<c1@h>").Categories);
             Assert.True(By("<c1@h>").IsRead);
-            Assert.True(By("<c1@h>").IsFlagged);
+            Assert.True(By("<c1@h>").IsFlagged);    // reconstructed from the "Star" category
+            // A non-flagged message gets no "Star".
             Assert.Equal(new[] { "Junk" }, By("<c2@h>").Categories);
+            Assert.False(By("<c2@h>").IsFlagged);
             Assert.Empty(By("<c3@h>").Categories);
         }
         finally { Directory.Delete(outDir, true); }

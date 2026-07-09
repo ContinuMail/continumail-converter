@@ -329,7 +329,14 @@ public class ConversionRunner
             // mail-tag colours (already global; read from prefs.js inside BuildXmlBytes). Baking the
             // same union into every PST means whichever one the user makes primary carries the full
             // category list (Outlook reads the master list from the primary store only).
-            byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(config.ProfilePath, report.CalendarCategoryNames);
+            // Bake the yellow "Star" category whenever the conversion includes mail, so a
+            // Thunderbird-starred message (surfaced as the "Star" category by the writer, not a
+            // follow-up flag) renders in colour. The FAI is stamped before mail is streamed, so we
+            // can't know here whether any message is actually starred; baking it for any mail
+            // conversion is harmless (an unused category) and guarantees starred mail renders.
+            bool hasMail = config.Outputs.Any(o => o.Sources is { Count: > 0 });
+            byte[]? faiXml = CategoryFaiPlanner.BuildXmlBytes(
+                config.ProfilePath, report.CalendarCategoryNames, includeStarCategory: hasMail);
 
             // Phase 2: write every output group now that the global FAI is known.
             foreach (var bundle in bundles)

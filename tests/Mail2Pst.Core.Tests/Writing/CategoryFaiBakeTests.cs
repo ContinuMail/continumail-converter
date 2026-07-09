@@ -194,12 +194,14 @@ public class CategoryFaiBakeTests
             .ToUnixTimeMilliseconds() * 1000L;
 
     // -----------------------------------------------------------------------
-    // No-plan path — mail-only, no profile, no categories: nothing to colour,
-    // so StampCategoryFai must no-op and no top-level "Calendar" folder is created.
+    // Mail path — even with no profile and no tags, a mail conversion bakes the synthetic yellow
+    // "Star" category (so a Thunderbird-starred message, surfaced as the "Star" category by the
+    // writer rather than a follow-up flag, renders in colour). The FAI is stamped before mail is
+    // streamed, so "Star" is baked for any mail conversion.
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Conversion_without_profile_and_no_categories_writes_no_fai()
+    public void Mail_conversion_without_categories_bakes_yellow_Star_category()
     {
         string root = Path.Combine(Path.GetTempPath(), $"bake-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -207,13 +209,18 @@ public class CategoryFaiBakeTests
         Directory.CreateDirectory(outDir);
         try
         {
-            // Mail-only, no profile, no categories → nothing to colour → no FAI, no Calendar folder.
             var config = MailOnlyConfig(profilePath: null);
             new ConversionRunner().Run(config, outDir);
             string pst = Directory.GetFiles(outDir, "*.pst")[0];
 
             var file = new PSTFile(pst, FileAccess.Read, WriterCompatibilityMode.Outlook2007RTM);
-            Assert.Null(file.TopOfPersonalFolders.FindChildFolder("Calendar"));   // no Calendar created
+            PSTFolder calendar = file.TopOfPersonalFolders.FindChildFolder("Calendar");
+            Assert.NotNull(calendar);                                   // created to host the Star FAI
+            Assert.Equal(1, calendar!.AssociatedMessageCount);
+            MessageObject fai = calendar.GetAssociatedMessage(0);
+            string xml = Encoding.UTF8.GetString(fai.PC.GetBytesProperty(PropertyID.PidTagRoamingXmlStream));
+            Assert.Contains("name=\"Star\"", xml);
+            Assert.Contains("color=\"3\"", xml);   // OlCategoryColor 4 (Yellow) → 0-based XML color 3
             file.CloseFile();
         }
         finally { try { Directory.Delete(root, true); } catch { } }
