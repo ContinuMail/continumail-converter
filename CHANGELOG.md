@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mail, contacts, and calendar output), and a maliciously deep-nested `.mab` could crash the
   process with a stack overflow. Such a book is now skipped with a recorded reason and the run
   completes.
+- A recurring event with two overrides on the same day no longer aborts the conversion — the
+  duplicate override is dropped with a warning and the event still converts.
 
 ## [0.3.2] — 2026-07-08
 
