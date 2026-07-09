@@ -252,4 +252,34 @@ public class MappingEngineTests
         Assert.Equal(new[] { "Shared" }, plan.SourceMappings[1].TargetFolderPath.ToArray());   // NOT "Shared (2)"
         Assert.Empty(plan.PlanningWarnings);
     }
+
+    [Fact]
+    public void BuildPlan_OutputWithNullSourcesAndValidContact_DoesNotThrowNRE()
+    {
+        // A contacts-only config leaves Sources null. ConfigValidator already tolerates a null
+        // Sources list (it iterates `Sources ?? new List<>()`), so this reaches MappingEngine,
+        // which iterated output.Sources directly and threw an opaque NullReferenceException.
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new()
+                {
+                    Name = "Personal",
+                    MaxSizeMB = 100,
+                    Sources = null,
+                    Contacts = new List<ContactSourceConfig>
+                    {
+                        new() { Path = "abook.sqlite", Format = "thunderbird-sqlite" },
+                    },
+                },
+            },
+        };
+
+        List<PstOutputPlan> plans = MappingEngine.BuildPlan(config);
+
+        Assert.Single(plans);
+        Assert.Empty(plans[0].SourceMappings);
+        Assert.Single(plans[0].ContactMappings);
+    }
 }
