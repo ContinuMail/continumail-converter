@@ -729,7 +729,9 @@ public static class CalendarEventMapper
         // ModifiedInstanceDates.Count exceed DeletedInstanceDates.Count, which the vendored recurrence
         // serializer rejects with InvalidRecurrencePatternException — aborting the whole run. Keep the
         // first override per day (the writer re-sorts) and warn for each dropped collision so the event
-        // still converts. exZone matches the zone the writer resolves for the exception day.
+        // still converts. exZone matches the zone the writer resolves for the exception day: both derive
+        // from master.EventStartTz (the mapper sets appt.TimeZone from it; the writer resolves the same
+        // via ResolveWindowsZone), so their .Date keys agree.
         TimeZoneInfo exZone = appt.TimeZone ?? TimeZoneInfo.Utc;
         var seenDays = new HashSet<DateTime>();
         var dedupedExceptions = new List<AppointmentException>();
