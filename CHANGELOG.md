@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A single pathologically large message in an mbox is now skipped (and noted in the conversion
   report) while the rest of the mailbox still converts, instead of aborting the conversion of every
   later message.
+- Converting to a directory that already contains the output PST now stops immediately with a clear
+  message instead of overwriting it, so a cancelled or failed re-run can no longer destroy a
+  previously converted file. Remove the existing file or choose another output directory to proceed.
 
 ## [0.3.2] — 2026-07-08
 
