@@ -83,4 +83,23 @@ public class RecurrenceMappingTests
         Assert.Null(spec);
         Assert.Contains("BYMONTHDAY", reason);
     }
+
+    [Fact]
+    public void FromIcal_CountJustAboveMaterializationCap_DegradesBeforeEnumeration()
+    {
+        // A COUNT just above the cap (100_000) previously enumerated + sorted the whole series just to
+        // read the last instance. The rule must now degrade BEFORE enumeration. We use 100_001 (not
+        // 100_000_000) as the red value on purpose: pre-fix it enumerates only ~100k occurrences (fast,
+        // no OOM) instead of 100 million, so the failing test is safe to run — while still proving the
+        // new cap branch fires exactly one past the ceiling.
+        var anchor = new DateTime(2020, 1, 1, 9, 0, 0, DateTimeKind.Utc);
+
+        var (spec, reason) = RecurrenceMapping.FromIcal(
+            new[] { "RRULE:FREQ=DAILY;COUNT=100001" },
+            anchor, anchor, TimeZoneInfo.Utc, null);
+
+        Assert.Null(spec);
+        Assert.NotNull(reason);
+        Assert.Contains("COUNT", reason);
+    }
 }
