@@ -2,22 +2,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-// Holds the single in-flight conversion's child handle so cancel_convert can
-// write to its stdin. Lock only briefly — never across an .await.
-#[derive(Default)]
-struct ConvertState(Mutex<Option<CommandChild>>);
+// One in-flight sidecar run: the child handle (for cancel/kill), the per-run temp file to
+// clean up, and the spawn instant used to identify the run for cancel-kill escalation.
+struct RunningChild {
+    child: CommandChild,
+    temp_path: PathBuf,
+    started_at: Instant,
+}
 
-// Holds the single in-flight scan's child handle so we can reject a second
-// concurrent scan. Lock only briefly — never across an .await.
+// Holds the single in-flight conversion. Lock only briefly — never across an .await.
 #[derive(Default)]
-struct ScanState(Mutex<Option<CommandChild>>);
+struct ConvertState(Mutex<Option<RunningChild>>);
+
+// Holds the single in-flight scan. Lock only briefly — never across an .await.
+#[derive(Default)]
+struct ScanState(Mutex<Option<RunningChild>>);
 
 // Drain every complete (newline-terminated) line from `buf`, returning each with
 // trailing CR/LF stripped and empty lines skipped. Any trailing partial line is
@@ -74,6 +82,26 @@ fn unique_temp_path(kind: &str, ext: &str) -> std::path::PathBuf {
             .unwrap_or(0)
     );
     std::env::temp_dir().join(format!("continumail-{kind}-{unique}{ext}"))
+}
+
+/// Remove a per-run temp file, ignoring a missing file. Idempotent: the reader (normal exit),
+/// the cancel/escalation paths, and the app-exit handler can each try to remove the same path
+/// and race — a double remove is harmless.
+fn remove_temp_file(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// On app exit, kill any in-flight sidecar and remove its temp file so closing the window mid-run
+/// never orphans the engine process or leaks the temp config/input-list.
+fn kill_running_children(app: &AppHandle) {
+    if let Some(rc) = app.state::<ConvertState>().0.lock().unwrap().take() {
+        let _ = rc.child.kill();
+        remove_temp_file(&rc.temp_path);
+    }
+    if let Some(rc) = app.state::<ScanState>().0.lock().unwrap().take() {
+        let _ = rc.child.kill();
+        remove_temp_file(&rc.temp_path);
+    }
 }
 
 // The exact CLI argument vector for a conversion run. `expected_total`, when present,
@@ -201,18 +229,22 @@ async fn start_scan(
         .shell()
         .sidecar("mail2pst-cli")
         .map_err(|e| {
-            let _ = std::fs::remove_file(&list_path);
+            remove_temp_file(&list_path);
             format!("sidecar not found: {e}")
         })?
         .args(scan_args(&list_path_str))
         .spawn()
         .map_err(|e| {
-            let _ = std::fs::remove_file(&list_path);
+            remove_temp_file(&list_path);
             format!("failed to start engine: {e}")
         })?;
 
     // Store the child BEFORE the reader task starts.
-    *state.0.lock().unwrap() = Some(child);
+    *state.0.lock().unwrap() = Some(RunningChild {
+        child,
+        temp_path: list_path.clone(),
+        started_at: Instant::now(),
+    });
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -241,7 +273,7 @@ async fn start_scan(
                     }
                     buf.clear();
                     *app_for_task.state::<ScanState>().0.lock().unwrap() = None;
-                    let _ = std::fs::remove_file(&list_path);
+                    remove_temp_file(&list_path);
                     let _ = app_for_task.emit("scan://exit", payload.code);
                 }
                 _ => {}
@@ -256,7 +288,7 @@ async fn start_scan(
                 let _ = app_for_task.emit("scan://line", rest);
             }
             *app_for_task.state::<ScanState>().0.lock().unwrap() = None;
-            let _ = std::fs::remove_file(&list_path);
+            remove_temp_file(&list_path);
             let _ = app_for_task.emit(
                 "scan://stderr",
                 "Scan process ended without a termination event.".to_string(),
@@ -293,18 +325,22 @@ async fn start_convert(
         .shell()
         .sidecar("mail2pst-cli")
         .map_err(|e| {
-            let _ = std::fs::remove_file(&config_path);
+            remove_temp_file(&config_path);
             format!("sidecar not found: {e}")
         })?
         .args(convert_args(&config_path_str, &output_dir, expected_total))
         .spawn()
         .map_err(|e| {
-            let _ = std::fs::remove_file(&config_path);
+            remove_temp_file(&config_path);
             format!("failed to start engine: {e}")
         })?;
 
     // Store the child BEFORE the reader task starts.
-    *state.0.lock().unwrap() = Some(child);
+    *state.0.lock().unwrap() = Some(RunningChild {
+        child,
+        temp_path: config_path.clone(),
+        started_at: Instant::now(),
+    });
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -333,7 +369,7 @@ async fn start_convert(
                     }
                     buf.clear();
                     *app_for_task.state::<ConvertState>().0.lock().unwrap() = None;
-                    let _ = std::fs::remove_file(&config_path);
+                    remove_temp_file(&config_path);
                     let _ = app_for_task.emit("convert://exit", payload.code);
                 }
                 _ => {}
@@ -348,7 +384,7 @@ async fn start_convert(
                 let _ = app_for_task.emit("convert://line", rest);
             }
             *app_for_task.state::<ConvertState>().0.lock().unwrap() = None;
-            let _ = std::fs::remove_file(&config_path);
+            remove_temp_file(&config_path);
             let _ = app_for_task.emit("convert://exit", -1_i32);
         }
     });
@@ -360,8 +396,8 @@ async fn start_convert(
 fn cancel_convert(state: State<'_, ConvertState>) -> Result<(), String> {
     let mut guard = state.0.lock().unwrap();
     match guard.as_mut() {
-        Some(child) => {
-            child
+        Some(rc) => {
+            rc.child
                 .write(b"cancel\n")
                 .map_err(|e| format!("cancel failed: {e}"))?;
             Ok(())
@@ -574,7 +610,7 @@ fn default_thunderbird_profiles_dir() -> Result<Option<String>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -594,8 +630,14 @@ pub fn run() {
             default_thunderbird_profiles_dir,
             list_thunderbird_profiles
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            kill_running_children(app_handle);
+        }
+    });
 }
 
 #[cfg(test)]
@@ -688,7 +730,18 @@ Path=Profiles/xyz.dev\n";
 
 #[cfg(test)]
 mod tests {
-    use super::{convert_args, drain_lines, scan_args, scan_input_list_content};
+    use super::*;
+
+    #[test]
+    fn remove_temp_file_is_idempotent() {
+        let p = std::env::temp_dir().join(format!("cm-lifecycle-rm-{}.tmp", std::process::id()));
+        std::fs::write(&p, b"x").unwrap();
+        assert!(p.exists());
+        remove_temp_file(&p);
+        assert!(!p.exists());
+        remove_temp_file(&p); // second call on a missing file must not panic or error
+        assert!(!p.exists());
+    }
 
     // Scan inputs travel via a temp file (--input-list), NOT as one command-line
     // argument per path: a Thunderbird profile can hold hundreds of mail folders,
