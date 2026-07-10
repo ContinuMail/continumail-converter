@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>mail2pst-fuzz</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <!-- Deliberately NOT added to Mail2Pst.sln: dev-only fuzz tool, kept out of CI. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SharpFuzz" Version="2.3.0" />   <!-- current as of 2026-06; verify latest at restore -->
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mail2Pst.Core/Mail2Pst.Core.csproj" />
+  </ItemGroup>
+</Project>
