@@ -22,3 +22,15 @@ walks the folder tree, and prints one JSON object with per-folder message counts
     pst-validate <path-to.pst>
 
 Prints one JSON object to stdout. Exit code 0 only when the file opened cleanly with no errors.
+
+## Known limitations
+
+- **Corrupt hierarchy table is read as a leaf (bounded by `outlook-pst 1.2.0`).** The crate's public
+  `Folder::hierarchy_table()` returns `Option` and collapses both "no hierarchy table" and "hierarchy
+  table present but unreadable" into `None` (its internal `read_table(..).ok()?` discards the read
+  error). There is no `Result`-returning table accessor, so this tool cannot distinguish a corrupt
+  subfolder table from a genuine leaf: in the corrupt case the subtree is silently omitted rather than
+  reported as an error. This is a dev-tool-only false-negative and does not affect validation of the
+  well-formed, from-scratch PSTs the converter writes (which this tool is used on). A real fix requires
+  an upstream crate change exposing the read error; revisit if `outlook-pst` adds a fallible table
+  accessor.
