@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 namespace Mail2Pst.TestSupport;
 
-/// <summary>Per-folder generation truth: what was written where.</summary>
-public sealed record GeneratedFolder(string Name, string FilePath, int MessageCount);
+/// <summary>Per-folder generation truth: what was written where.
+/// TruncatedTailCount counts a deliberately-truncated trailing message (a corruption knob
+/// added by a later, stacked task); it defaults to 0 for a clean profile, so the "written"
+/// and "attempted" truth models agree when nothing is truncated.</summary>
+public sealed record GeneratedFolder(string Name, string FilePath, int MessageCount, int TruncatedTailCount = 0);
 
 /// <summary>A generated synthetic Thunderbird profile. Disposing deletes the whole
 /// temp tree (including the deep-root prefix directories above the profile dir).</summary>
