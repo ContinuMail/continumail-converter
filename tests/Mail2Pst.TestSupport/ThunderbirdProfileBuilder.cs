@@ -12,7 +12,7 @@ namespace Mail2Pst.TestSupport;
 public sealed class ThunderbirdProfileBuilder
 {
     private sealed record Account(string Email, string Hostname, string ServerType);
-    private sealed record Folder(string Name, int MessageCount);
+    private sealed record Folder(string Name, int MessageCount, bool TruncateLast = false);
 
     private readonly List<Folder> _folders = new();
     private Account? _account;
@@ -40,6 +40,16 @@ public sealed class ThunderbirdProfileBuilder
     public ThunderbirdProfileBuilder WithFolder(string name, int messageCount)
     {
         _folders.Add(new Folder(name, messageCount));
+        return this;
+    }
+
+    /// <summary>Writes <paramref name="fullMessageCount"/> complete messages then one extra final
+    /// message truncated mid-body (no trailing boundary) — a corruption knob for the round-trip
+    /// oracle's adjusted-truth path. <see cref="GeneratedFolder.MessageCount"/> only counts the
+    /// complete messages; the truncated tail is tracked separately via TruncatedTailCount.</summary>
+    public ThunderbirdProfileBuilder WithTruncatedFinalMessage(string name, int fullMessageCount)
+    {
+        _folders.Add(new Folder(name, fullMessageCount, TruncateLast: true));
         return this;
     }
 
@@ -82,8 +92,16 @@ public sealed class ThunderbirdProfileBuilder
                 sb.Append("\r\n");
                 sb.Append($"Synthetic body {messageSeq}.\r\n\r\n");
             }
+            if (folder.TruncateLast)
+            {
+                sb.Append("From sender@example.com Mon Jan 01 00:00:00 2024\r\n");
+                sb.Append($"Message-ID: <gen-{++messageSeq}@example.com>\r\n");
+                sb.Append("Subject: Truncated tail\r\n\r\n");
+                sb.Append("This body is cut off mid-stream and the file ends here with no");  // no CRLF, no boundary
+            }
             File.WriteAllText(path, sb.ToString());
-            generated.Add(new GeneratedFolder(folder.Name, path, folder.MessageCount));
+            generated.Add(new GeneratedFolder(folder.Name, path, folder.MessageCount,
+                TruncatedTailCount: folder.TruncateLast ? 1 : 0));
         }
 
         File.WriteAllText(Path.Combine(root, "prefs.js"), string.Join("\n", new[]
