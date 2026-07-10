@@ -87,7 +87,7 @@ fn open_and_report(path: &str) -> Report {
                     });
                 }
                 Ok(root_folder) => {
-                    if let Err(e) = walk_folders(&store, &root_folder, &mut Vec::new(), &mut folders) {
+                    if let Err(e) = walk_folders(&store, &root_folder, &mut Vec::new(), &mut folders, &mut errors) {
                         errors.push(ErrorEntry {
                             stage: "walk".into(),
                             message: format!("{e}"),
@@ -110,6 +110,23 @@ fn open_and_report(path: &str) -> Report {
     }
 }
 
+/// Map a folder's content-count read to `(count, optional error)`. Extracted so the fix — a
+/// `content_count()` read failure is RECORDED as an error, never silently coerced to 0 — is
+/// unit-testable without a real PST fixture. `folder_label` is the folder's full display path, so the
+/// error message locates the offending folder even when two branches share a folder name.
+fn message_count_or_error(folder_label: &str, count: io::Result<i32>) -> (u64, Option<ErrorEntry>) {
+    match count {
+        Ok(c) => (c.max(0) as u64, None),
+        Err(e) => (
+            0,
+            Some(ErrorEntry {
+                stage: "content_count".into(),
+                message: format!("{folder_label}: {e}"),
+            }),
+        ),
+    }
+}
+
 /// Recursively walk all child folders of `parent_folder`.
 /// The root/IPM subtree folder itself is NOT emitted — only its descendants.
 /// `prefix` accumulates the path segments relative to the IPM subtree root.
@@ -118,6 +135,7 @@ fn walk_folders(
     parent_folder: &Rc<dyn Folder>,
     prefix: &mut Vec<String>,
     out: &mut Vec<FolderEntry>,
+    errors: &mut Vec<ErrorEntry>,
 ) -> io::Result<()> {
     let hierarchy_table = match parent_folder.hierarchy_table() {
         None => return Ok(()), // no subfolders
@@ -131,20 +149,22 @@ fn walk_folders(
         let child_folder = store.open_folder(&entry_id)?;
 
         let name = child_folder.properties().display_name()?;
-        let count = child_folder
-            .properties()
-            .content_count()
-            .unwrap_or(0)
-            .max(0) as u64;
-
         prefix.push(name.clone());
+        let display_path = prefix.join(" / ");
+
+        let (count, count_err) =
+            message_count_or_error(&display_path, child_folder.properties().content_count());
+        if let Some(err) = count_err {
+            errors.push(err);
+        }
+
         out.push(FolderEntry {
             path: prefix.clone(),
-            display_path: prefix.join(" / "),
+            display_path,
             message_count: count,
         });
 
-        walk_folders(store, &child_folder, prefix, out)?;
+        walk_folders(store, &child_folder, prefix, out, errors)?;
         prefix.pop();
     }
 
@@ -200,6 +220,30 @@ mod tests {
             assert_eq!(v["folders"][0]["messageCount"], 1);
             assert_eq!(v["folders"][0]["displayPath"], "A");
         }
+    }
+
+    #[test]
+    fn message_count_ok_returns_count_and_no_error() {
+        let (count, err) = message_count_or_error("Inbox", Ok(5));
+        assert_eq!(count, 5);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn message_count_negative_clamps_to_zero() {
+        let (count, err) = message_count_or_error("Inbox", Ok(-3));
+        assert_eq!(count, 0);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn message_count_err_records_content_count_error_and_zero() {
+        let e = io::Error::new(io::ErrorKind::InvalidData, "bad content-count property");
+        let (count, err) = message_count_or_error("Archive", Err(e));
+        assert_eq!(count, 0, "a read error must not inflate the count");
+        let err = err.expect("a content_count read error must be recorded");
+        assert_eq!(err.stage, "content_count");
+        assert!(err.message.contains("Archive"), "message should locate the folder by its path label");
     }
 
 }
