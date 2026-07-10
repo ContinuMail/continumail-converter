@@ -29,8 +29,11 @@ public class FuzzGracefulDegradationTests
         File.WriteAllBytes(path, garbage);
         try
         {
+            // Primary guarantee: enumerating to completion does not throw an un-whitelisted
+            // exception. Garbage with no `From ` boundary may legitimately yield ZERO results.
             var results = new MboxParser().Parse(path).ToList();   // must not throw; may be empty
-            Assert.All(results, r => Assert.True(r.Success || r.Error is not null));
+            // Real (non-tautological) shape invariant: a successful result always carries a Message.
+            Assert.All(results, r => Assert.True(!r.Success || r.Message is not null));
         }
         finally { File.Delete(path); }
     }
