@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CsCheck;
+using Mail2Pst.Core;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Mapping;
 using Xunit;
@@ -105,5 +107,38 @@ public class RunnerInvariantTests
         Assert.Single(plans);
         Assert.Empty(plans[0].SourceMappings);
         Assert.Single(plans[0].ContactMappings);
+    }
+
+    // The invariant: for ANY generated config, Run either returns a report or throws ONLY
+    // ConfigValidationException. Any other exception escapes this method and CsCheck reports it as a
+    // failing sample (shrinking to a minimal counterexample + a reproducing seed). Regression-proofs
+    // the whole "one bad config field crashes the run" class (e.g. #8 null-Sources, #12 maxSizeMB).
+    [Fact]
+    public void Run_AnyGeneratedConfig_ReturnsReportOrThrowsOnlyConfigValidationException()
+    {
+        ConfigGenerators.Config.Sample(recipe =>
+        {
+            string scratch = NewScratch();
+            string outDir = Path.Combine(scratch, "out");
+            try
+            {
+                ConversionConfig cfg = ConfigFactory.Build(recipe, scratch);
+                Directory.CreateDirectory(outDir);
+                var report = new ConversionRunner().Run(cfg, outDir);   // ConversionReport (Mail2Pst.Core.Reporting)
+                Assert.NotNull(report);                       // success path
+            }
+            catch (ConfigValidationException)
+            {
+                // Acceptable: bad config rejected cleanly. Any OTHER exception propagates -> failure.
+            }
+            finally
+            {
+                if (Directory.Exists(scratch)) Directory.Delete(scratch, true);
+            }
+        // threads: 1 keeps the run deterministic and avoids parallel temp-file churn in this first
+        // property suite; seed pins reproducibility. NOTE: a CsCheck seed is a specific PCG-encoded
+        // string, NOT arbitrary digits — "0000000000" throws IndexOutOfRangeException in
+        // SeedString.Parse. Use a real CsCheck seed (this one was captured from Task 1's smoke).
+        }, iter: 200, seed: "00001e2WUFC1", threads: 1);
     }
 }
