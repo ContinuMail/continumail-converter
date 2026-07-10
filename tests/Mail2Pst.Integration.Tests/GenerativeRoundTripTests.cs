@@ -142,6 +142,39 @@ public class GenerativeRoundTripTests
         finally { Directory.Delete(outDir, true); }
     }
 
+    // Pure unit test of GenerativeTruth's adjusted-truth arithmetic (written - skips). No conversion or
+    // Rust reader — runs in normal CI. Covers GeneratedProfileCounts.FromAttempted + the non-empty
+    // perSourcePathSkips path, which the PARSED verify-gate outcome otherwise leaves unexercised.
+    [Fact]
+    public void GenerativeTruth_BuildExpected_SubtractsExpectedSkips()
+    {
+        // Mirror mode maps the source file to a folder named by its filename stem ("Inbox").
+        // BuildPlan does NOT read the file, so a non-existent path is fine for this pure test.
+        string src = Path.Combine(Path.GetTempPath(), "Inbox");
+        var config = new ConversionConfig
+        {
+            Outputs = new List<OutputGroupConfig>
+            {
+                new()
+                {
+                    Name = "Archive",
+                    MaxSizeMB = 50_000,
+                    FolderMapping = FolderMappingMode.Mirror,
+                    IncludeEmptyFolders = true,
+                    Sources = new List<SourceConfig> { new() { Type = "mbox", Path = src } },
+                },
+            },
+        };
+
+        var attempted = new GeneratedProfileCounts(
+            new Dictionary<string, int>(StringComparer.Ordinal) { [src] = 3 });   // 2 complete + 1 truncated tail
+        var skips = new Dictionary<string, int>(StringComparer.Ordinal) { [src] = 1 };
+
+        Dictionary<string, int> expected = GenerativeTruth.BuildExpected(config, attempted, skips);
+
+        Assert.Equal(2, expected[FolderPathKey.Join(new[] { "Inbox" })]);   // 3 - 1
+    }
+
     // Aggregate per-folder counts from the INDEPENDENT reader across all output parts, then assert
     // every expected path matches exactly and no unexpected folder appears (except known zero-count
     // store folders). Extracted here so the corruption case (Task 2) reuses the exact comparison.
