@@ -31,11 +31,13 @@ URL here would rot; the SharpFuzz README is the source of truth for the driver.)
 
 ```bash
 # seed corpus lives OUTSIDE the repo (may contain real-mail fragments) — see PII policy below
+# fuzz the Mork reader:
 libfuzzer-dotnet --target_path=tools/Mail2Pst.Fuzz/bin/Release/net8.0/mail2pst-fuzz \
                  --target_arg=mork  testdata/fuzz/mork-corpus
+# fuzz the mbox splitter:
+libfuzzer-dotnet --target_path=tools/Mail2Pst.Fuzz/bin/Release/net8.0/mail2pst-fuzz \
+                 --target_arg=mbox  testdata/fuzz/mbox-corpus
 ```
-
-Swap `mork` → `mbox` and the corpus dir to fuzz the mbox splitter.
 
 ## Deterministic replay (no libFuzzer — CI-independent smoke)
 

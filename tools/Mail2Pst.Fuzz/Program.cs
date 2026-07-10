@@ -36,6 +36,11 @@ static void RunTarget(string mode, byte[] bytes)
 if (args[0].EndsWith("-replay", StringComparison.Ordinal))
 {
     if (args.Length < 2) { Console.Error.WriteLine("replay needs a corpus directory"); return 2; }
+    if (!Directory.Exists(args[1]))
+    {
+        Console.Error.WriteLine($"corpus directory not found: '{args[1]}'");
+        return 2;
+    }
     int n = 0, unexpected = 0;
     // Sort for deterministic output across OSes/filesystems.
     foreach (string file in Directory.EnumerateFiles(args[1]).OrderBy(p => p, StringComparer.Ordinal))
@@ -47,6 +52,13 @@ if (args[0].EndsWith("-replay", StringComparison.Ordinal))
             unexpected++;
             Console.Error.WriteLine($"UNEXPECTED {ex.GetType().Name} on {Path.GetFileName(file)}: {ex.Message}");
         }
+    }
+    if (n == 0)
+    {
+        // An empty corpus directory almost always means a mistyped path — fail loudly rather
+        // than reporting a clean-looking "0 inputs, 0 unexpected exceptions".
+        Console.Error.WriteLine($"no input files in corpus directory: '{args[1]}'");
+        return 2;
     }
     Console.WriteLine($"{n} inputs, {unexpected} unexpected exceptions");
     return unexpected == 0 ? 0 : 1;
