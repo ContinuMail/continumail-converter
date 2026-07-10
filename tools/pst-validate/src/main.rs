@@ -138,7 +138,15 @@ fn walk_folders(
     errors: &mut Vec<ErrorEntry>,
 ) -> io::Result<()> {
     let hierarchy_table = match parent_folder.hierarchy_table() {
-        None => return Ok(()), // no subfolders
+        // Known limitation (#9, outlook-pst 1.2.0): `hierarchy_table()` returns `Option` and collapses
+        // BOTH "genuinely no hierarchy table" (a real leaf) AND "table node present but unreadable" (a
+        // CORRUPT table) into `None` — the crate's `.get_or_init(|| read_table(..).ok()?)` discards the
+        // read error, and there is no Result-returning table accessor in the public API. So a corrupt
+        // hierarchy table is indistinguishable from a leaf here and its subtree is silently omitted.
+        // This is a bounded, dev-tool-only false-negative (it never affects the well-formed from-scratch
+        // PSTs this tool validates); see README "Known limitations". A real fix needs an upstream crate
+        // change (a Result-returning table accessor).
+        None => return Ok(()),
         Some(t) => t.clone(),
     };
 
