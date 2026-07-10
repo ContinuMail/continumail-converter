@@ -22,6 +22,11 @@ public static class FuzzTargets
     private static bool IsGraceful(Exception ex) =>
         ex is MorkFormatException or FormatException or IOException;
 
+    // Owned scratch subdir under the OS temp root, so per-iteration mbox files don't scatter
+    // directly into the shared temp folder. Created once.
+    private static readonly string TempDir =
+        Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "mail2pst-fuzz")).FullName;
+
     public static void RunMork(ReadOnlySpan<byte> data)
     {
         // MorkReader is byte-friendly via Parse(Stream); no temp file needed.
@@ -36,7 +41,7 @@ public static class FuzzTargets
     public static void RunMbox(ReadOnlySpan<byte> data)
     {
         // MboxParser.Parse is path-based, so spill the input to a scratch file per iteration.
-        string path = Path.Combine(Path.GetTempPath(), $"m2p-fuzz-{Guid.NewGuid():N}.mbox");
+        string path = Path.Combine(TempDir, $"{Guid.NewGuid():N}.mbox");
         try
         {
             // The temp-file WRITE is inside the try on purpose: an IOException from a full/locked
