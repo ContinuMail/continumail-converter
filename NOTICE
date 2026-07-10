@@ -106,3 +106,8 @@ The developer/test-only tool tools/pst-validate depends on the "outlook-pst" cra
 licensed MIT. The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used
 solely to independently validate converter output during testing, is not linked into the engine,
 CLI, or desktop app, and is NOT shipped in ContinuMail Converter release artifacts.
+
+The developer/test-only tool tools/Mail2Pst.Fuzz depends on "SharpFuzz" (Metalnem), licensed MIT.
+The tool's own source is GPL-3.0-or-later (ContinuMail project code). It is used solely to fuzz
+the parsers during testing, is not linked into the engine, CLI, or desktop app, and is NOT shipped
+in ContinuMail Converter release artifacts.
