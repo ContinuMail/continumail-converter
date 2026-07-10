@@ -81,7 +81,7 @@ public class GenerativeRoundTripTests
 
                 var (outputs, report) = RoundTripHarness.Convert(config, outDir);
                 Assert.NotEmpty(outputs);
-                Assert.Equal(0, report.Skipped.Count); // clean profile: nothing skipped
+                Assert.Empty(report.Skipped); // clean profile: nothing skipped
 
                 // Expected (clean): known WRITTEN counts, no skips. Cross-check it agrees with BuildTruth.
                 Dictionary<string, int> expected = GenerativeTruth.BuildExpected(
@@ -94,6 +94,52 @@ public class GenerativeRoundTripTests
             }
             finally { Directory.Delete(outDir, true); }
         }, iter: 25, seed: "00001e2WUFC1", threads: 1);
+    }
+
+    // Verification lock: determine whether the PRODUCTION convert path skips a truncated final message.
+    // A truncated tail after N complete messages yields EITHER N (MimeKit parsed the fragment; no skip)
+    // OR N + a recorded skip (fragment rejected). Whichever it is, this pins it so GenerativeTruth's
+    // expected-skip count is correct. Runs without the Rust reader (asserts on the ConversionReport only).
+    [Fact]
+    [Trait("Tier", "local")]
+    public void TruncatedFinalMessage_ConvertBehavior_IsPinned()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com")
+            .WithTruncatedFinalMessage("Inbox", fullMessageCount: 2)
+            .Build();
+
+        string outDir = Path.Combine(Path.GetTempPath(), "m2p-trunc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outDir);
+        try
+        {
+            var config = new ConversionConfig
+            {
+                Outputs = new List<OutputGroupConfig>
+                {
+                    new()
+                    {
+                        Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror,
+                        IncludeEmptyFolders = true,
+                        Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+                    },
+                },
+            };
+            var (_, report) = RoundTripHarness.Convert(config, outDir);
+
+            // EMPIRICALLY PINNED (Slice 3b Task 2, 2026-07-10): 2 complete messages + 1 truncated tail
+            // were written; the PRODUCTION convert path parsed all 3 (MimeKit's entity parser accepts
+            // the truncated fragment as a malformed-but-parseable final message) — ConvertedCount == 3,
+            // Skipped.Count == 0, no skip recorded. Per-message mid-body truncation is therefore NOT a
+            // reliable convert-level skip signal; the reliable skip paths remain oversized-message
+            // (parser-level, Slice-1 coverage) and whole-source IOException. Per the Slice 3b Task 2
+            // brief's verify gate, this PARSED outcome means the adjusted-truth corruption case (Step 4)
+            // is deliberately NOT wired into the generative oracle for this shape — the generative clean
+            // round-trip (Task 1) remains the delivered oracle.
+            Assert.Equal(3, report.ConvertedCount);
+            Assert.Empty(report.Skipped);
+        }
+        finally { Directory.Delete(outDir, true); }
     }
 
     // Aggregate per-folder counts from the INDEPENDENT reader across all output parts, then assert
