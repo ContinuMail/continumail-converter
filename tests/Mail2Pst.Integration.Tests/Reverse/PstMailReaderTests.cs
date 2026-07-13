@@ -1,0 +1,165 @@
+// SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Mail2Pst.Core.Config;
+using Mail2Pst.Core.Mapping;                   // PstOutputPlan (streaming test)
+using Mail2Pst.Core.Models;                    // MailMessage / MailAttachment / AttachmentContent (streaming test)
+using Mail2Pst.Core.Reporting;                 // ConversionReport (streaming test)
+using Mail2Pst.Core.Reverse;
+using Mail2Pst.Core.Writing;                   // PstWriter / PlannedMessage (streaming test)
+using Mail2Pst.Integration.Tests;              // RoundTripHarness / RepoPaths live in the parent namespace
+using Mail2Pst.TestSupport;
+using Xunit;
+
+namespace Mail2Pst.Integration.Tests.Reverse;
+
+public class PstMailReaderTests
+{
+    private static (IReadOnlyList<string> outputs, string dir) ConvertProfile(ConversionConfig config)
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-reverse-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var (outputs, _) = RoundTripHarness.Convert(config, dir);
+        return (outputs, dir);
+    }
+
+    [Fact]
+    public void Read_EngineWrittenPst_RecoversKnownPayload()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com")
+            .WithFolder("Inbox", messageCount: 2)
+            .WithFolder("Sent", messageCount: 1)
+            .Build();
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = true,
+            Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+        }}};
+        var (outputs, dir) = ConvertProfile(config);
+        try
+        {
+            IReadOnlyList<PstMailFolder> folders = PstMailReader.ReadAllForTests(Assert.Single(outputs));
+            Dictionary<string, int> byLeaf = folders.ToDictionary(f => f.Path[^1], f => f.Messages.Count);
+            Assert.Equal(2, byLeaf["Inbox"]);
+            Assert.Equal(1, byLeaf["Sent"]);
+
+            // ThunderbirdProfileBuilder writes: Subject "Generated message N", From sender@example.com,
+            // To alice@example.com, Message-ID <gen-N@example.com>, body "Synthetic body N", a Date header.
+            PstMailMessage m = folders.First(f => f.Path[^1] == "Inbox").Messages[0];
+            Assert.StartsWith("Generated message", m.Subject);
+            Assert.Equal("sender@example.com", m.FromAddress);
+            Assert.Contains(m.Recipients, r => r.Address == "alice@example.com" && r.Kind == PstRecipientKind.To);
+            Assert.NotNull(m.Date);
+            Assert.StartsWith("<gen-", m.MessageId);
+            Assert.Contains("Synthetic body", m.PlainBody);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Read_PstWithContactFolder_WarnsAndSkips_ButStillReturnsMailFolders()
+    {
+        string mbox = RepoPaths.ResolveAgainstRepoRoot(Path.Combine("fixtures", "sample.mbox"));
+        string abook = RepoPaths.ResolveAgainstRepoRoot(
+            Path.Combine("tests", "Mail2Pst.Core.Tests", "Contacts", "fixtures", "sample-abook.mab"));
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = false,
+            Sources = { new SourceConfig { Type = "mbox", Path = mbox } },
+            Contacts = { new ContactSourceConfig { Path = abook, Format = "thunderbird-mab" } },
+        }}};
+        var (outputs, dir) = ConvertProfile(config);
+        try
+        {
+            var warnings = new List<string>();
+            IReadOnlyList<PstMailFolder> folders = PstMailReader.ReadAllForTests(Assert.Single(outputs), warnings.Add);
+            Assert.Contains(warnings, w => w.Contains("not a mail folder"));   // contact folder skipped + warned
+            Assert.Contains(folders, f => f.Messages.Count > 0);               // mail folder still returned
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Read_MboxWithAttachment_RecoversVisibleAttachmentPayload()
+    {
+        string mbox = RepoPaths.ResolveAgainstRepoRoot(Path.Combine("fixtures", "mbox-with-attachments.mbox"));
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = false,
+            Sources = { new SourceConfig { Type = "mbox", Path = mbox } },
+        }}};
+        var (outputs, dir) = ConvertProfile(config);
+        try
+        {
+            // Read attachment payload DURING enumeration (OpenRead is PST-bound).
+            bool sawVisibleAttachmentWithBytes = false;
+            foreach (PstMailItem item in PstMailReader.EnumerateMessages(Assert.Single(outputs)))
+                foreach (PstAttachment a in item.Message.Attachments)
+                    if (!a.IsInline)
+                    {
+                        using Stream s = a.OpenRead();
+                        Assert.False(string.IsNullOrEmpty(a.FileName));
+                        if (s.ReadByte() != -1) sawVisibleAttachmentWithBytes = true;
+                    }
+            Assert.True(sawVisibleAttachmentWithBytes, "expected at least one visible attachment with non-empty bytes");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    // OpenRead reads PidTagAttachData via PropertyContext.GetBytesProperty, which dispatches through
+    // GetExternalRecordData -> GetExternalPropertyBytes. The forward AttachmentWriter has TWO write paths
+    // for that property: SetBytesProperty (small, heap-inline) and SetExternalProperty (large, subnode /
+    // XXBlock streaming). The tests above only exercise the small path; this one forces the streaming path
+    // (StreamingThresholdBytes = 1, a >XXBlock-boundary payload) and byte-compares the recovered bytes, so
+    // we prove OpenRead round-trips the streamed encoding too. Mirrors StreamingAttachmentAcceptanceTests.
+    [Fact]
+    public void Read_StreamedAttachment_RecoversPayloadBytes()
+    {
+        // 9 MB > the 8,347,696 B XXBlock boundary — exercises the full XXBlock streaming machinery.
+        const int size = 9_000_000;
+        byte[] payload = new byte[size];
+        for (int i = 0; i < size; i++) payload[i] = (byte)((i * 31 + 7) & 0xFF);
+
+        using AttachmentContent content = AttachmentContent.FromBytes(payload);
+        var msg = new MailMessage
+        {
+            MessageId = "<stream-readback@test>",
+            Subject = "Streaming attachment read-back",
+            Attachments = new List<MailAttachment>
+            {
+                new() { FileName = "large.bin", MimeType = "application/octet-stream", Content = content },
+            },
+        };
+
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-reverse-stream-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var plan = new PstOutputPlan { Name = "Stream", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            var writer = new PstWriter { StreamingThresholdBytes = 1 };   // force the SetExternalProperty path
+            List<string> outputs = writer.WritePlan(plan, planned, dir, new ConversionReport());
+            string pst = Assert.Single(outputs);
+
+            byte[]? recovered = null;
+            foreach (PstMailItem item in PstMailReader.EnumerateMessages(pst))
+                foreach (PstAttachment a in item.Message.Attachments)
+                    if (!a.IsInline)
+                    {
+                        using Stream s = a.OpenRead();
+                        using var ms = new MemoryStream();
+                        s.CopyTo(ms);
+                        recovered = ms.ToArray();
+                    }
+
+            Assert.NotNull(recovered);
+            Assert.Equal(payload, recovered);   // exact byte-equality across the streamed encode/decode
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+}
