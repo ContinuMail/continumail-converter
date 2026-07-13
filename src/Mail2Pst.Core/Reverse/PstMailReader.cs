@@ -10,8 +10,8 @@ namespace Mail2Pst.Core.Reverse;
 
 /// <summary>
 /// Streams mail messages from a PST for the reverse (PST→Thunderbird) export — one message alive at a
-/// time, so a large PST is never fully materialized. Productionized from the Integration.Tests PstReader
-/// spike. Failure policy: a non-mail folder with messages, or a per-message read failure, is reported via
+/// time, so a large PST is never fully materialized. Based on the Integration.Tests PstReader.
+/// Failure policy: a non-mail folder with messages, or a per-message read failure, is reported via
 /// onWarning and skipped; OutOfMemory/process failures and a fatal open/root-walk failure propagate.
 /// </summary>
 public static class PstMailReader

@@ -7,7 +7,7 @@ using MimeKit;
 
 namespace Mail2Pst.Core.Tests.Reverse;
 
-/// <summary>Stand-in for Plan 4's MimeReconstructor: builds a minimal, deterministic text/plain message
+/// <summary>Stand-in for the MimeReconstructor: builds a minimal, deterministic text/plain message
 /// from a <see cref="PstMailMessage"/>. Deliberately does NOT emit X-Mozilla-* headers (the writer owns
 /// those). Content-transfer-encoding is pinned to 7bit so serialization of ASCII bodies is byte-stable
 /// (no quoted-printable surprises when asserting on mboxrd 'From ' escaping).</summary>

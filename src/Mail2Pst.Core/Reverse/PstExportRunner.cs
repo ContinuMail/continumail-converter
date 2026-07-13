@@ -30,7 +30,7 @@ public sealed record ExportProgress(int MessagesExported, string CurrentFolder);
 /// Failure policy: PST message-read failures AND corrupt PST subtrees are reported+skipped inside
 /// <see cref="PstMailReader"/>; lossy-but-recovered reconstruction decisions are warnings. UNEXPECTED
 /// reconstruction / attachment-read / MIME-serialization / filesystem-write failures are FATAL and propagate
-/// (the writer does not catch them) — the CLI (Plan 6) turns a propagated failure into a fatal error event.
+/// (the writer does not catch them) — the CLI turns a propagated failure into a fatal error event.
 /// A fatal PST-open / root-walk failure likewise propagates.
 /// </summary>
 public sealed class PstExportRunner
@@ -40,10 +40,10 @@ public sealed class PstExportRunner
     public PstExportRunner(Func<Action<string>?, IMimeReconstructor>? reconstructorFactory = null)
         => _reconstructorFactory = reconstructorFactory ?? (onWarning => new MimeReconstructor(onWarning));
 
-    /// <param name="onWarning">Optional live sink (Plan 6's warning-event stream). Invoked IN ADDITION to
+    /// <param name="onWarning">Optional live sink (the CLI's warning-event stream). Invoked IN ADDITION to
     /// recording into the report. Skips are NOT forwarded here — see <paramref name="onSkipped"/>.</param>
     /// <param name="onProgress">Optional live progress sink, one tick per successfully written message.</param>
-    /// <param name="onSkipped">Optional live sink for structured per-message skips (Plan 6's skip-event
+    /// <param name="onSkipped">Optional live sink for structured per-message skips (the CLI's skip-event
     /// stream). Invoked IN ADDITION to recording into the report; disjoint from <paramref name="onWarning"/>.</param>
     public ExportReport Run(
         string pstPath, string outputRoot, bool includeEmpty,

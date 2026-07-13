@@ -14,7 +14,7 @@ namespace Mail2Pst.Core.Reverse;
 /// inverse of the forward <c>PstWriter</c>/<c>AttachmentWriter</c>. Discrete MAPI props win for structure and
 /// display fields; MIME-structural headers are regenerated from the built body tree; identity/thread/trace
 /// headers may be filled from <see cref="PstMailMessage.TransportHeaders"/> only where a discrete prop left
-/// them unset. NEVER emits <c>X-Mozilla-*</c> headers — Plan 3's <c>MboxTreeWriter</c> owns those. Lossy points
+/// them unset. NEVER emits <c>X-Mozilla-*</c> headers — the <c>MboxTreeWriter</c> owns those. Lossy points
 /// are reported through the constructor-injected <paramref name="onWarning"/> sink (the <see cref="Reconstruct"/>
 /// seam has no warning parameter).
 /// </summary>
@@ -37,12 +37,12 @@ public sealed class MimeReconstructor : IMimeReconstructor
         var mime = new MimeMessage();
         ApplyIdentityHeaders(mime, message);   // discrete props WIN
         mime.Body = WrapWithAttachments(BuildBody(message), message);   // regenerated MIME-structural tree
-        ApplyTransportHeaders(mime, message);  // trace/thread from transport, non-contradicting only (Task 4)
+        ApplyTransportHeaders(mime, message);  // trace/thread from transport, non-contradicting only
         return mime;
     }
 
     // Identity/display headers from discrete props. These are the authoritative values; the transport-header
-    // pass (Task 4) only fills what these leave unset.
+    // pass only fills what these leave unset.
     private void ApplyIdentityHeaders(MimeMessage mime, PstMailMessage m)
     {
         mime.Subject = m.Subject ?? string.Empty;

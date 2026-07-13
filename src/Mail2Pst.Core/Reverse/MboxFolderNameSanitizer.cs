@@ -12,7 +12,7 @@ namespace Mail2Pst.Core.Reverse;
 /// leading/trailing dots+spaces, Windows reserved device names -> fallback), then additionally replaces the
 /// remaining Windows-illegal filename characters (<c>: * ? " &lt; &gt; |</c>) with '_'. A name that reduces to
 /// nothing falls back to <c>"Folder"</c>. NOTE: long-name hashing (Thunderbird's NS_MsgHashIfNecessary, which
-/// truncates+hashes names over the OS limit) is NOT implemented in v1 — see the plan self-review.
+/// truncates+hashes names over the OS limit) is NOT implemented in v1.
 /// </summary>
 public static class MboxFolderNameSanitizer
 {

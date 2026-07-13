@@ -18,7 +18,7 @@ public sealed record MboxTreeWriteResult(
 /// Writes a Thunderbird mail-folder tree to disk: a <c>.sbd</c>-nested mbox layout where each streamed
 /// message becomes an mboxrd-escaped mbox entry carrying its <c>X-Mozilla-Status</c> / <c>-Status2</c> /
 /// <c>-Keys</c> headers. Structure comes from a <see cref="MboxTreePlanner"/> plan; MIME body reconstruction
-/// comes from the injected <see cref="IMimeReconstructor"/> (Plan 4). The writer owns the envelope
+/// comes from the injected <see cref="IMimeReconstructor"/>. The writer owns the envelope
 /// (<c>From </c> separator) and the three <c>X-Mozilla-*</c> header lines, which it writes as the FIRST
 /// header lines of every entry so their position and formatting stay under its control.
 /// </summary>
@@ -30,7 +30,7 @@ public sealed class MboxTreeWriter
     // keywords in place. X_MOZILLA_KEYWORDS_BLANK_LEN = 80 in mozilla/releases-comm-central:
     // mailnews/base/src/nsMsgLocalFolderHdrs.h; the compactor right-pads the VALUE with spaces up to this
     // minimum. We reproduce the reserve so TB's in-place keyword edits behave. Applies ONLY to X-Mozilla-Keys
-    // (Status/Status2 are already fixed-width via Plan 2's x4 / "00000000").
+    // (Status/Status2 are already fixed-width via the x4 hex format / "00000000").
     private const int XMozillaKeywordsBlankLen = 80;
 
     private readonly IMimeReconstructor _reconstructor;
@@ -43,7 +43,7 @@ public sealed class MboxTreeWriter
         _formatOptions.NewLineFormat = NewLineFormat.Dos;   // CRLF, matching the raw parts + forward fixtures
     }
 
-    /// <param name="items">Lazy stream of read-back messages (Plan 1). Reconstruction/serialization happens
+    /// <param name="items">Lazy stream of read-back messages. Reconstruction/serialization happens
     /// one item at a time, so attachment OpenRead closures are invoked while the item is current.</param>
     /// <param name="folders">Every mail folder path in the PST (the structure authority — includes empty
     /// folders so <paramref name="includeEmpty"/> and structural parents can be honored).</param>

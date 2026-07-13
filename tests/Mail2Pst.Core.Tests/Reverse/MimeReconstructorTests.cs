@@ -39,7 +39,7 @@ public class MimeReconstructorTests
             IsRead: false, IsReplied: false, IsForwarded: false,
             Categories: categories ?? Array.Empty<string>(),
             Attachments: attachments ?? Array.Empty<PstAttachment>())
-        { FromName = fromName };   // Plan-1 addendum: init-only sender display name
+        { FromName = fromName };   // init-only sender display name
 
     private static PstRecipient Rcpt(string address, PstRecipientKind kind, string? display = null)
         => new PstRecipient(address, display, kind);
@@ -66,7 +66,7 @@ public class MimeReconstructorTests
                 $"reconstructor must not emit '{h.Field}' (the mbox writer owns X-Mozilla-* headers)");
     }
 
-    // ---- Task 1 tests ----------------------------------------------------------------------------
+    // ---- identity/header tests ---------------------------------------------------------------------
 
     [Fact]
     public void Reconstruct_DiscreteProps_SetsIdentityAndDisplayHeaders()
@@ -171,7 +171,7 @@ public class MimeReconstructorTests
         Assert.Equal(string.Empty, m.Subject);
     }
 
-    // ---- Task 2 tests ----------------------------------------------------------------------------
+    // ---- body tests ----------------------------------------------------------------------------------
 
     private static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes(s);
 
@@ -261,7 +261,7 @@ public class MimeReconstructorTests
         Assert.Contains(warnings, w => w.Contains("999999") && w.Contains("UTF-8", StringComparison.OrdinalIgnoreCase));
     }
 
-    // ---- Task 3 tests ----------------------------------------------------------------------------
+    // ---- attachment tests ------------------------------------------------------------------------
 
     // In-memory attachment; `read` flips true when the closure is invoked, proving synchronous reads.
     private static PstAttachment Att(
@@ -271,7 +271,7 @@ public class MimeReconstructorTests
             fileName, contentType, contentId, inline,
             OpenRead: () => { onOpen?.Invoke(); return new MemoryStream(bytes, writable: false); },
             Length: bytes.Length)
-        { ContentLocation = contentLocation };   // Plan-1 addendum: init-only PidTagAttachContentLocation
+        { ContentLocation = contentLocation };   // init-only PidTagAttachContentLocation
 
     [Fact]
     public void Reconstruct_NonInlineAttachment_ProducesMultipartMixed_WithExactBytes()
@@ -369,7 +369,7 @@ public class MimeReconstructorTests
         AssertNoMozillaHeaders(m);
     }
 
-    // ---- Task 4 tests ----------------------------------------------------------------------------
+    // ---- transport-header tests ------------------------------------------------------------------
 
     private const string TransportBlock =
         "Message-ID: <transport-id@example.com>\r\n" +
