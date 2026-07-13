@@ -22,6 +22,7 @@ if (args.Length == 0)
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  continumail-convert convert  --config <config.json> --output <dir>");
     Console.Error.WriteLine("  continumail-convert convert  --profile <dir> [--config <options.json>] --output <dir>");
+    Console.Error.WriteLine("  continumail-convert export   --input <path.pst> --output <dir> [--include-empty]");
     Console.Error.WriteLine("  continumail-convert scan     --input <path> [--input <path> ...] [--input-list <file>] [--type mbox]");
     Console.Error.WriteLine("  continumail-convert discover --input <dir>");
     return 1;
@@ -30,6 +31,7 @@ if (args.Length == 0)
 return args[0] switch
 {
     "convert"            => ConvertCommand.Run(args[1..]),
+    "export"             => ExportCommand.Run(args[1..]),
     "scan"               => ScanCommand.Run(args[1..]),
     "discover"           => DiscoverCommand.Run(args[1..]),
     "version" or "--version" or "-v" => PrintVersion(),
@@ -50,6 +52,6 @@ static int PrintVersion()
 
 static int PrintUnknownCommand(string cmd)
 {
-    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'scan', or 'discover'.");
+    Console.Error.WriteLine($"Unknown command '{cmd}'. Use 'convert', 'export', 'scan', or 'discover'.");
     return 1;
 }
