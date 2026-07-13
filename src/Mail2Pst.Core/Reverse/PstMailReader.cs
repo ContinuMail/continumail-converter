@@ -37,7 +37,15 @@ public static class PstMailReader
 
         if (folder is MailFolder mf)
         {
-            for (int i = 0; i < mf.MessageCount; i++)
+            int count = 0;
+            try { count = mf.MessageCount; }
+            catch (Exception ex) when (ex is not OutOfMemoryException)       // corrupt contents table: warn + skip
+            {
+                onWarning?.Invoke(
+                    $"could not read message count of '{string.Join(" / ", path)}': {ex.GetType().Name}: {ex.Message}");
+                count = 0;
+            }
+            for (int i = 0; i < count; i++)
             {
                 PstMailMessage? msg = null;
                 try { msg = ReadNote(mf.GetNote(i), keywordsId, onWarning); }
@@ -50,11 +58,22 @@ public static class PstMailReader
                     yield return new PstMailItem(path, msg);                  // yield OUTSIDE the try/catch
             }
         }
-        else if (folder.MessageCount > 0)                                    // non-mail with messages: warn + skip
+        else
         {
-            onWarning?.Invoke(
-                $"folder '{string.Join(" / ", path)}' has {folder.MessageCount} message(s) but is not a mail " +
-                "folder (container class differs); skipping its messages.");
+            int nonMailCount = 0;
+            try { nonMailCount = folder.MessageCount; }
+            catch (Exception ex) when (ex is not OutOfMemoryException)       // corrupt contents table: warn + skip
+            {
+                onWarning?.Invoke(
+                    $"could not read message count of '{string.Join(" / ", path)}': {ex.GetType().Name}: {ex.Message}");
+                nonMailCount = 0;
+            }
+            if (nonMailCount > 0)                                            // non-mail with messages: warn + skip
+            {
+                onWarning?.Invoke(
+                    $"folder '{string.Join(" / ", path)}' has {nonMailCount} message(s) but is not a mail " +
+                    "folder (container class differs); skipping its messages.");
+            }
         }
 
         // NOTE: C# iterators forbid `yield` inside a catch clause, so this must NOT `yield break` in the
@@ -142,12 +161,12 @@ public static class PstMailReader
             RecipientType.To => PstRecipientKind.To,
             RecipientType.Cc => PstRecipientKind.Cc,
             RecipientType.Bcc => PstRecipientKind.Bcc,
-            var other => Warn(other, onWarning),
+            var other => Warn(other, raw.Value, onWarning),
         };
 
-        PstRecipientKind Warn(RecipientType other, Action<string>? onWarning)
+        static PstRecipientKind Warn(RecipientType other, int rawValue, Action<string>? onWarning)
         {
-            onWarning?.Invoke($"unexpected recipient type raw={raw} enum='{other}' -> treated as To");
+            onWarning?.Invoke($"unexpected recipient type raw={rawValue} enum='{other}' -> treated as To");
             return PstRecipientKind.To;
         }
     }
