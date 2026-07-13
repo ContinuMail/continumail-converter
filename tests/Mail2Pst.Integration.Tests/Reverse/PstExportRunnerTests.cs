@@ -31,6 +31,133 @@ public class PstExportRunnerTests
     private static string FreshOutDir() =>
         Path.Combine(Path.GetTempPath(), "m2p-rev-out-" + Guid.NewGuid().ToString("N"));
 
+    // A reconstructor that throws on the Nth message — forces an UNEXPECTED mid-export failure (fatal path).
+    private sealed class ThrowOnNthReconstructor : IMimeReconstructor
+    {
+        private readonly int _throwOn;
+        private int _seen;
+        public ThrowOnNthReconstructor(int throwOn) => _throwOn = throwOn;
+        public MimeMessage Reconstruct(PstMailMessage message)
+        {
+            if (++_seen == _throwOn) throw new InvalidOperationException("boom during reconstruction");
+            var m = new MimeMessage();
+            m.From.Add(new MailboxAddress(string.Empty, message.FromAddress ?? "s@example.com"));
+            m.To.Add(new MailboxAddress(string.Empty, "r@example.com"));
+            m.Subject = message.Subject ?? string.Empty;
+            m.Date = message.Date ?? DateTimeOffset.UnixEpoch;
+            m.Body = new TextPart("plain") { Text = message.PlainBody ?? string.Empty, ContentTransferEncoding = ContentEncoding.SevenBit };
+            return m;
+        }
+    }
+
+    private static ConversionConfig OneInbox(GeneratedProfile profile, int _) => new()
+    {
+        Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = false,
+            Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+        }}
+    };
+
+    [Fact]
+    public void Run_NonEmptyOutputRoot_IsRejectedWithoutModification()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 1).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        Directory.CreateDirectory(outRoot);
+        string sentinel = Path.Combine(outRoot, "existing.txt");
+        File.WriteAllText(sentinel, "keep me");
+        try
+        {
+            Assert.ThrowsAny<Exception>(() => new PstExportRunner().Run(pst, outRoot, includeEmpty: false));
+            Assert.True(File.Exists(sentinel));                           // destination untouched
+            Assert.Equal("keep me", File.ReadAllText(sentinel));
+        }
+        finally { Directory.Delete(convertDir, true); Directory.Delete(outRoot, true); }
+    }
+
+    [Fact]
+    public void Run_OutputPathIsExistingFile_FailsBeforeCreatingStaging()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 1).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outFile = Path.Combine(Path.GetTempPath(), "m2p-rev-file-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(outFile, "i am a file");
+        string parent = Path.GetDirectoryName(outFile)!;
+        try
+        {
+            Assert.Throws<IOException>(() => new PstExportRunner().Run(pst, outFile, includeEmpty: false));
+            Assert.Empty(Directory.GetDirectories(parent, Path.GetFileName(outFile) + ".partial-*"));   // no staging created
+            Assert.Equal("i am a file", File.ReadAllText(outFile));                                      // file untouched
+        }
+        finally { Directory.Delete(convertDir, true); File.Delete(outFile); }
+    }
+
+    [Fact]
+    public void Run_OutputRootWithTrailingSeparator_PublishesCorrectly()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 2).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        string withSep = outRoot + Path.DirectorySeparatorChar;   // trailing separator
+        try
+        {
+            ExportReport report = new PstExportRunner().Run(pst, withSep, includeEmpty: false);
+            Assert.Equal(2, report.MessagesExported);
+            Assert.Equal(outRoot, report.OutputRoot);                 // normalized (separator trimmed)
+            Assert.True(File.Exists(Path.Combine(outRoot, "Inbox")));
+            Assert.Empty(Directory.GetDirectories(outRoot, "*.partial-*"));   // staging NOT nested inside dest
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
+
+    [Fact]
+    public void Run_FatalMidExport_RemovesStagingOutput()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 2).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        string parent = Path.GetDirectoryName(outRoot)!;
+        try
+        {
+            var runner = new PstExportRunner(_ => new ThrowOnNthReconstructor(throwOn: 2));
+            Assert.Throws<InvalidOperationException>(() => runner.Run(pst, outRoot, includeEmpty: false));
+
+            Assert.False(Directory.Exists(outRoot));                                              // never published
+            Assert.Empty(Directory.GetDirectories(parent, Path.GetFileName(outRoot) + ".partial-*")); // staging cleaned up
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
+
+    [Fact]
+    public void Run_InvalidPst_PropagatesAndCreatesNoOutput()
+    {
+        string bogusPst = Path.Combine(Path.GetTempPath(), "m2p-not-a-pst-" + Guid.NewGuid().ToString("N") + ".pst");
+        File.WriteAllText(bogusPst, "this is not a PST file");
+        string outRoot = FreshOutDir();
+        string parent = Path.GetDirectoryName(outRoot)!;
+        try
+        {
+            Assert.ThrowsAny<Exception>(() => new PstExportRunner().Run(bogusPst, outRoot, includeEmpty: false));
+            Assert.False(Directory.Exists(outRoot));                                              // no output published
+            Assert.Empty(Directory.GetDirectories(parent, Path.GetFileName(outRoot) + ".partial-*")); // no staging created
+        }
+        finally { File.Delete(bogusPst); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
+
     [Fact]
     public void Run_Success_PublishesOnlyFinalOutputRoot()
     {
