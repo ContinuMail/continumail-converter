@@ -170,4 +170,94 @@ public class MimeReconstructorTests
         Assert.Equal(string.Empty, body.Text);
         Assert.Equal(string.Empty, m.Subject);
     }
+
+    // ---- Task 2 tests ----------------------------------------------------------------------------
+
+    private static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes(s);
+
+    [Fact]
+    public void Reconstruct_BothBodies_ProducesMultipartAlternative_PlainThenHtml()
+    {
+        var msg = Msg(plainBody: "plain version", htmlBody: Utf8("<p>html version</p>"), codepage: 65001);
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        MultipartAlternative alt = Assert.IsType<MultipartAlternative>(m.Body);
+        Assert.Equal(2, alt.Count);
+        Assert.True(((TextPart)alt[0]).ContentType.IsMimeType("text", "plain"));   // least-rich first
+        Assert.True(((TextPart)alt[1]).ContentType.IsMimeType("text", "html"));
+        Assert.Equal("plain version", ((TextPart)alt[0]).Text);
+        Assert.Contains("html version", ((TextPart)alt[1]).Text);
+    }
+
+    [Fact]
+    public void Reconstruct_HtmlOnly_ProducesTextHtml()
+    {
+        MimeMessage m = new MimeReconstructor().Reconstruct(
+            Msg(plainBody: null, htmlBody: Utf8("<p>only html</p>"), codepage: 65001));
+
+        TextPart body = Assert.IsType<TextPart>(m.Body);
+        Assert.True(body.ContentType.IsMimeType("text", "html"));
+        Assert.Contains("only html", body.Text);
+    }
+
+    [Fact]
+    public void Reconstruct_EmptyHtmlProperty_ProducesEmptyTextHtml()
+    {
+        // A present-but-empty PidTagHtml is a PRESENT html body, not an absent one -> empty text/html, not a
+        // text/plain fallback.
+        MimeMessage m = new MimeReconstructor().Reconstruct(
+            Msg(plainBody: null, htmlBody: Array.Empty<byte>(), codepage: 65001));
+
+        TextPart body = Assert.IsType<TextPart>(m.Body);
+        Assert.True(body.IsHtml);
+        Assert.Equal(string.Empty, body.Text);
+    }
+
+    [Fact]
+    public void Reconstruct_HtmlBytes_DecodedAsUtf8_ByDefault()
+    {
+        // Non-ASCII content proves the bytes are decoded (not mangled). Forward writer always writes UTF-8.
+        MimeMessage m = new MimeReconstructor().Reconstruct(
+            Msg(plainBody: null, htmlBody: Utf8("<p>café — naïve</p>"), codepage: 65001));
+        Assert.Contains("café — naïve", ((TextPart)m.Body).Text);
+    }
+
+    [Fact]
+    public void Reconstruct_LegacyCodepage1252_DecodesToCorrectUnicode()
+    {
+        // Windows-1252 byte 0xE9 = 'é' and 0x93/0x94 = curly double quotes. In UTF-8 these are invalid/mangled,
+        // so a correct result proves the 1252 provider decode ran (not a UTF-8 fallback). Requires the
+        // CodePages provider the static ctor registers.
+        byte[] cp1252 = { 0x93, (byte)'c', (byte)'a', (byte)'f', 0xE9, 0x94 };   // "café" in curly quotes
+        MimeMessage m = new MimeReconstructor().Reconstruct(
+            Msg(plainBody: null, htmlBody: cp1252, codepage: 1252));
+
+        string text = ((TextPart)m.Body).Text;
+        Assert.Contains("café", text);            // 0xE9 -> é
+        Assert.Contains("“", text);          // 0x93 -> left double quotation mark
+        Assert.Contains("”", text);          // 0x94 -> right double quotation mark
+    }
+
+    [Fact]
+    public void Reconstruct_InvalidUtf8Bytes_FallBackTolerantly_AndWarn()
+    {
+        MimeReconstructor rec = NewReconstructor(out List<string> warnings);
+        // {0xC3,0x28} is an invalid UTF-8 sequence. Under the STRICT UTF-8 decoder it throws
+        // DecoderFallbackException; DecodeHtml then decodes tolerantly (invalid -> U+FFFD '�') and warns.
+        MimeMessage m = rec.Reconstruct(Msg(plainBody: null, htmlBody: new byte[] { 0xC3, 0x28 }, codepage: 65001));
+
+        Assert.Contains("�", ((TextPart)m.Body).Text);     // '�' replacement char
+        Assert.Contains(warnings, w => w.Contains("failed to decode HTML body"));
+    }
+
+    [Fact]
+    public void Reconstruct_UnknownCodepage_FallsBackToUtf8_AndWarns()
+    {
+        MimeReconstructor rec = NewReconstructor(out List<string> warnings);
+        // 999999 is not a real code page -> Encoding.GetEncoding throws -> UTF-8 fallback + warning.
+        MimeMessage m = rec.Reconstruct(Msg(plainBody: null, htmlBody: Utf8("<p>hi</p>"), codepage: 999999));
+
+        Assert.Contains("hi", ((TextPart)m.Body).Text);
+        Assert.Contains(warnings, w => w.Contains("999999") && w.Contains("UTF-8", StringComparison.OrdinalIgnoreCase));
+    }
 }

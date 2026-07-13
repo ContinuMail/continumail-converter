@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Text;
 using MimeKit;
 
 namespace Mail2Pst.Core.Reverse;
@@ -18,6 +19,14 @@ namespace Mail2Pst.Core.Reverse;
 public sealed class MimeReconstructor : IMimeReconstructor
 {
     private readonly Action<string>? _onWarning;
+
+    static MimeReconstructor()
+    {
+        // Legacy Windows code pages (1250–1258, etc.) are not in .NET's built-in encoding provider. Register
+        // the CodePages provider so Encoding.GetEncoding(1252) etc. resolve during a reverse export. Idempotent
+        // — registering the same provider twice is harmless (the forward .msf reader may also have registered it).
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
 
     public MimeReconstructor(Action<string>? onWarning = null) => _onWarning = onWarning;
 
@@ -68,16 +77,65 @@ public sealed class MimeReconstructor : IMimeReconstructor
             }
     }
 
-    // Body/attachment tree. Task 1 handles plain-only + the empty fallback; Tasks 2–3 add HTML/alternative
-    // and attachments.
+    // Regenerate the body tree from discrete props. Both bodies -> multipart/alternative (least-rich first,
+    // per RFC 2046); one body -> that part; neither -> an empty text/plain so subject/headers still round-trip.
     private MimeEntity BuildBody(PstMailMessage m)
     {
-        if (m.PlainBody is not null)
-            return new TextPart("plain") { Text = m.PlainBody };
+        TextPart? plain = m.PlainBody is not null ? new TextPart("plain") { Text = m.PlainBody } : null;
 
-        // No body at all: minimal empty text/plain so subject/headers still round-trip.
+        // A present-but-empty HtmlBody (zero-length byte[]) is a PRESENT html body (the forward writer wrote an
+        // empty PidTagHtml), so treat `not null` as present — only a null HtmlBody is absent.
+        TextPart? html = null;
+        if (m.HtmlBody is not null)
+            html = new TextPart("html") { Text = DecodeHtml(m.HtmlBody, m.InternetCodepage) };
+
+        if (plain is not null && html is not null)
+        {
+            var alt = new MultipartAlternative();
+            alt.Add(plain);   // least-rich first
+            alt.Add(html);
+            return alt;
+        }
+        if (html is not null) return html;
+        if (plain is not null) return plain;
+
         return new TextPart("plain") { Text = string.Empty };
     }
+
+    private string DecodeHtml(byte[] bytes, int? codepage)
+    {
+        // ResolveEncoding returns a STRICT encoder (DecoderFallback.ExceptionFallback), so genuinely invalid
+        // bytes throw DecoderFallbackException here instead of silently becoming U+FFFD — that is what makes the
+        // fallback-and-warn path live rather than dead code. On failure, decode tolerantly as UTF-8.
+        Encoding enc = ResolveEncoding(codepage);
+        try { return enc.GetString(bytes); }
+        catch (DecoderFallbackException)
+        {
+            _onWarning?.Invoke($"failed to decode HTML body with code page {codepage}; falling back to UTF-8.");
+            return TolerantUtf8.GetString(bytes);
+        }
+    }
+
+    // InternetCodepage informs the decode charset. null/65001 -> STRICT UTF-8 fast path (the forward writer's
+    // HTML encoding). Anything else is resolved via Encoding.GetEncoding with STRICT encoder/decoder fallbacks —
+    // including legacy Windows code pages (1250–1258, etc.), which work because the static ctor registered the
+    // CodePages provider. An unknown/unsupported code page (GetEncoding throws) falls back to strict UTF-8 with a
+    // warning; invalid bytes under the chosen page are handled by DecodeHtml's DecoderFallbackException catch.
+    private Encoding ResolveEncoding(int? codepage)
+    {
+        if (codepage is null or 65001) return StrictUtf8;
+        try { return Encoding.GetEncoding(codepage.Value, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)   // unknown/unsupported code page
+        {
+            _onWarning?.Invoke($"unknown/unsupported InternetCodepage {codepage}; decoding HTML body as UTF-8.");
+            return StrictUtf8;
+        }
+    }
+
+    // STRICT: throwOnInvalidBytes=true so invalid input surfaces as DecoderFallbackException (see DecodeHtml).
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    // TOLERANT: the post-failure fallback — invalid bytes become U+FFFD ('�') rather than throwing again.
+    private static readonly Encoding TolerantUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
 
     // Transport-header carry. Stub in Task 1; implemented in Task 4.
     private void ApplyTransportHeaders(MimeMessage mime, PstMailMessage m)
