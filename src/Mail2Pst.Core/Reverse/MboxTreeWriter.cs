@@ -49,12 +49,16 @@ public sealed class MboxTreeWriter
     /// folders so <paramref name="includeEmpty"/> and structural parents can be honored).</param>
     /// <param name="includeEmpty">When true, empty LEAF folders are emitted as empty mbox files; structural
     /// parents are ALWAYS emitted regardless.</param>
+    /// <param name="onMessageWritten">Optional callback invoked AFTER each message is successfully appended,
+    /// with the item and the running written-count. Lets the export runner emit progress that reflects only
+    /// messages actually on disk (a message that throws during reconstruction/serialization never ticks).</param>
     public MboxTreeWriteResult Write(
         IEnumerable<PstMailItem> items,
         IReadOnlyList<IReadOnlyList<string>> folders,
         string outputRoot,
         bool includeEmpty,
-        Action<string>? onWarning = null)
+        Action<string>? onWarning = null,
+        Action<PstMailItem, int>? onMessageWritten = null)
     {
         Directory.CreateDirectory(outputRoot);
         MboxTreePlan plan = MboxTreePlanner.Plan(folders, outputRoot, onWarning);
@@ -95,8 +99,9 @@ public sealed class MboxTreeWriter
             }
 
             EnsureMbox(mboxPath, created, createdSet);
-            AppendMessage(mboxPath, item.Message);
+            AppendMessage(mboxPath, item.Message);   // throws (fatal) on reconstruct/serialize/write failure
             messages++;
+            onMessageWritten?.Invoke(item, messages);   // fires only AFTER a successful append
         }
 
         return new MboxTreeWriteResult(created, created.Count, messages);
