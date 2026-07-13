@@ -335,6 +335,68 @@ public class PstExportRunnerTests
         }
     }
 
+    // Companion to the attachment-payload round trip: proves that read, starred, and tagged state
+    // written by the forward PST writer surfaces as the expected X-Mozilla-* headers in the exported
+    // mbox and reparses into the corresponding read/starred state.
+    [Fact]
+    public void Run_ReadFlaggedTaggedMessage_CarriesMozillaHeadersThroughFullExport()
+    {
+        var msg = new MailMessage
+        {
+            MessageId = "<flag-tag-loop@test>",
+            Subject = "Flag and tag round trip",
+            IsRead = true,
+            IsFlagged = true,                          // forward writer appends the synthetic "Star" category
+            Categories = new List<string> { "Work" },  // a real tag, distinct from Star
+        };
+
+        string convertDir = Path.Combine(Path.GetTempPath(), "m2p-rev-flag-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(convertDir);
+        string outRoot = FreshOutDir();
+        try
+        {
+            var plan = new PstOutputPlan { Name = "Flag", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            string pst = Assert.Single(new PstWriter().WritePlan(plan, planned, convertDir, new ConversionReport()));
+
+            ExportReport report = new PstExportRunner().Run(pst, outRoot, includeEmpty: false);
+            Assert.Equal(1, report.MessagesExported);
+            Assert.Equal(0, report.SkippedCount);          // no degradation
+            Assert.Equal(0, report.WarningCount);
+
+            string inbox = Path.Combine(outRoot, "Inbox");
+            Assert.True(File.Exists(inbox));
+            string[] lines = File.ReadAllLines(inbox);
+
+            // EXACT status token (Read 0x0001 | Marked 0x0004 = 0005), not a substring match.
+            string status = Assert.Single(lines.Where(l => l.StartsWith("X-Mozilla-Status:", StringComparison.Ordinal)));
+            Assert.Equal("X-Mozilla-Status: 0005", status);
+            Assert.Contains("X-Mozilla-Status2: 00000000", lines);
+
+            // EXACT keyword tokens: split the Keys value on spaces. Work is emitted; Star was consumed
+            // into the Marked status bit and must NOT also appear as a keyword.
+            string keysLine = Assert.Single(lines.Where(l => l.StartsWith("X-Mozilla-Keys:", StringComparison.Ordinal)));
+            string[] keys = keysLine.Substring("X-Mozilla-Keys:".Length)
+                                    .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Contains("Work", keys);
+            Assert.DoesNotContain(keys, k => string.Equals(k, "Star", StringComparison.OrdinalIgnoreCase));
+
+            // The exported headers reparse back into read/starred state via the forward MboxParser.
+            // NOTE: MboxParser/MimeMessageMapper reparses only X-Mozilla-Status bits, NOT X-Mozilla-Keys
+            // into Categories — so do not assert parsed.Message.Categories here.
+            ParseResult parsed = Assert.Single(new MboxParser().Parse(inbox));
+            Assert.True(parsed.Success);
+            Assert.NotNull(parsed.Message);
+            Assert.True(parsed.Message.IsRead);
+            Assert.True(parsed.Message.IsFlagged);
+        }
+        finally
+        {
+            Directory.Delete(convertDir, true);
+            if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true);
+        }
+    }
+
     [Fact]
     public void Run_AcceptsOnSkipped_CleanPstProducesNoSkipCallbacks()
     {
