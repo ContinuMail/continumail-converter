@@ -28,6 +28,8 @@ public sealed record PstMailMessage(
     IReadOnlyList<PstRecipient> Recipients,
     DateTimeOffset? Date,
     string? MessageId,
+    string? InReplyTo,
+    string? References,
     string? PlainBody,
     byte[]? HtmlBody,
     int? InternetCodepage,

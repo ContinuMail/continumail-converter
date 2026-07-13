@@ -121,6 +121,8 @@ public static class PstMailReader
             Recipients: recipients,
             Date: date,
             MessageId: note.PC.GetStringProperty(PropertyID.PidTagInternetMessageId),
+            InReplyTo: note.PC.GetStringProperty(PropertyID.PidTagInReplyToId),
+            References: note.PC.GetStringProperty(PropertyID.PidTagInternetReferences),
             PlainBody: note.Body,
             HtmlBody: html is { Length: > 0 } ? html : null,
             InternetCodepage: note.PC.GetInt32Property(PropertyID.PidTagInternetCodepage),

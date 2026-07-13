@@ -69,6 +69,8 @@ namespace PSTFileFormat
         PidTagHtml = 0x1013,                      // Binary
         PidTagNativeBody = 0x1016,                // Int32 (1 = Plain Text, 2 = RTF, 3 = HTML)
         PidTagInternetMessageId = 0x1035,         // String
+        PidTagInternetReferences = 0x1039,        // String
+        PidTagInReplyToId = 0x1042,               // String
         PidTagIconIndex = 0x1080,                 // Int32
         PidTagLastVerbExecuted = 0x1081,          // Int32
         PidTagLastVerbExecutionTime = 0x1082,     // DateTime

@@ -8,6 +8,7 @@ using System.Linq;
 using Mail2Pst.Core.Config;
 using Mail2Pst.Core.Mapping;                   // PstOutputPlan (streaming test)
 using Mail2Pst.Core.Models;                    // MailMessage / MailAttachment / AttachmentContent (streaming test)
+using Mail2Pst.Core.OutlookCategories;         // StarCategory (category/flag recovery test)
 using Mail2Pst.Core.Reporting;                 // ConversionReport (streaming test)
 using Mail2Pst.Core.Reverse;
 using Mail2Pst.Core.Writing;                   // PstWriter / PlannedMessage (streaming test)
@@ -159,6 +160,43 @@ public class PstMailReaderTests
 
             Assert.NotNull(recovered);
             Assert.Equal(payload, recovered);   // exact byte-equality across the streamed encode/decode
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    // MailCategoryComposer.Compose appends the synthetic "Star" category (StarCategory.Name) when
+    // IsFlagged is true, alongside any real Thunderbird tags — so a flagged message's recovered
+    // Categories includes "Work" AND "Star". This also covers M2 (In-Reply-To / References recovery).
+    [Fact]
+    public void Read_MessageWithCategoriesFlagAndThreading_RecoversAll()
+    {
+        var msg = new MailMessage
+        {
+            MessageId = "<threaded@test>",
+            Subject = "Threaded, flagged, categorized message",
+            InReplyTo = "<parent@example.com>",
+            References = "<root@example.com> <parent@example.com>",
+            IsFlagged = true,
+            Categories = new List<string> { "Work" },
+        };
+
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-reverse-cat-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var plan = new PstOutputPlan { Name = "Cat", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            var writer = new PstWriter();
+            List<string> outputs = writer.WritePlan(plan, planned, dir, new ConversionReport());
+            string pst = Assert.Single(outputs);
+
+            PstMailItem item = Assert.Single(PstMailReader.EnumerateMessages(pst));
+            PstMailMessage m = item.Message;
+
+            Assert.Equal("<parent@example.com>", m.InReplyTo);
+            Assert.Equal("<root@example.com> <parent@example.com>", m.References);
+            Assert.Contains("Work", m.Categories);
+            Assert.Contains(StarCategory.Name, m.Categories);
         }
         finally { Directory.Delete(dir, true); }
     }
