@@ -347,4 +347,27 @@ public class PstMailReaderTests
         }
         finally { File.Delete(pst); }
     }
+
+    [Fact]
+    public void EnumerateMessages_OnSkipped_CleanPst_RecordsNoSkips_StreamsAll()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com")
+            .WithFolder("Inbox", messageCount: 2)
+            .Build();
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = false,
+            Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+        }}};
+        var (outputs, dir) = ConvertProfile(config);
+        try
+        {
+            var skips = new List<ExportSkip>();
+            int count = PstMailReader.EnumerateMessages(Assert.Single(outputs), onWarning: null, onSkipped: skips.Add).Count();
+            Assert.Equal(2, count);
+            Assert.Empty(skips);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }

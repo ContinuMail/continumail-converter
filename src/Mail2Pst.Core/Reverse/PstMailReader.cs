@@ -17,14 +17,15 @@ namespace Mail2Pst.Core.Reverse;
 public static class PstMailReader
 {
     /// <summary>Lazy: the PST stays open while iterating. Attachment OpenRead must be called during iteration.</summary>
-    public static IEnumerable<PstMailItem> EnumerateMessages(string pstPath, Action<string>? onWarning = null)
+    public static IEnumerable<PstMailItem> EnumerateMessages(
+        string pstPath, Action<string>? onWarning = null, Action<ExportSkip>? onSkipped = null)
     {
         var pst = new PSTFile(pstPath, FileAccess.Read);            // fatal on failure -> propagate
         try
         {
             ushort? keywordsId = PropertyNameToIDMap.ResolveStringNamedProperty(pst, 2, "Keywords");
             foreach (PSTFolder child in pst.TopOfPersonalFolders.GetChildFolders())
-                foreach (PstMailItem item in EnumerateFolder(child, new List<string>(), keywordsId, onWarning))
+                foreach (PstMailItem item in EnumerateFolder(child, new List<string>(), keywordsId, onWarning, onSkipped))
                     yield return item;
         }
         finally { pst.CloseFile(); }
@@ -70,8 +71,26 @@ public static class PstMailReader
             CollectFolders(c, path, acc, onWarning);
     }
 
+    /// <summary>
+    /// Reports a per-message read failure. When <paramref name="onSkipped"/> is supplied (the export runner),
+    /// records a STRUCTURED skip ONLY — it is NOT also emitted as a warning, so a skip is not double-counted.
+    /// When <paramref name="onSkipped"/> is null (legacy 2-arg callers such as ReadAllForTests), the
+    /// human-readable warning is emitted instead. Reason carries the exception type name + message.
+    /// </summary>
+    internal static void ReportMessageReadFailure(
+        IReadOnlyList<string> path, int index, Exception ex, Action<string>? onWarning, Action<ExportSkip>? onSkipped)
+    {
+        string display = string.Join(" / ", path);
+        string reason = $"{ex.GetType().Name}: {ex.Message}";
+        if (onSkipped is not null)
+            onSkipped(new ExportSkip(display, index, reason));
+        else
+            onWarning?.Invoke($"skipped message {index} in '{display}': {reason}");
+    }
+
     private static IEnumerable<PstMailItem> EnumerateFolder(
-        PSTFolder folder, List<string> parentPath, ushort? keywordsId, Action<string>? onWarning)
+        PSTFolder folder, List<string> parentPath, ushort? keywordsId, Action<string>? onWarning,
+        Action<ExportSkip>? onSkipped)
     {
         var path = new List<string>(parentPath) { folder.DisplayName };
 
@@ -89,10 +108,9 @@ public static class PstMailReader
             {
                 PstMailMessage? msg = null;
                 try { msg = ReadNote(mf.GetNote(i), keywordsId, onWarning); }
-                catch (Exception ex) when (ex is not OutOfMemoryException)   // bad message: skip + warn
+                catch (Exception ex) when (ex is not OutOfMemoryException)   // bad message: structured skip or legacy warn
                 {
-                    onWarning?.Invoke(
-                        $"skipped message {i} in '{string.Join(" / ", path)}': {ex.GetType().Name}: {ex.Message}");
+                    ReportMessageReadFailure(path, i, ex, onWarning, onSkipped);
                 }
                 if (msg is not null)
                     yield return new PstMailItem(path, msg);                  // yield OUTSIDE the try/catch
@@ -127,7 +145,7 @@ public static class PstMailReader
             children = new List<PSTFolder>();
         }
         foreach (PSTFolder c in children)
-            foreach (PstMailItem item in EnumerateFolder(c, path, keywordsId, onWarning))
+            foreach (PstMailItem item in EnumerateFolder(c, path, keywordsId, onWarning, onSkipped))
                 yield return item;
     }
 
