@@ -368,4 +368,77 @@ public class MimeReconstructorTests
         Assert.Equal("report.pdf", Assert.IsType<MimePart>(mixed[1]).FileName);
         AssertNoMozillaHeaders(m);
     }
+
+    // ---- Task 4 tests ----------------------------------------------------------------------------
+
+    private const string TransportBlock =
+        "Message-ID: <transport-id@example.com>\r\n" +
+        "In-Reply-To: <transport-parent@example.com>\r\n" +
+        "References: <transport-root@example.com>\r\n" +
+        "Received: from mx1.example.com by mx2.example.com; Tue, 01 Jun 2021 12:00:00 +0000\r\n" +
+        "X-Mozilla-Status: 1234\r\n" +                       // must NOT be carried (writer owns it)
+        "Content-Type: text/plain; boundary=\"STALE-BOGUS-BOUNDARY\"\r\n" +   // must NOT be copied
+        "Content-Transfer-Encoding: x-bogus\r\n" +           // structural: must NOT be copied
+        "Content-Disposition: attachment; filename=\"stale.txt\"\r\n" +       // structural: must NOT be copied
+        "MIME-Version: 9.9\r\n";                             // must be regenerated, not copied
+
+    [Fact]
+    public void Reconstruct_TransportHeaders_RegeneratesStructuralHeaders_NotCopied()
+    {
+        // Both bodies force a multipart/alternative; NONE of the stale structural headers may appear — they are
+        // regenerated from the real body/attachment tree, never copied from the transport block.
+        var msg = Msg(
+            messageId: null, plainBody: "p", htmlBody: Utf8("<p>h</p>"), codepage: 65001,
+            transportHeaders: TransportBlock);
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+        string wire = Serialize(m);
+
+        Assert.IsType<MultipartAlternative>(m.Body);
+        Assert.DoesNotContain("STALE-BOGUS-BOUNDARY", wire);          // stale boundary dropped
+        Assert.DoesNotContain("x-bogus", wire);                      // stale CTE dropped
+        Assert.DoesNotContain("stale.txt", wire);                    // stale Content-Disposition dropped
+        Assert.Contains("multipart/alternative", wire);              // fresh structural Content-Type
+        Assert.Contains("MIME-Version: 1.0", wire);                  // regenerated, not the bogus 9.9
+        Assert.DoesNotContain("MIME-Version: 9.9", wire);
+    }
+
+    [Fact]
+    public void Reconstruct_TransportHeaders_CarryTraceAndThread_WhenDiscreteAbsent()
+    {
+        // No discrete Message-ID/In-Reply-To/References -> filled from the transport block; Received carried.
+        var msg = Msg(messageId: null, inReplyTo: null, references: null, transportHeaders: TransportBlock);
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        Assert.Equal("transport-id@example.com", m.MessageId);
+        Assert.Equal("transport-parent@example.com", m.InReplyTo);
+        Assert.Contains("transport-root@example.com", m.References);
+        Assert.Contains(m.Headers, h => h.Id == HeaderId.Received);
+        AssertNoMozillaHeaders(m);                                    // X-Mozilla-Status NOT carried
+    }
+
+    [Fact]
+    public void Reconstruct_DiscreteProps_WinOverTransportHeaders()
+    {
+        // Discrete Message-ID is present -> the transport Message-ID must be ignored (conflict rule).
+        var msg = Msg(messageId: "discrete-id@example.com", transportHeaders: TransportBlock);
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        Assert.Equal("discrete-id@example.com", m.MessageId);
+        Assert.Single(m.Headers, h => h.Id == HeaderId.MessageId);    // no duplicate Message-ID
+    }
+
+    [Fact]
+    public void Reconstruct_TransportReceivedHeader_RoundTripsUnchanged()
+    {
+        const string received = "from mx1.example.com by mx2.example.com; Tue, 01 Jun 2021 12:00:00 +0000";
+        var msg = Msg(transportHeaders: "Received: " + received + "\r\n");
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        Header carried = Assert.Single(m.Headers, h => h.Id == HeaderId.Received);
+        Assert.Equal(received, carried.Value);                       // Received value survives verbatim
+    }
 }

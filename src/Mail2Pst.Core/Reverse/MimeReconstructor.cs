@@ -212,10 +212,59 @@ public sealed class MimeReconstructor : IMimeReconstructor
         catch { content.Dispose(); throw; }
     }
 
-    // Transport-header carry. Stub in Task 1; implemented in Task 4.
+    // Carry identity/thread/trace headers from PidTagTransportMessageHeaders — but ONLY those that a discrete
+    // prop left unset (conflict rule: discrete props win). Received has no discrete equivalent, so it is always
+    // carried. Structural headers (Content-Type, CTE, boundary, MIME-Version, Content-Disposition) and
+    // X-Mozilla-* are NEVER carried: structure is regenerated from the body tree, and the mbox writer owns the
+    // X-Mozilla-* lines. Values are added RAW (not re-parsed) so an arbitrary Outlook value is preserved verbatim.
     private void ApplyTransportHeaders(MimeMessage mime, PstMailMessage m)
     {
-        // no-op until Task 4
+        if (string.IsNullOrEmpty(m.TransportHeaders)) return;
+        HeaderList? headers = TryParseHeaders(m.TransportHeaders!);
+        if (headers is null)
+        {
+            _onWarning?.Invoke("could not parse PidTagTransportMessageHeaders; skipping transport-header carry.");
+            return;
+        }
+
+        // Note: MimeMessage's default constructor auto-generates its OWN Message-Id header (MimeUtils
+        // GenerateMessageId) even when the discrete prop is absent, so mime.Headers.Contains(HeaderId.MessageId)
+        // is always true — the conflict check for Message-Id must test the discrete PROP (m.MessageId), not the
+        // header's presence. In-Reply-To/References are never auto-populated, so header presence is the right
+        // test for those.
+        if (string.IsNullOrWhiteSpace(m.MessageId) && headers[HeaderId.MessageId] is { } mid)
+        {
+            mime.Headers.Remove(HeaderId.MessageId);   // drop the auto-generated id before carrying the transport one
+            mime.Headers.Add(HeaderId.MessageId, mid);
+        }
+        if (!mime.Headers.Contains(HeaderId.InReplyTo) && headers[HeaderId.InReplyTo] is { } irt)
+            mime.Headers.Add(HeaderId.InReplyTo, irt);
+        if (!mime.Headers.Contains(HeaderId.References) && headers[HeaderId.References] is { } refs)
+            mime.Headers.Add(HeaderId.References, refs);
+
+        // Received: no discrete equivalent — carry every occurrence, preserving order.
+        foreach (Header h in headers)
+            if (h.Id == HeaderId.Received)
+                mime.Headers.Add(HeaderId.Received, h.Value);
+    }
+
+    // Parse a raw RFC 822 header block into a HeaderList. Returns null on an expected parse failure (caller warns).
+    private static HeaderList? TryParseHeaders(string block)
+    {
+        try
+        {
+            // UTF-8, not ASCII: the block is an already-decoded .NET string, so ASCII would replace any
+            // non-ASCII header text (e.g. an internationalized display name) with '?'. TrimEnd('\r','\n') only —
+            // a bare TrimEnd() would also strip trailing spaces/tabs and could corrupt the last header's folding
+            // whitespace.
+            byte[] bytes = Encoding.UTF8.GetBytes(block.TrimEnd('\r', '\n') + "\r\n\r\n");
+            using var ms = new MemoryStream(bytes);
+            return HeaderList.Load(ms);
+        }
+        catch (Exception ex) when (ex is FormatException or IOException)   // malformed block -> null; real bugs surface
+        {
+            return null;
+        }
     }
 
     // Narrow catch: MimeKit's Message-Id/In-Reply-To/References setters reject a malformed value with
