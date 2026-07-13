@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using MimeKit;
 
@@ -34,7 +36,7 @@ public sealed class MimeReconstructor : IMimeReconstructor
     {
         var mime = new MimeMessage();
         ApplyIdentityHeaders(mime, message);   // discrete props WIN
-        mime.Body = BuildBody(message);        // regenerated MIME-structural tree (Tasks 2–3 extend this)
+        mime.Body = WrapWithAttachments(BuildBody(message), message);   // regenerated MIME-structural tree
         ApplyTransportHeaders(mime, message);  // trace/thread from transport, non-contradicting only (Task 4)
         return mime;
     }
@@ -136,6 +138,79 @@ public sealed class MimeReconstructor : IMimeReconstructor
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     // TOLERANT: the post-failure fallback — invalid bytes become U+FFFD ('�') rather than throwing again.
     private static readonly Encoding TolerantUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
+
+    // Inline (CID) parts -> multipart/related around the body (inverting the forward inline-CID handling);
+    // non-inline parts -> multipart/mixed around whatever the body/related is. Attachment bytes are read
+    // SYNCHRONOUSLY here (the PstAttachment.OpenRead closure is valid only during this message's enumeration).
+    private MimeEntity WrapWithAttachments(MimeEntity body, PstMailMessage m)
+    {
+        var inline = new List<PstAttachment>();
+        var regular = new List<PstAttachment>();
+        foreach (PstAttachment a in m.Attachments)
+            (a.IsInline ? inline : regular).Add(a);
+
+        MimeEntity bodyOrRelated = body;
+        if (inline.Count > 0)
+        {
+            // Set Root in the initializer on an EMPTY collection: in MimeKit 4.17.0 the Root setter Insert(0,·)s
+            // when it can't resolve an existing root, so `related.Add(body); related.Root = body;` would insert
+            // the body TWICE. Assigning Root first (empty collection) adds it once as the root document; the
+            // inline parts are appended after.
+            var related = new MultipartRelated { Root = body };
+            foreach (PstAttachment a in inline)
+                related.Add(BuildPart(a, inlinePart: true));
+            bodyOrRelated = related;
+        }
+
+        if (regular.Count == 0) return bodyOrRelated;
+
+        var mixed = new Multipart("mixed");
+        mixed.Add(bodyOrRelated);
+        foreach (PstAttachment a in regular)
+            mixed.Add(BuildPart(a, inlinePart: false));
+        return mixed;
+    }
+
+    // Instance (not static) so it can warn on invalid attachment metadata. One detached MemoryStream that
+    // MimeContent takes ownership of — NO extra byte[]/MemoryStream copy. On any failure before the part owns
+    // the stream, dispose it so it can't leak.
+    private MimePart BuildPart(PstAttachment a, bool inlinePart)
+    {
+        MemoryStream content = a.Length is > 0 and <= int.MaxValue ? new MemoryStream((int)a.Length) : new MemoryStream();
+        try
+        {
+            using (Stream src = a.OpenRead()) src.CopyTo(content);   // read synchronously; never capture the closure
+            content.Position = 0;
+
+            ContentType ct;
+            if (ContentType.TryParse(a.ContentType, out ContentType? parsed) && parsed is not null)
+                ct = parsed;
+            else
+            {
+                ct = new ContentType("application", "octet-stream");
+                _onWarning?.Invoke($"attachment '{a.FileName}' has an invalid MIME type '{a.ContentType}'; using application/octet-stream.");
+            }
+
+            var part = new MimePart(ct)
+            {
+                Content = new MimeContent(content),
+                ContentTransferEncoding = ContentEncoding.Base64,
+                ContentDisposition = new ContentDisposition(inlinePart ? ContentDisposition.Inline : ContentDisposition.Attachment) { FileName = a.FileName },
+            };
+            part.ContentType.Name = a.FileName;
+            if (inlinePart && !string.IsNullOrWhiteSpace(a.ContentId))
+                part.ContentId = StripAngle(a.ContentId);
+            if (!string.IsNullOrWhiteSpace(a.ContentLocation))
+            {
+                if (Uri.TryCreate(a.ContentLocation, UriKind.RelativeOrAbsolute, out Uri? location))
+                    part.ContentLocation = location;
+                else
+                    _onWarning?.Invoke($"attachment '{a.FileName}' has an invalid Content-Location '{a.ContentLocation}'; omitting it.");
+            }
+            return part;
+        }
+        catch { content.Dispose(); throw; }
+    }
 
     // Transport-header carry. Stub in Task 1; implemented in Task 4.
     private void ApplyTransportHeaders(MimeMessage mime, PstMailMessage m)

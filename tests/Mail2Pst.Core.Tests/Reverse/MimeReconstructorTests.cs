@@ -260,4 +260,112 @@ public class MimeReconstructorTests
         Assert.Contains("hi", ((TextPart)m.Body).Text);
         Assert.Contains(warnings, w => w.Contains("999999") && w.Contains("UTF-8", StringComparison.OrdinalIgnoreCase));
     }
+
+    // ---- Task 3 tests ----------------------------------------------------------------------------
+
+    // In-memory attachment; `read` flips true when the closure is invoked, proving synchronous reads.
+    private static PstAttachment Att(
+        string fileName, string? contentType, string? contentId, bool inline, byte[] bytes,
+        Action? onOpen = null, string? contentLocation = null)
+        => new PstAttachment(
+            fileName, contentType, contentId, inline,
+            OpenRead: () => { onOpen?.Invoke(); return new MemoryStream(bytes, writable: false); },
+            Length: bytes.Length)
+        { ContentLocation = contentLocation };   // Plan-1 addendum: init-only PidTagAttachContentLocation
+
+    [Fact]
+    public void Reconstruct_NonInlineAttachment_ProducesMultipartMixed_WithExactBytes()
+    {
+        byte[] payload = { 1, 2, 3, 4, 5, 42, 200, 255 };
+        var msg = Msg(
+            plainBody: "see attachment",
+            attachments: new[] { Att("data.bin", "application/octet-stream", null, inline: false, payload) });
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        Multipart mixed = Assert.IsType<Multipart>(m.Body);
+        Assert.True(mixed.ContentType.IsMimeType("multipart", "mixed"));
+        Assert.True(mixed[0].ContentType.IsMimeType("text", "plain"));           // body first
+        MimePart att = Assert.IsType<MimePart>(mixed[1]);
+        Assert.Equal("data.bin", att.FileName);
+        Assert.Equal(ContentDisposition.Attachment, att.ContentDisposition!.Disposition);
+
+        using var got = new MemoryStream();
+        att.Content.DecodeTo(got);
+        Assert.Equal(payload, got.ToArray());
+    }
+
+    [Fact]
+    public void Reconstruct_InlineCidAttachment_ProducesMultipartRelated_WithContentId()
+    {
+        byte[] png = { 0x89, 0x50, 0x4E, 0x47 };
+        var msg = Msg(
+            plainBody: null, htmlBody: Utf8("<img src=\"cid:img1@example\">"), codepage: 65001,
+            attachments: new[] { Att("logo.png", "image/png", "img1@example", inline: true, png) });
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        MultipartRelated related = Assert.IsType<MultipartRelated>(m.Body);
+        Assert.Equal(2, related.Count);                                          // root + one inline, no duplicate
+        Assert.Same(related[0], related.Root);                                   // body is the root, added once
+        Assert.True(related.Root.ContentType.IsMimeType("text", "html"));        // root document is the html
+        MimePart inline = related.OfType<MimePart>().Single(p => p.ContentId is not null);
+        Assert.Equal("img1@example", inline.ContentId);                          // matches the cid: reference
+        Assert.Equal(ContentDisposition.Inline, inline.ContentDisposition!.Disposition);
+    }
+
+    [Fact]
+    public void Reconstruct_AttachmentContentLocation_IsRestored()
+    {
+        var msg = Msg(
+            plainBody: null, htmlBody: Utf8("<img src=\"img/logo.png\">"), codepage: 65001,
+            attachments: new[]
+            {
+                Att("logo.png", "image/png", "img1@example", inline: true, new byte[] { 1 },
+                    contentLocation: "img/logo.png"),
+            });
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        MultipartRelated related = Assert.IsType<MultipartRelated>(m.Body);
+        Assert.Equal(2, related.Count);                                          // root + one inline, no duplicate
+        Assert.Same(related[0], related.Root);
+        MimePart inline = related.OfType<MimePart>().Single(p => p.ContentId is not null);
+        Assert.NotNull(inline.ContentLocation);
+        Assert.Equal("img/logo.png", inline.ContentLocation!.ToString());
+    }
+
+    [Fact]
+    public void Reconstruct_ReadsAttachmentBytesSynchronously_DuringReconstruct()
+    {
+        bool read = false;
+        var msg = Msg(attachments: new[]
+        {
+            Att("f.bin", "application/octet-stream", null, inline: false, new byte[] { 9 }, onOpen: () => read = true),
+        });
+
+        new MimeReconstructor().Reconstruct(msg);
+        Assert.True(read, "attachment OpenRead must be invoked synchronously during Reconstruct");
+    }
+
+    [Fact]
+    public void Reconstruct_InlineAndRegular_NestsRelatedInsideMixed()
+    {
+        var msg = Msg(
+            plainBody: "body", htmlBody: Utf8("<img src=\"cid:c@x\">"), codepage: 65001,
+            attachments: new[]
+            {
+                Att("logo.png", "image/png", "c@x", inline: true, new byte[] { 1 }),
+                Att("report.pdf", "application/pdf", null, inline: false, new byte[] { 2 }),
+            });
+
+        MimeMessage m = new MimeReconstructor().Reconstruct(msg);
+
+        Multipart mixed = Assert.IsType<Multipart>(m.Body);
+        Assert.True(mixed.ContentType.IsMimeType("multipart", "mixed"));
+        MultipartRelated related = Assert.IsType<MultipartRelated>(mixed[0]);     // related nested inside mixed
+        Assert.Equal(2, related.Count);                                          // root + one inline, no duplicate
+        Assert.Equal("report.pdf", Assert.IsType<MimePart>(mixed[1]).FileName);
+        AssertNoMozillaHeaders(m);
+    }
 }
