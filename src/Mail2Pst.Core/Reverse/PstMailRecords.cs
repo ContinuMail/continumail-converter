@@ -19,7 +19,11 @@ public sealed record PstRecipient(string Address, string? DisplayName, PstRecipi
 /// </summary>
 public sealed record PstAttachment(
     string FileName, string? ContentType, string? ContentId, bool IsInline,
-    Func<Stream> OpenRead, long? Length);
+    Func<Stream> OpenRead, long? Length)
+{
+    /// <summary>Content-Location (PidTagAttachContentLocation); null when absent.</summary>
+    public string? ContentLocation { get; init; }
+}
 
 /// <summary>Full payload of one mail message (all fields materialized except attachment bytes).</summary>
 public sealed record PstMailMessage(

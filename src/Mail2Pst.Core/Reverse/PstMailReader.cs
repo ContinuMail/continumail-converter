@@ -114,7 +114,10 @@ public static class PstMailReader
                 name, mime, contentId,
                 IsInline: hidden || !string.IsNullOrEmpty(contentId),
                 OpenRead: () => new MemoryStream(att.PC.GetBytesProperty(PropertyID.PidTagAttachData) ?? Array.Empty<byte>()),
-                Length: null));
+                Length: null)
+            {
+                ContentLocation = att.PC.GetStringProperty(PropertyID.PidTagAttachContentLocation),
+            });
         }
 
         byte[]? html = note.PC.GetBytesProperty(PropertyID.PidTagHtml);

@@ -232,4 +232,43 @@ public class PstMailReaderTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    // AttachmentWriter.Write sets PidTagAttachContentLocation whenever AttachmentSpec.ContentLocation is
+    // non-empty (AttachmentWriter.cs ~55); the reader must recover it so a later plan (MimeReconstructor)
+    // can restore Content-Location on the reassembled MIME part.
+    [Fact]
+    public void Read_MessageWithAttachmentContentLocation_RecoversContentLocation()
+    {
+        var msg = new MailMessage
+        {
+            MessageId = "<contentloc@test>",
+            Subject = "Message with attachment Content-Location",
+            Attachments = new List<MailAttachment>
+            {
+                new()
+                {
+                    FileName = "inline.png", MimeType = "image/png",
+                    Content = AttachmentContent.FromBytes(new byte[] { 1, 2, 3 }),
+                    ContentLocation = "https://example.com/inline.png",
+                },
+            },
+        };
+
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-reverse-contentloc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var plan = new PstOutputPlan { Name = "ContentLoc", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            var writer = new PstWriter();
+            List<string> outputs = writer.WritePlan(plan, planned, dir, new ConversionReport());
+            string pst = Assert.Single(outputs);
+
+            PstMailItem item = Assert.Single(PstMailReader.EnumerateMessages(pst));
+            PstAttachment att = Assert.Single(item.Message.Attachments);
+
+            Assert.Equal("https://example.com/inline.png", att.ContentLocation);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
