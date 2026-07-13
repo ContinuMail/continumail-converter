@@ -113,7 +113,7 @@ public sealed class MboxTreeWriter
 
     private void AppendMessage(string mboxPath, PstMailMessage message)
     {
-        MimeMessage mime = _reconstructor.Reconstruct(message);
+        using MimeMessage mime = _reconstructor.Reconstruct(message);
         MozillaStatusHeaders h = MozillaStatusMapper.Map(message);
 
         using var fs = new FileStream(mboxPath, FileMode.Append, FileAccess.Write, FileShare.None);
