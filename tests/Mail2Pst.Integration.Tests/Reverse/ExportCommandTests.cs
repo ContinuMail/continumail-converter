@@ -80,6 +80,36 @@ public class ExportCommandTests
             if (File.Exists(s)) File.Delete(s);
     }
 
+    [Fact]
+    public void Export_IncludeEmptyFlag_ControlsWhetherEmptyLeafMboxIsEmitted()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com")
+            .WithFolder("Inbox", 1).WithFolder("Empty", 0).Build();
+        var (pst, convertDir) = BuildMirrorPst(profile);   // IncludeEmptyFolders:true → the empty folder exists in the PST
+        string withEmpty = FreshOutDir();
+        string withoutEmpty = FreshOutDir();
+        try
+        {
+            (int e1, _) = RunExport("--input", pst, "--output", withEmpty, "--include-empty");
+            Assert.Equal(0, e1);
+            Assert.True(File.Exists(Path.Combine(withEmpty, "Empty")), "empty leaf emitted WITH --include-empty");
+
+            (int e2, _) = RunExport("--input", pst, "--output", withoutEmpty);
+            Assert.Equal(0, e2);
+            Assert.False(File.Exists(Path.Combine(withoutEmpty, "Empty")), "empty leaf skipped WITHOUT --include-empty");
+        }
+        finally
+        {
+            Directory.Delete(convertDir, true);
+            foreach (string d in new[] { withEmpty, withoutEmpty })
+            {
+                if (Directory.Exists(d)) Directory.Delete(d, true);
+                CleanupSiblings(d);
+            }
+        }
+    }
+
     [Theory]
     [InlineData("export-report.json")]
     [InlineData("export-report.txt")]
