@@ -30,6 +30,46 @@ public static class PstMailReader
         finally { pst.CloseFile(); }
     }
 
+    /// <summary>
+    /// The STRUCTURE AUTHORITY for the reverse export: walks the whole tree from TopOfPersonalFolders and
+    /// returns every mail folder's path INCLUDING empty ones (which <see cref="EnumerateMessages"/> never
+    /// yields). Recurses THROUGH non-mail containers so their mail descendants are returned with their full
+    /// path (the container itself is not a mail folder and is not returned; MboxTreePlanner synthesizes it as
+    /// a structural parent). Reads no messages and does NOT modify the store. A fatal open/root-walk failure
+    /// propagates; a corrupt child-walk is reported via <paramref name="onWarning"/> and that subtree stops.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<string>> EnumerateFolders(string pstPath, Action<string>? onWarning = null)
+    {
+        var pst = new PSTFile(pstPath, FileAccess.Read);          // fatal on failure -> propagate
+        try
+        {
+            var result = new List<IReadOnlyList<string>>();
+            foreach (PSTFolder child in pst.TopOfPersonalFolders.GetChildFolders())
+                CollectFolders(child, new List<string>(), result, onWarning);
+            return result;
+        }
+        finally { pst.CloseFile(); }
+    }
+
+    private static void CollectFolders(
+        PSTFolder folder, List<string> parentPath, List<IReadOnlyList<string>> acc, Action<string>? onWarning)
+    {
+        var path = new List<string>(parentPath) { folder.DisplayName };
+        if (folder is MailFolder)
+            acc.Add(path);                                        // mail folder (possibly empty) -> structure
+
+        List<PSTFolder> children;
+        try { children = folder.GetChildFolders(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) // corrupt subtree: warn + stop this branch
+        {
+            onWarning?.Invoke(
+                $"could not read subfolders of '{FolderPathDisplay.Join(path)}': {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+        foreach (PSTFolder c in children)
+            CollectFolders(c, path, acc, onWarning);
+    }
+
     private static IEnumerable<PstMailItem> EnumerateFolder(
         PSTFolder folder, List<string> parentPath, ushort? keywordsId, Action<string>? onWarning)
     {

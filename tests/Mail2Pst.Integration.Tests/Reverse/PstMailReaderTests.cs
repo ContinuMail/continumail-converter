@@ -14,6 +14,7 @@ using Mail2Pst.Core.Reverse;
 using Mail2Pst.Core.Writing;                   // PstWriter / PlannedMessage (streaming test)
 using Mail2Pst.Integration.Tests;              // RoundTripHarness / RepoPaths live in the parent namespace
 using Mail2Pst.TestSupport;
+using PSTFileFormat;   // synthetic-PST construction for the non-mail-container recursion test
 using Xunit;
 
 namespace Mail2Pst.Integration.Tests.Reverse;
@@ -270,5 +271,80 @@ public class PstMailReaderTests
             Assert.Equal("https://example.com/inline.png", att.ContentLocation);
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    // EnumerateFolders is the structure authority for the export runner: it must include EMPTY mail
+    // folders (which EnumerateMessages never yields), so MboxTreeWriter can honor --include-empty and
+    // structural parents.
+    [Fact]
+    public void EnumerateFolders_IncludesEmptyFolders_ThatMessageStreamOmits()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com")
+            .WithFolder("Inbox", messageCount: 2)
+            .WithFolder("Archive", messageCount: 0)   // empty leaf
+            .Build();
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = true,
+            Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+        }}};
+        var (outputs, dir) = ConvertProfile(config);
+        try
+        {
+            string pst = Assert.Single(outputs);
+
+            var folderLeaves = PstMailReader.EnumerateFolders(pst).Select(p => p[^1]).ToList();
+            Assert.Contains("Inbox", folderLeaves);
+            Assert.Contains("Archive", folderLeaves);   // EMPTY folder IS present in the structure authority
+
+            var messageBearingLeaves = PstMailReader.EnumerateMessages(pst)
+                .Select(i => i.FolderPath[^1]).Distinct().ToList();
+            Assert.Contains("Inbox", messageBearingLeaves);
+            Assert.DoesNotContain("Archive", messageBearingLeaves);   // empty folder yields no items
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    // LOAD-BEARING for the folder-gap fix: EnumerateFolders must RECURSE THROUGH a non-mail container and
+    // return its mail descendants with their FULL path (and include an empty mail leaf), while NOT returning
+    // the non-mail container itself. The forward writer forces intermediate folders to mail (Note) type, so
+    // this tree is built directly with the vendored API (Begin/EndSavingChanges bracket per AssociatedMessageTests).
+    [Fact]
+    public void EnumerateFolders_RecursesThroughNonMailContainer_ReturnsMailDescendantsWithFullPath()
+    {
+        string pst = Path.Combine(Path.GetTempPath(), "m2p-synth-" + Guid.NewGuid().ToString("N") + ".pst");
+        PSTFile.CreateEmptyStore(pst);
+        var file = new PSTFile(pst, FileAccess.ReadWrite, WriterCompatibilityMode.Outlook2007RTM);
+        try
+        {
+            file.BeginSavingChanges();
+            PSTFolder top = file.TopOfPersonalFolders;
+            PSTFolder container = top.CreateChildFolder("Container", FolderItemTypeName.Contact);  // NON-mail parent
+            PSTFolder mail = container.CreateChildFolder("Mail", FolderItemTypeName.Note);          // mail child
+            Note note = Note.CreateNewNote(file, mail.NodeID);
+            note.Subject = "hello from a nested mail folder";
+            note.SaveChanges();
+            mail.AddMessage(note);
+            mail.SaveChanges();                                                    // flush the contents-table update
+            mail.CreateChildFolder("EmptyChild", FolderItemTypeName.Note);         // empty mail leaf
+            file.EndSavingChanges();
+        }
+        finally { file.CloseFile(); }
+
+        try
+        {
+            List<IReadOnlyList<string>> folders = PstMailReader.EnumerateFolders(pst).ToList();
+            var joined = folders.Select(p => string.Join("/", p)).ToList();
+
+            Assert.Contains("Container/Mail", joined);            // mail descendant, FULL path through the non-mail parent
+            Assert.Contains("Container/Mail/EmptyChild", joined); // empty mail leaf included
+            Assert.DoesNotContain("Container", joined);           // the non-mail container itself is NOT a mail folder
+
+            // The message under the non-mail parent still streams with its full path.
+            PstMailItem item = Assert.Single(PstMailReader.EnumerateMessages(pst));
+            Assert.Equal(new[] { "Container", "Mail" }, item.FolderPath);
+        }
+        finally { File.Delete(pst); }
     }
 }
