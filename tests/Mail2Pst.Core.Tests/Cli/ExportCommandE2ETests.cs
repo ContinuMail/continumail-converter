@@ -262,6 +262,41 @@ public class ExportCommandE2ETests
     }
 
     [Fact]
+    public async Task Export_UnreadablePst_EmitsStartedThenSingleFatalError_ExitOne_NoReport()
+    {
+        // A file that EXISTS (passes the File.Exists guard) but is not a valid PST — the runner opens it
+        // during pass 1 and throws; the CLI must turn that into ONE fatal error after `started`, exit 1.
+        string junkPst = Path.Combine(Path.GetTempPath(), "m2p-export-junk-" + Guid.NewGuid() + ".pst");
+        string mboxDir = Path.Combine(Path.GetTempPath(), "m2p-export-tree-" + Guid.NewGuid());
+        File.WriteAllText(junkPst, "this is not a pst file");
+        try
+        {
+            (int exit, string stdout, _) = await RunCliAsync("export", "--input", junkPst, "--output", mboxDir);
+
+            Assert.Equal(1, exit);
+            string[] types = Events(stdout).Select(Type).ToArray();
+            Assert.Equal("started", types[0]);                       // started ALWAYS precedes the open
+            Assert.Equal("error", types[^1]);                        // terminal error is the LAST event
+            Assert.Equal(1, types.Count(t => t == "error"));
+            Assert.DoesNotContain("done", types);
+
+            JsonElement err = Events(stdout).Single(e => Type(e) == "error");
+            Assert.Equal("export", err.GetProperty("command").GetString());
+            Assert.Equal("export", err.GetProperty("stage").GetString());
+            Assert.True(err.GetProperty("fatal").GetBoolean());
+
+            // A pre-publication failure leaves no tree and no sibling report.
+            Assert.False(Directory.Exists(mboxDir));
+            Assert.False(File.Exists(mboxDir + ".export-report.json"));
+        }
+        finally
+        {
+            if (File.Exists(junkPst)) File.Delete(junkPst);
+            if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
+        }
+    }
+
+    [Fact]
     public async Task Export_PreExistingReportFile_IsRejectedWithoutOverwritingIt()
     {
         string pstDir = Path.Combine(Path.GetTempPath(), "m2p-export-pst-" + Guid.NewGuid());
