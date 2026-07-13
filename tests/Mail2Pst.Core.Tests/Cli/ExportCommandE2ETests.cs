@@ -160,4 +160,132 @@ public class ExportCommandE2ETests
             if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
         }
     }
+
+    [Fact]
+    public async Task Export_WritesReportFiles_AsSiblings_WithMatchingElapsed()
+    {
+        string pstDir = Path.Combine(Path.GetTempPath(), "m2p-export-pst-" + Guid.NewGuid());
+        string mboxDir = Path.Combine(Path.GetTempPath(), "m2p-export-tree-" + Guid.NewGuid());
+        try
+        {
+            string pst = await ConvertSampleToPstAsync(pstDir);
+            (int exit, string stdout, _) = await RunCliAsync("export", "--input", pst, "--output", mboxDir);
+            Assert.Equal(0, exit);
+
+            string reportJson = mboxDir + ".export-report.json";     // SIBLING, not inside the tree
+            string reportTxt = mboxDir + ".export-report.txt";
+            Assert.True(File.Exists(reportJson), $"expected sibling {reportJson}");
+            Assert.True(File.Exists(reportTxt), $"expected sibling {reportTxt}");
+            Assert.False(File.Exists(Path.Combine(mboxDir, "export-report.json")), "report must NOT be inside the tree");
+
+            JsonElement done = Events(stdout).Single(e => Type(e) == "done");
+            Assert.Equal(reportJson, done.GetProperty("report").GetString());
+
+            using JsonDocument reportDoc = JsonDocument.Parse(File.ReadAllText(reportJson));
+            Assert.Equal(done.GetProperty("messagesExported").GetInt32(),
+                         reportDoc.RootElement.GetProperty("messagesExported").GetInt32());
+            Assert.Equal(done.GetProperty("elapsedMs").GetInt64(),
+                         reportDoc.RootElement.GetProperty("elapsedMs").GetInt64());
+        }
+        finally
+        {
+            if (Directory.Exists(pstDir)) Directory.Delete(pstDir, true);
+            if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
+            foreach (string s in new[] { mboxDir + ".export-report.json", mboxDir + ".export-report.txt" })
+                if (File.Exists(s)) File.Delete(s);
+        }
+    }
+
+    [Fact]
+    public async Task Export_ReportWriteFails_PreservesPublishedTree_EmitsReportStageError()
+    {
+        string pstDir = Path.Combine(Path.GetTempPath(), "m2p-export-pst-" + Guid.NewGuid());
+        string mboxDir = Path.Combine(Path.GetTempPath(), "m2p-export-tree-" + Guid.NewGuid());
+        string blockingDir = mboxDir + ".export-report.json";        // a DIRECTORY where the report file must go
+        try
+        {
+            string pst = await ConvertSampleToPstAsync(pstDir);
+            Directory.CreateDirectory(blockingDir);                  // report publish is refused up front
+
+            (int exit, string stdout, _) = await RunCliAsync("export", "--input", pst, "--output", mboxDir);
+
+            Assert.NotEqual(0, exit);
+            JsonElement[] events = Events(stdout);
+            Assert.DoesNotContain(events, e => Type(e) == "done");   // never claims success
+            Assert.Equal("error", events.Select(Type).Last());       // terminal is the error
+            JsonElement err = Assert.Single(events.Where(e => Type(e) == "error"));
+            Assert.Equal("export", err.GetProperty("command").GetString());
+            Assert.Equal("report", err.GetProperty("stage").GetString());
+            Assert.True(err.GetProperty("fatal").GetBoolean());
+            Assert.True(err.GetProperty("outputPreserved").GetBoolean());
+            Assert.True(Directory.Exists(mboxDir), "the published mbox tree must survive a report failure");
+            Assert.NotEmpty(Directory.GetFileSystemEntries(mboxDir));
+        }
+        finally
+        {
+            if (Directory.Exists(pstDir)) Directory.Delete(pstDir, true);
+            if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
+            if (Directory.Exists(blockingDir)) Directory.Delete(blockingDir, true);
+            if (File.Exists(mboxDir + ".export-report.txt")) File.Delete(mboxDir + ".export-report.txt");
+        }
+    }
+
+    [Fact]
+    public async Task Export_SecondReportPublishFails_RollsBackFirstReport()
+    {
+        string pstDir = Path.Combine(Path.GetTempPath(), "m2p-export-pst-" + Guid.NewGuid());
+        string mboxDir = Path.Combine(Path.GetTempPath(), "m2p-export-tree-" + Guid.NewGuid());
+        string blockingTxtDir = mboxDir + ".export-report.txt";      // .txt destination is occupied
+        try
+        {
+            string pst = await ConvertSampleToPstAsync(pstDir);
+            Directory.CreateDirectory(blockingTxtDir);
+
+            (int exit, string stdout, _) = await RunCliAsync("export", "--input", pst, "--output", mboxDir);
+
+            Assert.NotEqual(0, exit);
+            JsonElement err = Assert.Single(Events(stdout).Where(e => Type(e) == "error"));
+            Assert.Equal("report", err.GetProperty("stage").GetString());
+            // The JSON report must NOT be left published, and no temp files may remain (roll back / never publish).
+            Assert.False(File.Exists(mboxDir + ".export-report.json"), "the first report file must not be left behind");
+            string parent = Path.GetDirectoryName(mboxDir)!;
+            Assert.Empty(Directory.GetFiles(parent, Path.GetFileName(mboxDir) + "*.tmp-*"));
+            Assert.True(Directory.Exists(mboxDir), "the published mbox tree must survive");
+        }
+        finally
+        {
+            if (Directory.Exists(pstDir)) Directory.Delete(pstDir, true);
+            if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
+            if (Directory.Exists(blockingTxtDir)) Directory.Delete(blockingTxtDir, true);
+            if (File.Exists(mboxDir + ".export-report.json")) File.Delete(mboxDir + ".export-report.json");
+        }
+    }
+
+    [Fact]
+    public async Task Export_PreExistingReportFile_IsRejectedWithoutOverwritingIt()
+    {
+        string pstDir = Path.Combine(Path.GetTempPath(), "m2p-export-pst-" + Guid.NewGuid());
+        string mboxDir = Path.Combine(Path.GetTempPath(), "m2p-export-tree-" + Guid.NewGuid());
+        string existingReport = mboxDir + ".export-report.json";
+        try
+        {
+            string pst = await ConvertSampleToPstAsync(pstDir);
+            File.WriteAllText(existingReport, "ORIGINAL");           // a pre-existing sibling the user owns
+
+            (int exit, string stdout, _) = await RunCliAsync("export", "--input", pst, "--output", mboxDir);
+
+            Assert.NotEqual(0, exit);
+            JsonElement err = Assert.Single(Events(stdout).Where(e => Type(e) == "error"));
+            Assert.Equal("report", err.GetProperty("stage").GetString());
+            Assert.Equal("ORIGINAL", File.ReadAllText(existingReport)); // NOT overwritten
+            Assert.True(Directory.Exists(mboxDir), "the published mbox tree must survive");
+        }
+        finally
+        {
+            if (Directory.Exists(pstDir)) Directory.Delete(pstDir, true);
+            if (Directory.Exists(mboxDir)) Directory.Delete(mboxDir, true);
+            if (File.Exists(existingReport)) File.Delete(existingReport);
+            if (File.Exists(mboxDir + ".export-report.txt")) File.Delete(mboxDir + ".export-report.txt");
+        }
+    }
 }
