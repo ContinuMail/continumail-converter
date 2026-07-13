@@ -32,6 +32,7 @@ namespace PSTFileFormat
         PidTagSentRepresentingEmailAddress = 0x0065, // String
         PidTagConversationTopic = 0x0070,         // String
         PidTagConversationIndex = 0x0071,         // Binary
+        PidTagTransportMessageHeaders = 0x007D,   // String
         PidTagRecipientType = 0x0C15,             // Int32
         PidTagReplyRequested = 0x0C17,            // Boolean
         PidTagSenderEntryId = 0x0C19,             // Binary
