@@ -284,4 +284,54 @@ public class PstExportRunnerTests
         }
         finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
     }
+
+    // Attachment OpenRead closures are only valid while the message is current in the PST enumeration. If the
+    // runner read attachments after the PST closed (e.g. by materializing the stream first), the payload would
+    // be empty. Proving a visible attachment's bytes survive into the exported mbox proves the PST-bound
+    // lifetime is respected end-to-end (reconstruction + serialization + re-parse).
+    [Fact]
+    public void Run_PreservesAttachmentPayloadThroughFullExport()
+    {
+        byte[] payload = { 10, 20, 30, 40, 50, 60, 70, 80 };
+        var msg = new MailMessage
+        {
+            MessageId = "<attach-payload@test>",
+            Subject = "Attachment payload",
+            Attachments = new List<MailAttachment>
+            {
+                new() { FileName = "note.bin", MimeType = "application/octet-stream", Content = AttachmentContent.FromBytes(payload) },
+            },
+        };
+
+        string convertDir = Path.Combine(Path.GetTempPath(), "m2p-rev-att-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(convertDir);
+        string outRoot = FreshOutDir();
+        try
+        {
+            var plan = new PstOutputPlan { Name = "Att", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            string pst = Assert.Single(new PstWriter().WritePlan(plan, planned, convertDir, new ConversionReport()));
+
+            ExportReport report = new PstExportRunner().Run(pst, outRoot, includeEmpty: false);
+            Assert.Equal(1, report.MessagesExported);
+
+            string inbox = Path.Combine(outRoot, "Inbox");
+            Assert.True(File.Exists(inbox));
+            ParseResult parsed = Assert.Single(new MboxParser().Parse(inbox));
+            Assert.True(parsed.Success);
+            MailAttachment att = Assert.Single(parsed.Message!.Attachments);
+            using (Stream content = att.Content.OpenRead())
+            using (var ms = new MemoryStream())
+            {
+                content.CopyTo(ms);
+                Assert.Equal(payload, ms.ToArray());
+            }
+            att.Content.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(convertDir, true);
+            if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true);
+        }
+    }
 }
