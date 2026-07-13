@@ -334,4 +334,34 @@ public class PstExportRunnerTests
             if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true);
         }
     }
+
+    [Fact]
+    public void Run_AcceptsOnSkipped_CleanPstProducesNoSkipCallbacks()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 2).Build();
+        var config = new ConversionConfig { Outputs = { new()
+        {
+            Name = "Archive", MaxSizeMB = 50_000, FolderMapping = FolderMappingMode.Mirror, IncludeEmptyFolders = true,
+            Sources = profile.Folders.Select(f => new SourceConfig { Type = "mbox", Path = f.FilePath }).ToList(),
+        }}};
+        var (outputs, convertDir) = ConvertProfile(config);
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        try
+        {
+            var skips = new List<ExportSkip>();
+            var warns = new List<string>();
+            ExportReport report = new PstExportRunner().Run(
+                pst, outRoot, includeEmpty: false, onWarning: warns.Add, onSkipped: skips.Add);
+
+            Assert.Equal(2, report.MessagesExported);
+            Assert.Empty(skips);                  // no per-message read failures on a clean engine-written PST
+            Assert.Empty(warns);                  // ... and nothing leaked into the warning stream
+            Assert.Equal(0, report.SkippedCount); // the report agrees on both
+            Assert.Equal(0, report.WarningCount);
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
 }

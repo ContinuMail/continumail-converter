@@ -41,11 +41,14 @@ public sealed class PstExportRunner
         => _reconstructorFactory = reconstructorFactory ?? (onWarning => new MimeReconstructor(onWarning));
 
     /// <param name="onWarning">Optional live sink (Plan 6's warning-event stream). Invoked IN ADDITION to
-    /// recording into the report. Structured skips are also forwarded here as text for the live stream.</param>
+    /// recording into the report. Skips are NOT forwarded here — see <paramref name="onSkipped"/>.</param>
     /// <param name="onProgress">Optional live progress sink, one tick per successfully written message.</param>
+    /// <param name="onSkipped">Optional live sink for structured per-message skips (Plan 6's skip-event
+    /// stream). Invoked IN ADDITION to recording into the report; disjoint from <paramref name="onWarning"/>.</param>
     public ExportReport Run(
         string pstPath, string outputRoot, bool includeEmpty,
-        Action<string>? onWarning = null, Action<ExportProgress>? onProgress = null)
+        Action<string>? onWarning = null, Action<ExportProgress>? onProgress = null,
+        Action<ExportSkip>? onSkipped = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pstPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputRoot);
@@ -62,13 +65,14 @@ public sealed class PstExportRunner
 
         var report = new ExportReport(fullOutput);
 
-        // Two DISTINCT sinks: Collect writes report.Warnings (+ live). CollectSkip writes report.Skipped ONLY
-        // (never report.Warnings — no double count), plus a formatted line to the LIVE sink for the CLI stream.
+        // Two DISTINCT sinks: Collect writes report.Warnings (+ live warning stream). CollectSkip writes
+        // report.Skipped ONLY (never report.Warnings — no double count) and forwards the STRUCTURED skip to
+        // the live skip sink, so a consumer's warning and skip counts stay disjoint and match the report.
         void Collect(string message) { report.RecordWarning(message); onWarning?.Invoke(message); }
         void CollectSkip(ExportSkip skip)
         {
             report.RecordSkipped(skip);
-            onWarning?.Invoke($"skipped message {skip.MessageIndex} in '{skip.FolderPath}': {skip.Reason}");
+            onSkipped?.Invoke(skip);
         }
 
         var stopwatch = Stopwatch.StartNew();
