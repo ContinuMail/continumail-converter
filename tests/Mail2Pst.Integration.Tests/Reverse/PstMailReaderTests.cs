@@ -200,4 +200,36 @@ public class PstMailReaderTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    // PstWriter.WriteMessage writes both SenderName/SentRepresentingName from message.From.Name when
+    // present (PstWriter.cs ~722); the reader must recover it via PidTagSentRepresentingName so a later
+    // plan can emit "From: Name <addr>".
+    [Fact]
+    public void Read_MessageWithFromDisplayName_RecoversFromNameAndAddress()
+    {
+        var msg = new MailMessage
+        {
+            MessageId = "<fromname@test>",
+            Subject = "Message with sender display name",
+            From = new Mail2Pst.Core.Models.MailAddress { Name = "John Doe", Email = "john@example.com" },
+        };
+
+        string dir = Path.Combine(Path.GetTempPath(), "m2p-reverse-fromname-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var plan = new PstOutputPlan { Name = "FromName", MaxSizeBytes = 100L * 1024 * 1024, IncludeEmptyFolders = false };
+            PlannedMessage[] planned = [ new() { Message = msg, TargetFolderPath = new[] { "Inbox" } } ];
+            var writer = new PstWriter();
+            List<string> outputs = writer.WritePlan(plan, planned, dir, new ConversionReport());
+            string pst = Assert.Single(outputs);
+
+            PstMailItem item = Assert.Single(PstMailReader.EnumerateMessages(pst));
+            PstMailMessage m = item.Message;
+
+            Assert.Equal("John Doe", m.FromName);
+            Assert.Equal("john@example.com", m.FromAddress);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }

@@ -38,7 +38,11 @@ public sealed record PstMailMessage(
     bool IsReplied,
     bool IsForwarded,
     IReadOnlyList<string> Categories,
-    IReadOnlyList<PstAttachment> Attachments);
+    IReadOnlyList<PstAttachment> Attachments)
+{
+    /// <summary>Sender display name (PidTagSentRepresentingName); null when absent. Paired with FromAddress.</summary>
+    public string? FromName { get; init; }
+}
 
 /// <summary>One streamed item: which folder it came from, and the message.</summary>
 public sealed record PstMailItem(IReadOnlyList<string> FolderPath, PstMailMessage Message);

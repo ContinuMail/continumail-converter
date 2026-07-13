@@ -150,7 +150,10 @@ public static class PstMailReader
             IsReplied: lastVerb is 102 or 103,
             IsForwarded: lastVerb is 104,
             Categories: categories,
-            Attachments: attachments);
+            Attachments: attachments)
+        {
+            FromName = note.PC.GetStringProperty(PropertyID.PidTagSentRepresentingName),
+        };
     }
 
     private static PstRecipientKind MapKind(int? raw, Action<string>? onWarning)
