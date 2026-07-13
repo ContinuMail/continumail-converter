@@ -50,6 +50,24 @@ public class PstExportRunnerTests
         }
     }
 
+    // Emits a known warning through its injected sink, then a minimal real reconstruction.
+    private sealed class WarningReconstructor : IMimeReconstructor
+    {
+        private readonly Action<string>? _onWarning;
+        public WarningReconstructor(Action<string>? onWarning) => _onWarning = onWarning;
+        public MimeMessage Reconstruct(PstMailMessage message)
+        {
+            _onWarning?.Invoke("reconstructor-warning");
+            var m = new MimeMessage();
+            m.From.Add(new MailboxAddress(string.Empty, message.FromAddress ?? "s@example.com"));
+            m.To.Add(new MailboxAddress(string.Empty, "r@example.com"));
+            m.Subject = message.Subject ?? string.Empty;
+            m.Date = message.Date ?? DateTimeOffset.UnixEpoch;
+            m.Body = new TextPart("plain") { Text = message.PlainBody ?? string.Empty, ContentTransferEncoding = ContentEncoding.SevenBit };
+            return m;
+        }
+    }
+
     private static ConversionConfig OneInbox(GeneratedProfile profile, int _) => new()
     {
         Outputs = { new()
@@ -200,5 +218,70 @@ public class PstExportRunnerTests
             Directory.Delete(convertDir, true);
             if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true);
         }
+    }
+
+    [Fact]
+    public void Run_ReconstructorWarning_ReachesReportAndLiveSink()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 1).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        try
+        {
+            var live = new List<string>();
+            var runner = new PstExportRunner(onWarning => new WarningReconstructor(onWarning));
+            ExportReport report = runner.Run(pst, outRoot, includeEmpty: false, onWarning: live.Add);
+
+            Assert.Contains("reconstructor-warning", report.Warnings);   // shared collector -> report
+            Assert.Contains("reconstructor-warning", live);              // ... and the live sink
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
+
+    [Fact]
+    public void Run_Progress_TicksOncePerSuccessfullyWrittenMessage()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 3).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        try
+        {
+            var ticks = new List<ExportProgress>();
+            ExportReport report = new PstExportRunner().Run(pst, outRoot, includeEmpty: false, onProgress: ticks.Add);
+
+            Assert.Equal(3, ticks.Count);
+            Assert.Equal(new[] { 1, 2, 3 }, ticks.Select(t => t.MessagesExported).ToArray());
+            Assert.All(ticks, t => Assert.False(string.IsNullOrEmpty(t.CurrentFolder)));
+            Assert.Equal(report.MessagesExported, ticks[^1].MessagesExported);
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
+    }
+
+    [Fact]
+    public void Run_ProgressCountsOnlySuccessfullyWrittenMessages()
+    {
+        using GeneratedProfile profile = new ThunderbirdProfileBuilder()
+            .WithAccount("alice@example.com", "imap.example.com").WithFolder("Inbox", 3).Build();
+        var (outputs, convertDir) = ConvertProfile(OneInbox(profile, 0));
+        string pst = Assert.Single(outputs);
+
+        string outRoot = FreshOutDir();
+        try
+        {
+            var ticks = new List<ExportProgress>();
+            var runner = new PstExportRunner(_ => new ThrowOnNthReconstructor(throwOn: 2));   // msg 2 throws
+            Assert.Throws<InvalidOperationException>(
+                () => runner.Run(pst, outRoot, includeEmpty: false, onProgress: ticks.Add));
+
+            // Only message 1 was written before the fatal throw, so progress saw exactly one tick.
+            Assert.Equal(new[] { 1 }, ticks.Select(t => t.MessagesExported).ToArray());
+        }
+        finally { Directory.Delete(convertDir, true); if (Directory.Exists(outRoot)) Directory.Delete(outRoot, true); }
     }
 }
