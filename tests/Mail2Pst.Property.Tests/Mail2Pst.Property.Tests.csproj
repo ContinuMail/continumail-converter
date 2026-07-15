@@ -6,10 +6,10 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
-    <PackageReference Include="CsCheck" Version="4.6.2" />   <!-- Apache-2.0; verify latest stable at restore -->
+    <PackageReference Include="CsCheck" Version="4.7.0" />   <!-- Apache-2.0; verify latest stable at restore -->
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mail2Pst.Core/Mail2Pst.Core.csproj" />
