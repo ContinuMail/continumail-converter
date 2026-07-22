@@ -10,26 +10,31 @@ import { visibleProfiles, hiddenNote, profileAccountLabels, profileSubtext, pick
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
 import { canScan } from "@/lib/outputTarget";
-import type { FileStat, ProfileEntry, OutputTarget } from "@/lib/types";
+import { fileTabClickMode, isFilesTabMode, isProfileTabMode } from "@/lib/inputMode";
+import type { InputMode } from "@/lib/inputMode";
+import type { DiscoverResult, FileStat, ProfileEntry, OutputTarget } from "@/lib/types";
 
 interface SelectViewProps {
   files: FileStat[];
   outputTarget: OutputTarget | null;
-  inputMode: "files" | "profile";
+  inputMode: InputMode;
   profileRoot: string | null;
+  folderTreeDiscovery: DiscoverResult | null;
+  folderTreeDiscovering: boolean;
   sourceError?: string | null;
   onFilesChange: (files: FileStat[]) => void;
   onOutputTargetChange: (target: OutputTarget | null) => void;
-  onInputModeChange: (m: "files" | "profile") => void;
+  onInputModeChange: (m: InputMode) => void;
   onProfileRootChange: (path: string | null) => void;
+  onFolderTreeRootChange: (path: string) => void;
   onAutomaticProfileRootChange: (path: string) => void;
   onContinue: () => void;
 }
 
 export function SelectView({
-  files, outputTarget, inputMode, profileRoot, sourceError,
+  files, outputTarget, inputMode, profileRoot, folderTreeDiscovery, folderTreeDiscovering, sourceError,
   onFilesChange, onOutputTargetChange, onInputModeChange, onProfileRootChange,
-  onAutomaticProfileRootChange, onContinue,
+  onFolderTreeRootChange, onAutomaticProfileRootChange, onContinue,
 }: SelectViewProps) {
   // Picker errors are transient and screen-local. Discovery errors are owned by
   // the parent flow and returned through sourceError.
@@ -72,7 +77,7 @@ export function SelectView({
     const dir = await pickFolder();
     if (!dir) return;
     setPickerError(null);
-    onProfileRootChange(dir);
+    onFolderTreeRootChange(dir);
   }
 
   async function onChooseProfile() {
@@ -97,9 +102,14 @@ export function SelectView({
     onOutputTargetChange(null);
   }
 
+  function onFilesTabClick() {
+    const nextMode = fileTabClickMode(inputMode);
+    if (nextMode !== inputMode) onInputModeChange(nextMode);
+  }
+
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   const outputPath = outputTarget?.kind === "pstFile" ? outputTarget.path : null;
-  const canContinue = canScan(inputMode, files.map((f) => f.path), profileRoot, outputTarget);
+  const canContinue = canScan(inputMode, files.map((f) => f.path), profileRoot, outputTarget, folderTreeDiscovery, folderTreeDiscovering);
 
   // For the "manual path shown when not a scanned profile" check.
   const scannedEntries = scan.k === "done" ? scan.entries : [];
@@ -114,23 +124,23 @@ export function SelectView({
       <div className="mt-4 inline-flex overflow-hidden rounded-md border border-border">
         <button
           type="button"
-          aria-pressed={inputMode === "profile"}
+          aria-pressed={isProfileTabMode(inputMode)}
           onClick={() => onInputModeChange("profile")}
-          className={"px-4 py-1.5 text-sm " + (inputMode === "profile" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+          className={"px-4 py-1.5 text-sm " + (isProfileTabMode(inputMode) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
         >
           Thunderbird folder / profile
         </button>
         <button
           type="button"
-          aria-pressed={inputMode === "files"}
-          onClick={() => onInputModeChange("files")}
-          className={"px-4 py-1.5 text-sm " + (inputMode === "files" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+          aria-pressed={isFilesTabMode(inputMode)}
+          onClick={onFilesTabClick}
+          className={"px-4 py-1.5 text-sm " + (isFilesTabMode(inputMode) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
         >
           .mbox files
         </button>
       </div>
 
-      {inputMode === "profile" && (
+      {isProfileTabMode(inputMode) && (
         <div className="mt-4">
           {scan.k === "scanning" && (
             <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -228,7 +238,7 @@ export function SelectView({
         </div>
       )}
 
-      {inputMode === "files" && (
+      {isFilesTabMode(inputMode) && (
         <>
           <div className="mt-4 flex gap-3">
             <Button onClick={onChooseFiles}>
@@ -239,7 +249,60 @@ export function SelectView({
             </Button>
           </div>
 
-          {files.length > 0 && (
+          {inputMode === "folderTree" && profileRoot && (
+            <div className="mt-4 rounded-lg border border-border bg-card p-3">
+              <div className="text-sm font-medium text-foreground">Selected folder tree</div>
+              <div className="mt-1 break-all text-xs text-light-gray" title={profileRoot}>{profileRoot}</div>
+              <div className="mt-3" role="status" aria-live="polite">
+                {folderTreeDiscovering && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner size="sm" /> Discovering mail folders…
+                  </div>
+                )}
+                {!folderTreeDiscovering && folderTreeDiscovery && folderTreeDiscovery.sources.length > 0 && (
+                  <div className="text-sm font-medium text-foreground">
+                    {folderTreeDiscovery.sources.length} mail folder{folderTreeDiscovery.sources.length === 1 ? "" : "s"} found
+                  </div>
+                )}
+                {sourceError && (
+                  <p className="mt-3 text-sm text-destructive">{sourceError}</p>
+                )}
+              </div>
+              {!folderTreeDiscovering && folderTreeDiscovery && folderTreeDiscovery.sources.length > 0 && (
+                <>
+                  <div className="mt-2 flex max-h-40 flex-col gap-1 overflow-auto">
+                    {folderTreeDiscovery.sources.map((source) => (
+                      <div key={source.path} className="rounded border border-border bg-background px-2 py-1 text-sm text-foreground">
+                        {source.targetFolderPath.join(" / ")}
+                      </div>
+                    ))}
+                  </div>
+                  {(folderTreeDiscovery.warnings.length > 0 || folderTreeDiscovery.skipped.length > 0) && (
+                    <div className="mt-2 text-xs text-light-gray">
+                      {folderTreeDiscovery.warnings.length > 0 && `${folderTreeDiscovery.warnings.length} warning${folderTreeDiscovery.warnings.length === 1 ? "" : "s"}`}
+                      {folderTreeDiscovery.warnings.length > 0 && folderTreeDiscovery.skipped.length > 0 && " · "}
+                      {folderTreeDiscovery.skipped.length > 0 && `${folderTreeDiscovery.skipped.length} item${folderTreeDiscovery.skipped.length === 1 ? "" : "s"} skipped`}
+                    </div>
+                  )}
+                  {folderTreeDiscovery.skipped.length > 0 && (
+                    <details className="mt-2 text-xs text-light-gray">
+                      <summary className="cursor-pointer">Show skipped folder details</summary>
+                      <dl className="mt-1 max-h-28 space-y-1 overflow-auto">
+                        {folderTreeDiscovery.skipped.map((skipped) => (
+                          <div key={`${skipped.path}:${skipped.code}`}>
+                            <dt className="break-all text-foreground">{skipped.path}</dt>
+                            <dd>{skipped.reason}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </details>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {inputMode === "files" && files.length > 0 && (
             <div className="mt-4">
               <div className="text-xs text-light-gray">
                 {files.length} mbox file{files.length === 1 ? "" : "s"} · {formatBytes(totalBytes)}
@@ -269,7 +332,7 @@ export function SelectView({
         </>
       )}
 
-      {inputMode === "files" && (
+      {isFilesTabMode(inputMode) && (
         <div className="mt-5">
           <div className="mb-1 text-sm font-medium text-foreground">Output location and PST name</div>
           <div className="flex items-center gap-2">
@@ -292,7 +355,7 @@ export function SelectView({
         </div>
       )}
 
-      {(pickerError || sourceError) && (
+      {(pickerError || (sourceError && inputMode !== "folderTree")) && (
         <p className="mt-4 text-sm text-destructive">{pickerError ?? sourceError}</p>
       )}
 

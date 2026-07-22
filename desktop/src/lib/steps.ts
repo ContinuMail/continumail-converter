@@ -1,10 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { isDiscoveryBackedMode } from "./inputMode";
+import type { InputMode } from "./inputMode";
+
 export type StepList = string[];
 
-export function buildSteps(inputMode: "files" | "profile", accountCount: number): StepList {
-  const multi = inputMode === "profile" && accountCount >= 2;
+export function buildSteps(inputMode: InputMode, accountCount: number): StepList {
+  const multi = isDiscoveryBackedMode(inputMode) && accountCount >= 2;
   return multi
     ? ["Source", "Accounts", "Review", "Options", "Convert", "Done"]
     : ["Source", "Review", "Options", "Convert", "Done"];

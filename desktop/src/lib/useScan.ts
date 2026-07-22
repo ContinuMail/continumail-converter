@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Aksel Visby (ContinuMail)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { scan as runScan, discoverProfile } from "./engine";
 import { mergeProfileSources } from "./profileConfig";
 import { checkSchemaVersion } from "./schema";
@@ -10,6 +10,8 @@ import { sortSources, type SortField, type SortDir } from "./review";
 import { groupByAccount, accountKeyForRow } from "./accounts";
 import type { FileStat, SourceRow, ProfileSourceRow, DiscoverWarning, DiscoverResult, OutputTarget, Account, DiscoveredCalendar, DiscoveredAddressBook } from "./types";
 import type { ScanResult } from "./parse";
+import { isDiscoveryBackedMode } from "./inputMode";
+import type { InputMode } from "./inputMode";
 
 export type FlowStage = "select" | "scanning" | "review" | "options" | "scanError" | "accounts";
 
@@ -43,10 +45,10 @@ export function computeAccountRouting(
 export function filterSourcesBySelection(
   rows: ProfileSourceRow[],
   selectedAccountKeys: Set<string>,
-  inputMode: "files" | "profile",
+  inputMode: InputMode,
   accounts: Account[],
 ): ProfileSourceRow[] {
-  if (inputMode !== "profile" || accounts.length < 2) return rows;
+  if (!isDiscoveryBackedMode(inputMode) || accounts.length < 2) return rows;
   return rows.filter((r) => selectedAccountKeys.has(accountKeyForRow(r)));
 }
 
@@ -65,8 +67,11 @@ export interface PreConvertState {
   scanFileCount: number; // sources being scanned: files (.mbox mode) or discovered folders (profile mode); 0 until known
   sortBy: SortField;
   sortDir: SortDir;
-  inputMode: "files" | "profile";
+  inputMode: InputMode;
   profileRoot: string | null;
+  folderTreeDiscovery: DiscoverResult | null;
+  folderTreeDiscovering: boolean;
+  folderTreeRequestId: number;
   profileRows: ProfileSourceRow[];
   discoverWarnings: DiscoverWarning[];
   sourceError: string | null; // parent-owned discover-time error, shown on the Source screen
@@ -94,6 +99,9 @@ export function initialState(): PreConvertState {
     sortDir: "desc",
     inputMode: "files",
     profileRoot: null,
+    folderTreeDiscovery: null,
+    folderTreeDiscovering: false,
+    folderTreeRequestId: 0,
     profileRows: [],
     discoverWarnings: [],
     sourceError: null,
@@ -119,6 +127,8 @@ export function selectDiscoveryRootState(
     scanFileCount: 0,
     inputMode: "profile",
     profileRoot,
+    folderTreeDiscovery: null,
+    folderTreeDiscovering: false,
     profileRows: [],
     discoverWarnings: [],
     sourceError: null,
@@ -128,6 +138,47 @@ export function selectDiscoveryRootState(
     calendars: [],
     addressBooks: [],
   };
+}
+
+/** Begin an explicit export-folder discovery without changing the visible files tab. */
+export function selectFolderTreeRootState(
+  state: PreConvertState,
+  profileRoot: string,
+  requestId = state.folderTreeRequestId + 1,
+): PreConvertState {
+  return {
+    ...selectDiscoveryRootState(state, profileRoot),
+    inputMode: "folderTree",
+    folderTreeDiscovery: null,
+    folderTreeDiscovering: true,
+    folderTreeRequestId: requestId,
+  };
+}
+
+/** Apply an async folder-tree result only when it still belongs to the active root. */
+export function applyFolderTreeDiscovery(
+  state: PreConvertState,
+  profileRoot: string,
+  requestId: number,
+  discovery: DiscoverResult,
+): PreConvertState {
+  if (state.inputMode !== "folderTree" || state.profileRoot !== profileRoot || state.folderTreeRequestId !== requestId) return state;
+  return {
+    ...state,
+    folderTreeDiscovery: discovery,
+    folderTreeDiscovering: false,
+    sourceError: discovery.sources.length === 0 ? "No mail folders found in that location." : null,
+  };
+}
+
+export function applyFolderTreeDiscoveryError(
+  state: PreConvertState,
+  profileRoot: string,
+  requestId: number,
+  sourceError: string,
+): PreConvertState {
+  if (state.inputMode !== "folderTree" || state.profileRoot !== profileRoot || state.folderTreeRequestId !== requestId) return state;
+  return { ...state, folderTreeDiscovery: null, folderTreeDiscovering: false, sourceError };
 }
 
 export function selectAutomaticDiscoveryRootState(
@@ -140,9 +191,14 @@ export function selectAutomaticDiscoveryRootState(
 
 export function useScan() {
   const [state, setState] = useState<PreConvertState>(() => initialState());
+  const folderTreeRequestId = useRef(0);
 
   const setInputFiles = useCallback(
-    (inputFiles: FileStat[]) => setState((s) => ({ ...s, inputFiles })),
+    (inputFiles: FileStat[]) => setState((s) => (
+      s.inputMode === "folderTree"
+        ? { ...s, inputFiles, inputMode: "files", profileRoot: null, folderTreeDiscovery: null, folderTreeDiscovering: false, sourceError: null }
+        : { ...s, inputFiles }
+    )),
     [],
   );
   const setOutputTarget = useCallback(
@@ -151,7 +207,7 @@ export function useScan() {
   );
 
   const setInputMode = useCallback(
-    (inputMode: "files" | "profile") => setState((s) => ({ ...s, inputMode, sourceError: null })),
+    (inputMode: InputMode) => setState((s) => ({ ...s, inputMode, sourceError: null })),
     [],
   );
   const setProfileRoot = useCallback(
@@ -166,9 +222,22 @@ export function useScan() {
     (profileRoot: string) => setState((s) => selectAutomaticDiscoveryRootState(s, profileRoot)),
     [],
   );
+  const setFolderTreeRoot = useCallback((profileRoot: string) => {
+    const requestId = ++folderTreeRequestId.current;
+    setState((s) => selectFolderTreeRootState(s, profileRoot, requestId));
+    void discoverProfile(profileRoot).then(
+      (discovery) => setState((s) => applyFolderTreeDiscovery(s, profileRoot, requestId, discovery)),
+      (e: unknown) => setState((s) => applyFolderTreeDiscoveryError(
+        s,
+        profileRoot,
+        requestId,
+        e instanceof Error ? e.message : String(e),
+      )),
+    );
+  }, []);
 
   const continueToScan = useCallback(async () => {
-    if (state.inputMode === "profile") {
+    if (isDiscoveryBackedMode(state.inputMode)) {
       if (!state.profileRoot) {
         setState((s) => ({ ...s, sourceError: "Choose a Thunderbird profile or mail folder." }));
         return;
@@ -178,12 +247,20 @@ export function useScan() {
       // Discovery failure / empty discovery is a SOURCE-selection problem → return to Source with
       // sourceError. Only a scan failure AFTER successful discovery goes to the ScanError view.
       let disc: DiscoverResult;
-      try {
-        disc = await discoverProfile(state.profileRoot);
-      } catch (e) {
-        const sourceError = e instanceof Error ? e.message : String(e);
-        setState((s) => ({ ...s, stage: "select", sourceError, scanProgress: null }));
-        return;
+      if (state.inputMode === "folderTree") {
+        if (state.folderTreeDiscovering || !state.folderTreeDiscovery) {
+          setState((s) => ({ ...s, stage: "select", sourceError: "Choose a folder tree with mail folders first.", scanProgress: null }));
+          return;
+        }
+        disc = state.folderTreeDiscovery;
+      } else {
+        try {
+          disc = await discoverProfile(state.profileRoot);
+        } catch (e) {
+          const sourceError = e instanceof Error ? e.message : String(e);
+          setState((s) => ({ ...s, stage: "select", sourceError, scanProgress: null }));
+          return;
+        }
       }
       if (disc.sources.length === 0) {
         setState((s) => ({ ...s, stage: "select", sourceError: "No mail folders found in that location.", scanProgress: null }));
@@ -262,7 +339,7 @@ export function useScan() {
       const errorMessage = e instanceof Error ? e.message : String(e);
       setState((s) => ({ ...s, stage: "scanError", errorMessage, scanProgress: null }));
     }
-  }, [state.inputMode, state.profileRoot, state.inputFiles]);
+  }, [state.inputMode, state.profileRoot, state.folderTreeDiscovering, state.folderTreeDiscovery, state.inputFiles]);
 
   const toggleChecked = useCallback((id: string) => {
     setState((s) => {
@@ -324,7 +401,7 @@ export function useScan() {
   const resetFlow = useCallback(() => setState(initialState()), []);
 
   const sortedSources: SourceRow[] = useMemo(() => {
-    if (state.inputMode === "profile") {
+    if (isDiscoveryBackedMode(state.inputMode)) {
       const filtered = filterSourcesBySelection(state.profileRows, state.selectedAccountKeys, state.inputMode, state.accounts);
       return sortSources(filtered, state.sortBy, state.sortDir);
     }
@@ -345,6 +422,7 @@ export function useScan() {
     setInputMode,
     setProfileRoot,
     setAutomaticProfileRoot,
+    setFolderTreeRoot,
     continueToScan,
     toggleChecked,
     setSkipEmpty,

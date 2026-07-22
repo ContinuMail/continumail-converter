@@ -14,4 +14,11 @@ describe("canScan", () => {
     expect(canScan("profile", [], "/p", null)).toBe(true);
     expect(canScan("profile", [], null, null)).toBe(false);
   });
+  it("folder-tree mode requires a completed nonempty discovery and a pstFile target", () => {
+    const discovered = { sources: [{ path: "C:/export/Inbox", targetFolderPath: ["Inbox"] }] };
+    expect(canScan("folderTree", [], "C:/export", { kind: "pstFile", path: "C:/out/Mail.pst" }, discovered, false)).toBe(true);
+    expect(canScan("folderTree", [], "C:/export", { kind: "pstFile", path: "C:/out/Mail.pst" }, discovered, true)).toBe(false);
+    expect(canScan("folderTree", [], "C:/export", { kind: "pstFile", path: "C:/out/Mail.pst" }, { sources: [] }, false)).toBe(false);
+    expect(canScan("folderTree", [], "C:/export", null, discovered, false)).toBe(false);
+  });
 });

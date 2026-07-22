@@ -14,6 +14,9 @@ describe("buildSteps", () => {
   it("profile multi-account inserts Accounts after Source", () => {
     expect(buildSteps("profile", 3)).toEqual(["Source", "Accounts", "Review", "Options", "Convert", "Done"]);
   });
+  it("folder-tree mode is discovery-backed for account routing", () => {
+    expect(buildSteps("folderTree", 3)).toEqual(["Source", "Accounts", "Review", "Options", "Convert", "Done"]);
+  });
 });
 
 describe("stepIndexForStage", () => {
