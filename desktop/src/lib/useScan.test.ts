@@ -5,13 +5,20 @@
  * Tests for the pure helpers extracted from useScan:
  *   - computeAccountRouting  (stage + seed selection/pstNames)
  *   - filterSourcesBySelection (sortedSources filtering)
+ *   - selectDiscoveryRootState (folder selection transition)
  *
  * useScan itself has no exported reducer — these helpers are the test seam.
  */
 
 import { describe, it, expect } from "vitest";
-import { computeAccountRouting, filterSourcesBySelection } from "./useScan";
-import type { Account, ProfileSourceRow } from "./types";
+import {
+  computeAccountRouting,
+  filterSourcesBySelection,
+  initialState,
+  selectDiscoveryRootState,
+} from "./useScan";
+import type { PreConvertState } from "./useScan";
+import type { Account, OutputTarget, ProfileSourceRow } from "./types";
 
 const acct = (id: string, email: string | null, seg: string): Account => ({
   id,
@@ -129,5 +136,77 @@ describe("filterSourcesBySelection", () => {
     const selected = new Set(["A"]);
     const filtered = filterSourcesBySelection(rows1, selected, "profile", accounts1);
     expect(filtered).toHaveLength(1);
+  });
+});
+
+describe("selectDiscoveryRootState", () => {
+  it("promotes a selected folder to discovery mode, clears stale discovery state, and preserves file/output choices", () => {
+    const inputFiles = [{ path: "C:/mail/Inbox.mbox", size: 10 }];
+    const outputTarget: OutputTarget = { kind: "pstFile", path: "C:/out/Mail.pst" };
+    const stale: PreConvertState = {
+      ...initialState(),
+      inputFiles,
+      outputTarget,
+      scan: { kind: "scan", totals: { messages: 1, bytes: 1, sourceBytes: 1, sources: 1 }, sources: [] },
+      errorMessage: "old scan error",
+      checkedIds: new Set(["old"]),
+      scanProgress: { bytes: 1, totalBytes: 2 },
+      scanFileCount: 1,
+      sourceError: "old source error",
+      profileRows: [row("old", "A", ["Old"])],
+      discoverWarnings: [{
+        code: "old",
+        path: "C:/old",
+        targetFolderPath: null,
+        segment: null,
+        segmentIndex: null,
+        relatedPaths: null,
+        message: "old",
+      }],
+      accounts: accounts2,
+      selectedAccountKeys: new Set(["A"]),
+      pstNames: { A: "Old" },
+      calendars: [{
+        calId: "old",
+        displayName: "Old",
+        storeKind: "local",
+        storePath: "C:/old.sqlite",
+        calendarType: "calendar",
+        isVisibleInThunderbird: true,
+        eventCount: 1,
+        taskCount: 0,
+        defaultCalendarFolderPath: ["Calendar"],
+        defaultTaskFolderPath: ["Tasks"],
+        accountId: "A",
+      }],
+      addressBooks: [{
+        displayName: "Old",
+        path: "C:/old.sqlite",
+        format: "thunderbird-sqlite",
+        contactCount: 1,
+        accountId: "A",
+      }],
+    };
+
+    const next = selectDiscoveryRootState(stale, "C:/fixtures/tb-export");
+
+    expect(next.inputMode).toBe("profile");
+    expect(next.profileRoot).toBe("C:/fixtures/tb-export");
+    expect(next.stage).toBe("select");
+    expect(next.scan).toBeNull();
+    expect(next.errorMessage).toBeNull();
+    expect(next.sourceError).toBeNull();
+    expect(next.checkedIds.size).toBe(0);
+    expect(next.scanProgress).toBeNull();
+    expect(next.scanFileCount).toBe(0);
+    expect(next.profileRows).toEqual([]);
+    expect(next.discoverWarnings).toEqual([]);
+    expect(next.accounts).toEqual([]);
+    expect(next.selectedAccountKeys.size).toBe(0);
+    expect(next.pstNames).toEqual({});
+    expect(next.calendars).toEqual([]);
+    expect(next.addressBooks).toEqual([]);
+    expect(next.inputFiles).toBe(inputFiles);
+    expect(next.outputTarget).toBe(outputTarget);
   });
 });

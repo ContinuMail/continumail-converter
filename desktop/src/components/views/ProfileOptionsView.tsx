@@ -160,7 +160,7 @@ export function ProfileOptionsView({
             <label className="flex items-center gap-2 text-sm text-foreground">
               <input type="radio" name="mapping" checked={options.folderMapping === "mirror"}
                 onChange={() => onSetOptions({ folderMapping: "mirror" })} />
-              Mirror the Thunderbird tree
+              Mirror the discovered folder tree
             </label>
             <label className="mt-1 flex items-center gap-2 text-sm text-foreground">
               <input type="radio" name="mapping" checked={options.folderMapping === "flatten"}

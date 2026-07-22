@@ -5,7 +5,7 @@ import { useState } from "react";
 import { FileText, FolderOpen, Save, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { pickMboxFiles, pickFolder, listMboxInDir, statFiles, pickOutputPst, listThunderbirdProfiles } from "@/lib/engine";
+import { pickMboxFiles, pickFolder, statFiles, pickOutputPst, listThunderbirdProfiles } from "@/lib/engine";
 import { visibleProfiles, hiddenNote, profileAccountLabels, profileSubtext, pickDefaultProfile } from "@/lib/profiles";
 import { splitPath } from "@/lib/convert";
 import { formatBytes } from "@/lib/format";
@@ -29,8 +29,8 @@ export function SelectView({
   files, outputTarget, inputMode, profileRoot, sourceError,
   onFilesChange, onOutputTargetChange, onInputModeChange, onProfileRootChange, onContinue,
 }: SelectViewProps) {
-  // Picker errors are transient and screen-local (e.g. "no .mbox in folder").
-  // Parent owns the durable file/output state; this does NOT belong there.
+  // Picker errors are transient and screen-local. Discovery errors are owned by
+  // the parent flow and returned through sourceError.
   const [pickerError, setPickerError] = useState<string | null>(null);
 
   const [scan, setScan] = useState<
@@ -70,12 +70,7 @@ export function SelectView({
     const dir = await pickFolder();
     if (!dir) return;
     setPickerError(null);
-    const found = await listMboxInDir(dir);
-    if (found.length === 0) {
-      setPickerError("No .mbox files found in that folder.");
-      return;
-    }
-    await addFiles(found);
+    onProfileRootChange(dir);
   }
 
   async function onChooseProfile() {
@@ -111,7 +106,7 @@ export function SelectView({
     <div className="flex flex-1 flex-col">
       <h1 className="text-xl font-semibold text-foreground">Choose what to convert</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Select a Thunderbird profile or pick individual <code>.mbox</code> files.
+        Select a Thunderbird folder/profile or pick individual <code>.mbox</code> files.
       </p>
 
       <div className="mt-4 inline-flex overflow-hidden rounded-md border border-border">
@@ -121,7 +116,7 @@ export function SelectView({
           onClick={() => onInputModeChange("profile")}
           className={"px-4 py-1.5 text-sm " + (inputMode === "profile" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
         >
-          Thunderbird profile
+          Thunderbird folder / profile
         </button>
         <button
           type="button"
@@ -226,7 +221,7 @@ export function SelectView({
             <div className="mt-1 text-xs text-light-gray">{profileRoot}</div>
           )}
           <p className="mt-2 text-xs text-light-gray">
-            Point at a Thunderbird profile, a Mail/ImapMail store, or a single account folder. Nested folders and tags/flags are detected automatically.
+            Point at a Thunderbird profile, Mail/ImapMail store, account folder, or an ImportExportTools NG folder export. Extensionless mbox files, nested .sbd folders, and available tags/flags are detected automatically.
           </p>
         </div>
       )}
@@ -238,7 +233,7 @@ export function SelectView({
               <FileText /> Choose .mbox files…
             </Button>
             <Button variant="outline" onClick={onChooseFolder}>
-              <FolderOpen /> Select folder…
+              <FolderOpen /> Select folder tree…
             </Button>
           </div>
 
