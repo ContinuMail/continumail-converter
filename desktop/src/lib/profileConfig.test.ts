@@ -129,6 +129,44 @@ describe("buildProfileConfig", () => {
       expect(config.dropExpunged).toBe(true);
     }
   });
+
+  it("mirror: preserves an accountless exported Thunderbird folder tree", () => {
+    const exportedRows: ProfileSourceRow[] = [
+      {
+        ...rows[0],
+        id: "C:/fixtures/tb-export/Inbox",
+        path: "C:/fixtures/tb-export/Inbox",
+        displayName: "Inbox",
+        targetFolderPath: ["Inbox"],
+        msfPath: null,
+        accountId: null,
+      },
+      {
+        ...rows[1],
+        id: "C:/fixtures/tb-export/Inbox.sbd/Archive.sbd/2022",
+        path: "C:/fixtures/tb-export/Inbox.sbd/Archive.sbd/2022",
+        displayName: "Inbox / Archive / 2022",
+        targetFolderPath: ["Inbox", "Archive", "2022"],
+        msfPath: null,
+        accountId: null,
+      },
+    ];
+    const selected = new Set(exportedRows.map((row) => row.id));
+
+    const { config } = buildProfileConfig(
+      exportedRows,
+      selected,
+      false,
+      opts({ folderMapping: "mirror" }),
+      "C:/out/Export.pst",
+      "C:/fixtures/tb-export",
+    );
+
+    expect(config.outputs[0].sources.map((source) => source.targetFolderPath)).toEqual([
+      ["Inbox"],
+      ["Inbox", "Archive", "2022"],
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
