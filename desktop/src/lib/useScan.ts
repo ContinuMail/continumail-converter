@@ -78,7 +78,7 @@ export interface PreConvertState {
   addressBooks: DiscoveredAddressBook[];
 }
 
-function initialState(): PreConvertState {
+export function initialState(): PreConvertState {
   return {
     inputFiles: [],
     outputTarget: null,
@@ -94,6 +94,31 @@ function initialState(): PreConvertState {
     sortDir: "desc",
     inputMode: "files",
     profileRoot: null,
+    profileRows: [],
+    discoverWarnings: [],
+    sourceError: null,
+    accounts: [],
+    selectedAccountKeys: new Set(),
+    pstNames: {},
+    calendars: [],
+    addressBooks: [],
+  };
+}
+
+export function selectDiscoveryRootState(
+  state: PreConvertState,
+  profileRoot: string,
+): PreConvertState {
+  return {
+    ...state,
+    stage: "select",
+    scan: null,
+    errorMessage: null,
+    checkedIds: new Set(),
+    scanProgress: null,
+    scanFileCount: 0,
+    inputMode: "profile",
+    profileRoot,
     profileRows: [],
     discoverWarnings: [],
     sourceError: null,
@@ -122,7 +147,11 @@ export function useScan() {
     [],
   );
   const setProfileRoot = useCallback(
-    (profileRoot: string | null) => setState((s) => ({ ...s, profileRoot, sourceError: null })),
+    (profileRoot: string | null) => setState((s) => (
+      profileRoot === null
+        ? { ...s, profileRoot: null, sourceError: null }
+        : selectDiscoveryRootState(s, profileRoot)
+    )),
     [],
   );
 
