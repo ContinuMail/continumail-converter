@@ -6,6 +6,7 @@
  *   - computeAccountRouting  (stage + seed selection/pstNames)
  *   - filterSourcesBySelection (sortedSources filtering)
  *   - selectDiscoveryRootState (folder selection transition)
+ *   - selectAutomaticDiscoveryRootState (late automatic default guard)
  *
  * useScan itself has no exported reducer — these helpers are the test seam.
  */
@@ -15,6 +16,7 @@ import {
   computeAccountRouting,
   filterSourcesBySelection,
   initialState,
+  selectAutomaticDiscoveryRootState,
   selectDiscoveryRootState,
 } from "./useScan";
 import type { PreConvertState } from "./useScan";
@@ -208,5 +210,47 @@ describe("selectDiscoveryRootState", () => {
     expect(next.addressBooks).toEqual([]);
     expect(next.inputFiles).toBe(inputFiles);
     expect(next.outputTarget).toBe(outputTarget);
+  });
+});
+
+describe("selectAutomaticDiscoveryRootState", () => {
+  it("ignores a late automatic default after the user switches from profile mode to files", () => {
+    const pendingScanState: PreConvertState = {
+      ...initialState(),
+      inputMode: "profile",
+    };
+    const latestState: PreConvertState = {
+      ...pendingScanState,
+      inputMode: "files",
+    };
+
+    const next = selectAutomaticDiscoveryRootState(latestState, "C:/profiles/default");
+
+    expect(next).toBe(latestState);
+  });
+
+  it("accepts an automatic default while still in profile mode with no root", () => {
+    const state: PreConvertState = {
+      ...initialState(),
+      inputMode: "profile",
+    };
+
+    const next = selectAutomaticDiscoveryRootState(state, "C:/profiles/default");
+
+    expect(next).not.toBe(state);
+    expect(next.inputMode).toBe("profile");
+    expect(next.profileRoot).toBe("C:/profiles/default");
+  });
+
+  it("ignores an automatic default when the user already selected an explicit root", () => {
+    const state: PreConvertState = {
+      ...initialState(),
+      inputMode: "profile",
+      profileRoot: "C:/profiles/explicit",
+    };
+
+    const next = selectAutomaticDiscoveryRootState(state, "C:/profiles/default");
+
+    expect(next).toBe(state);
   });
 });
