@@ -18,9 +18,12 @@ import {
   initialState,
   selectAutomaticDiscoveryRootState,
   selectDiscoveryRootState,
+  selectFolderTreeRootState,
+  applyFolderTreeDiscovery,
+  applyFolderTreeDiscoveryError,
 } from "./useScan";
 import type { PreConvertState } from "./useScan";
-import type { Account, OutputTarget, ProfileSourceRow } from "./types";
+import type { Account, DiscoverResult, OutputTarget, ProfileSourceRow } from "./types";
 
 const acct = (id: string, email: string | null, seg: string): Account => ({
   id,
@@ -62,6 +65,14 @@ const rows2 = [
   row("a2", "A", ["imap.example.com", "Sent"]),
   row("b1", "B", ["imap2.example.com", "Inbox"]),
 ];
+
+const discovery = (root: string): DiscoverResult => ({
+  root,
+  layout: "folder-export",
+  sources: [{ path: `${root}/Inbox`, type: "mbox", targetFolderPath: ["Inbox"], displayName: "Inbox", sourceBytes: 1, msfPath: null, accountId: null }],
+  warnings: [], skipped: [], pairing: { pairedMsfCount: 0, unpairedMboxCount: 1, orphanMsfCount: 0 },
+  accounts: [], calendars: [], addressBooks: [],
+});
 
 // ── computeAccountRouting ─────────────────────────────────────────────────────
 
@@ -138,6 +149,13 @@ describe("filterSourcesBySelection", () => {
     const selected = new Set(["A"]);
     const filtered = filterSourcesBySelection(rows1, selected, "profile", accounts1);
     expect(filtered).toHaveLength(1);
+  });
+
+  it("filters folder-tree profile rows and keeps their nested review identities", () => {
+    const filtered = filterSourcesBySelection(rows2, new Set(["A"]), "folderTree", accounts2);
+    expect(filtered.map((r) => r.targetFolderPath)).toEqual([
+      ["imap.example.com", "Inbox"], ["imap.example.com", "Sent"],
+    ]);
   });
 });
 
@@ -252,5 +270,78 @@ describe("selectAutomaticDiscoveryRootState", () => {
     const next = selectAutomaticDiscoveryRootState(state, "C:/profiles/default");
 
     expect(next).toBe(state);
+  });
+
+  it("keeps automatic profile defaults profile-only after an explicit folder-tree choice", () => {
+    const state = selectFolderTreeRootState(initialState(), "C:/export");
+
+    expect(selectAutomaticDiscoveryRootState(state, "C:/profiles/default")).toBe(state);
+  });
+});
+
+describe("folder-tree discovery state", () => {
+  it("starts explicit folder-tree selection with a clean pending discovery while retaining file/output choices", () => {
+    const inputFiles = [{ path: "C:/mail/old.mbox", size: 1 }];
+    const outputTarget: OutputTarget = { kind: "pstFile", path: "C:/out/Mail.pst" };
+    const state: PreConvertState = {
+      ...initialState(), inputFiles, outputTarget, inputMode: "profile", profileRoot: "C:/old",
+      profileRows: [row("old", null, ["Old"])], sourceError: "old error", accounts: accounts2,
+      folderTreeDiscovery: discovery("C:/stale"),
+    };
+
+    const next = selectFolderTreeRootState(state, "C:/export");
+
+    expect(next.inputMode).toBe("folderTree");
+    expect(next.profileRoot).toBe("C:/export");
+    expect(next.folderTreeDiscovering).toBe(true);
+    expect(next.folderTreeDiscovery).toBeNull();
+    expect(next.profileRows).toEqual([]);
+    expect(next.accounts).toEqual([]);
+    expect(next.sourceError).toBeNull();
+    expect(next.inputFiles).toBe(inputFiles);
+    expect(next.outputTarget).toBe(outputTarget);
+  });
+
+  it("accepts only a completion for the currently selected folder tree", () => {
+    const pending = selectFolderTreeRootState(initialState(), "C:/export/a");
+    const accepted = applyFolderTreeDiscovery(pending, "C:/export/a", pending.folderTreeRequestId, discovery("C:/export/a"));
+    expect(accepted.folderTreeDiscovering).toBe(false);
+    expect(accepted.folderTreeDiscovery?.root).toBe("C:/export/a");
+
+    const changedMode = { ...pending, inputMode: "files" as const };
+    expect(applyFolderTreeDiscovery(changedMode, "C:/export/a", pending.folderTreeRequestId, discovery("C:/export/a"))).toBe(changedMode);
+
+    const newerRoot = selectFolderTreeRootState(pending, "C:/export/b");
+    expect(applyFolderTreeDiscovery(newerRoot, "C:/export/a", pending.folderTreeRequestId, discovery("C:/export/a"))).toBe(newerRoot);
+  });
+
+  it("rejects a superseded completion when the same root is selected twice", () => {
+    const first = selectFolderTreeRootState(initialState(), "C:/export/a", 10);
+    const newest = selectFolderTreeRootState(first, "C:/export/a", 11);
+
+    expect(newest.folderTreeRequestId).toBe(11);
+    expect(applyFolderTreeDiscovery(newest, "C:/export/a", 10, discovery("C:/export/a"))).toBe(newest);
+
+    const accepted = applyFolderTreeDiscovery(newest, "C:/export/a", 11, discovery("C:/export/a"));
+    expect(accepted.folderTreeDiscovery?.root).toBe("C:/export/a");
+  });
+
+  it("rejects an older A completion after A-to-B-to-A selection", () => {
+    const firstA = selectFolderTreeRootState(initialState(), "C:/export/a", 1);
+    const b = selectFolderTreeRootState(firstA, "C:/export/b", 2);
+    const newestA = selectFolderTreeRootState(b, "C:/export/a", 3);
+
+    expect(applyFolderTreeDiscovery(newestA, "C:/export/a", 1, discovery("C:/export/a"))).toBe(newestA);
+    expect(applyFolderTreeDiscovery(newestA, "C:/export/a", 3, discovery("C:/export/a")).folderTreeDiscovery?.root).toBe("C:/export/a");
+  });
+
+  it("rejects a stale same-root error while accepting the newest error", () => {
+    const first = selectFolderTreeRootState(initialState(), "C:/export/a", 20);
+    const newest = selectFolderTreeRootState(first, "C:/export/a", 21);
+
+    expect(applyFolderTreeDiscoveryError(newest, "C:/export/a", 20, "old error")).toBe(newest);
+    const accepted = applyFolderTreeDiscoveryError(newest, "C:/export/a", 21, "new error");
+    expect(accepted.sourceError).toBe("new error");
+    expect(accepted.folderTreeDiscovering).toBe(false);
   });
 });

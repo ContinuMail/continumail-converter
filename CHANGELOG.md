@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Desktop: selecting a Thunderbird folder export now discovers extensionless mbox files and nested
   `.sbd` folders.** Previously **Select folder** checked only immediate `*.mbox` files, so an
   ImportExportTools NG export could be reported as empty and its subfolder hierarchy was ignored.
-  Folder selection now uses the same content-sniffing discovery pipeline as profile conversion and
+  Folder selection now remains on the `.mbox files` source view, previews the discovered hierarchy
+  before scanning, uses the same content-sniffing discovery pipeline as profile conversion, and
   preserves the discovered tree in the PST.
 - **A corrupt, truncated, or pathologically deep-nested Thunderbird `.mab` (Mork) address book is
   now recorded as a skipped contact instead of aborting the whole conversion.** Previously a Mork

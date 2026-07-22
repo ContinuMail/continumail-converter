@@ -19,6 +19,7 @@ import { CancelledView } from "@/components/views/CancelledView";
 import { useConvert } from "@/lib/useConvert";
 import { useScan } from "@/lib/useScan";
 import { buildSteps, stepIndexForStage, stepIndexForPhase } from "@/lib/steps";
+import { isDiscoveryBackedMode } from "@/lib/inputMode";
 
 export default function App() {
   const { state: conv, start, reset } = useConvert();
@@ -67,7 +68,7 @@ export default function App() {
   // (guarded), step 1 → Accounts (multi) or Review (single), step 2 → Review
   // (multi only). Not offered during scanning/scanError (transient) so the stepper
   // can't bail an in-flight scan.
-  const isMultiAccount = flow.discoveredAccountCount >= 2 && f.inputMode === "profile";
+  const isMultiAccount = flow.discoveredAccountCount >= 2 && isDiscoveryBackedMode(f.inputMode);
   const onStepSelect =
     f.stage === "accounts" || f.stage === "review" || f.stage === "options"
       ? (step: number) => {
@@ -87,17 +88,20 @@ export default function App() {
           outputTarget={f.outputTarget}
           inputMode={f.inputMode}
           profileRoot={f.profileRoot}
+          folderTreeDiscovery={f.folderTreeDiscovery}
+          folderTreeDiscovering={f.folderTreeDiscovering}
           sourceError={f.sourceError}
           onFilesChange={flow.setInputFiles}
           onOutputTargetChange={flow.setOutputTarget}
           onInputModeChange={flow.setInputMode}
           onProfileRootChange={flow.setProfileRoot}
+          onFolderTreeRootChange={flow.setFolderTreeRoot}
           onAutomaticProfileRootChange={flow.setAutomaticProfileRoot}
           onContinue={flow.continueToScan}
         />
       )}
       {f.stage === "scanning" && <ScanningView fileCount={f.scanFileCount} progress={f.scanProgress} />}
-      {f.stage === "accounts" && f.inputMode === "profile" && (
+      {f.stage === "accounts" && isDiscoveryBackedMode(f.inputMode) && (
         <AccountsView
           rows={f.profileRows}
           accounts={f.accounts}
@@ -123,12 +127,12 @@ export default function App() {
           onSkipEmptyChange={flow.setSkipEmpty}
           onContinue={flow.continueToOptions}
           onBack={isMultiAccount ? flow.backToAccounts : requestGoToSource}
-          pairedIds={f.inputMode === "profile" ? flow.pairedIds : undefined}
-          warnings={f.inputMode === "profile" ? f.discoverWarnings : undefined}
+          pairedIds={isDiscoveryBackedMode(f.inputMode) ? flow.pairedIds : undefined}
+          warnings={isDiscoveryBackedMode(f.inputMode) ? f.discoverWarnings : undefined}
         />
       )}
       {f.stage === "options" && (
-        f.inputMode === "profile" && f.profileRoot ? (
+        isDiscoveryBackedMode(f.inputMode) && f.profileRoot ? (
           <ProfileOptionsView
             rows={flow.sortedSources as ProfileSourceRow[]}
             outputTarget={f.outputTarget}
