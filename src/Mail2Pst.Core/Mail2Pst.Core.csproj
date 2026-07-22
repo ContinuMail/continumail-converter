@@ -14,6 +14,7 @@
     <PackageReference Include="FolkerKinzel.VCards" Version="8.2.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.10" />
     <PackageReference Include="Ical.Net" Version="5.2.3" />
     <PackageReference Include="MimeKit" Version="4.17.0" />
