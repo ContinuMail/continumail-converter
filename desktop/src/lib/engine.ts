@@ -126,10 +126,6 @@ export async function pickFolder(): Promise<string | null> {
   return typeof result === "string" ? result : null;
 }
 
-export function listMboxInDir(dir: string): Promise<string[]> {
-  return invoke<string[]>("list_mbox_in_dir", { dir });
-}
-
 export function statFiles(paths: string[]): Promise<FileStat[]> {
   return invoke<FileStat[]>("stat_files", { paths });
 }

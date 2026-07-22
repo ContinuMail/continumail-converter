@@ -197,26 +197,6 @@ struct FileStat {
 }
 
 #[tauri::command]
-fn list_mbox_in_dir(dir: String) -> Result<Vec<String>, String> {
-    let entries = std::fs::read_dir(&dir).map_err(|e| format!("cannot read folder: {e}"))?;
-    let mut paths: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_file()
-            && path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.eq_ignore_ascii_case("mbox"))
-                .unwrap_or(false)
-        {
-            paths.push(path.to_string_lossy().to_string());
-        }
-    }
-    paths.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-    Ok(paths)
-}
-
-#[tauri::command]
 fn stat_files(paths: Vec<String>) -> Vec<FileStat> {
     paths
         .into_iter()
@@ -677,7 +657,6 @@ pub fn run() {
             check_engine_version,
             scan_sample,
             discover_profile,
-            list_mbox_in_dir,
             stat_files,
             start_convert,
             start_scan,
