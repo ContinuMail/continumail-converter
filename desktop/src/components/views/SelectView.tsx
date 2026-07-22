@@ -22,12 +22,14 @@ interface SelectViewProps {
   onOutputTargetChange: (target: OutputTarget | null) => void;
   onInputModeChange: (m: "files" | "profile") => void;
   onProfileRootChange: (path: string | null) => void;
+  onAutomaticProfileRootChange: (path: string) => void;
   onContinue: () => void;
 }
 
 export function SelectView({
   files, outputTarget, inputMode, profileRoot, sourceError,
-  onFilesChange, onOutputTargetChange, onInputModeChange, onProfileRootChange, onContinue,
+  onFilesChange, onOutputTargetChange, onInputModeChange, onProfileRootChange,
+  onAutomaticProfileRootChange, onContinue,
 }: SelectViewProps) {
   // Picker errors are transient and screen-local. Discovery errors are owned by
   // the parent flow and returned through sourceError.
@@ -46,7 +48,7 @@ export function SelectView({
       const entries = await listThunderbirdProfiles();
       setScan({ k: "done", entries });
       const pick = pickDefaultProfile(entries, profileRoot);
-      if (pick) onProfileRootChange(pick);
+      if (pick) onAutomaticProfileRootChange(pick);
     } catch {
       setScan({ k: "error" });
     }

@@ -130,6 +130,14 @@ export function selectDiscoveryRootState(
   };
 }
 
+export function selectAutomaticDiscoveryRootState(
+  state: PreConvertState,
+  profileRoot: string,
+): PreConvertState {
+  if (state.inputMode !== "profile" || state.profileRoot !== null) return state;
+  return selectDiscoveryRootState(state, profileRoot);
+}
+
 export function useScan() {
   const [state, setState] = useState<PreConvertState>(() => initialState());
 
@@ -152,6 +160,10 @@ export function useScan() {
         ? { ...s, profileRoot: null, sourceError: null }
         : selectDiscoveryRootState(s, profileRoot)
     )),
+    [],
+  );
+  const setAutomaticProfileRoot = useCallback(
+    (profileRoot: string) => setState((s) => selectAutomaticDiscoveryRootState(s, profileRoot)),
     [],
   );
 
@@ -332,6 +344,7 @@ export function useScan() {
     setOutputTarget,
     setInputMode,
     setProfileRoot,
+    setAutomaticProfileRoot,
     continueToScan,
     toggleChecked,
     setSkipEmpty,

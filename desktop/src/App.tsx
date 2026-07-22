@@ -92,6 +92,7 @@ export default function App() {
           onOutputTargetChange={flow.setOutputTarget}
           onInputModeChange={flow.setInputMode}
           onProfileRootChange={flow.setProfileRoot}
+          onAutomaticProfileRootChange={flow.setAutomaticProfileRoot}
           onContinue={flow.continueToScan}
         />
       )}
