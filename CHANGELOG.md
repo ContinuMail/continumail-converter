@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-07-23
+
+### Security
+- Updated the bundled SQLite library to a non-vulnerable release and synchronized the third-party
+  attribution ledger with the shipped dependency versions.
+
 ### Changed
 - **A Thunderbird-starred (Marked) message now converts to a yellow "Star" category instead of an
   Outlook follow-up flag.** Previously every starred message was written with a follow-up flag,
