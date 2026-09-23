@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Appending to a persisted XXBlock now refreshes its child XBlock reference after copy-on-write reallocates it, keeping large data trees readable.
+
 ## [0.3.3] — 2026-07-23
 
 ### Security

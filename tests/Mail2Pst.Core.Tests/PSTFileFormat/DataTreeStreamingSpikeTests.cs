@@ -54,6 +54,26 @@ public class DataTreeStreamingSpikeTests : IDisposable
     }
 
     [Fact]
+    public void AppendAfterSave_RefreshesPersistedXXBlockChildReference()
+    {
+        var file = NewStore();
+        var tree = new DataTree(file);
+        tree.AppendData(new byte[1022 * DataBlock.MaximumDataLength]);
+        Assert.IsType<XXBlock>(tree.RootBlock);
+
+        tree.SaveChanges();
+        var root = (XXBlock)tree.RootBlock;
+        ulong previousChildID = root.rgbid[^1].Value;
+        byte[] appendedData = MakeBytes(1, 99);
+
+        tree.AddDataBlock(appendedData);
+
+        root = (XXBlock)tree.RootBlock;
+        Assert.Equal(appendedData, tree.GetDataBlock(1022).Data);
+        Assert.NotEqual(previousChildID, root.rgbid[^1].Value);
+    }
+
+    [Fact]
     public void StreamingFlush_KeepsSpinePending_NoReallocationAcrossBatches()
     {
         var file = NewStore();

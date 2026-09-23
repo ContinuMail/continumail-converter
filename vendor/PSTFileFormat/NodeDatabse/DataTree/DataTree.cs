@@ -289,7 +289,8 @@ namespace PSTFileFormat
             {
                 XXBlock rootBlock = (XXBlock)m_rootBlock;
 
-                BlockID lastXBlockID = rootBlock.rgbid[rootBlock.NumberOfXBlocks - 1];
+                int lastXBlockIndex = rootBlock.NumberOfXBlocks - 1;
+                BlockID lastXBlockID = rootBlock.rgbid[lastXBlockIndex];
                 XBlock lastXBlock = (XBlock)GetBlock(lastXBlockID);
 
                 if (lastXBlock.NumberOfDataBlocks < XBlock.MaximumNumberOfDataBlocks)
@@ -297,6 +298,7 @@ namespace PSTFileFormat
                     lastXBlock.rgbid.Add(block.BlockID);
                     lastXBlock.lcbTotal += (uint)blockData.Length;
                     UpdateBlock(lastXBlock);
+                    rootBlock.rgbid[lastXBlockIndex] = lastXBlock.BlockID;
 
                     rootBlock.lcbTotal += (uint)blockData.Length;
                     UpdateBlock(rootBlock);
